@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-02T10:00:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000043","timestamp":"2026-05-02T10:00:00.000Z","cli_version":"0.199.0","cwd":"/home/fake-user","originator":"codex_cli_rs","base_instructions":"FAKE","source":"cli","history_mode":"quantum_scroll"}}
+{"timestamp":"2026-05-02T10:00:05.000Z","type":"event_msg","payload":{"type":"user_message","message":"Unknown history mode, SYNTHETIC, must not be extracted."}}

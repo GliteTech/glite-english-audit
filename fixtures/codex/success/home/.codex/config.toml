@@ -1,0 +1,3 @@
+# FAKE synthetic Codex config. The adapter must never open this file.
+model = "gpt-5.2-codex"
+approval_policy = "on-request"

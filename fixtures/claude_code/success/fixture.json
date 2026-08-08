@@ -1,0 +1,7 @@
+{
+  "adapter_id": "claude_code",
+  "kind": "success",
+  "description": "Two current-generation project instances with typed prompts, wrapper records, tool results, a subagent subtree, and denylisted root files that must never be opened.",
+  "synthetic": true,
+  "storage_variant": "v2-current"
+}

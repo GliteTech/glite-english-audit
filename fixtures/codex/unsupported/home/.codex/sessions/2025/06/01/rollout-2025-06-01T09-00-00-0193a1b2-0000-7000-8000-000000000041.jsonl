@@ -1,0 +1,3 @@
+{"id":"0193a1b2-0000-7000-8000-000000000041","timestamp":"2025-06-01T09:00:00.000Z","instructions":"FAKE old bare-format instructions","cwd":"/home/fake-user"}
+{"record_type":"state","state":{"approved_commands":[]}}
+{"type":"message","role":"user","content":[{"type":"input_text","text":"Bare-item generation text SYNTHETIC, must not be extracted."}],"record_type":"response_item"}

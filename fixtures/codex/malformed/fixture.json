@@ -1,0 +1,7 @@
+{
+  "adapter_id": "codex",
+  "kind": "malformed",
+  "description": "Three broken rollout files: a truncated final line (tail dropped, rest extracted), an invalid JSON middle line (malformed, zero candidates), and non-UTF-8 bytes mid-file (malformed, zero candidates).",
+  "synthetic": true,
+  "storage_variant": "modern-legacy"
+}

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "codex",
+  "kind": "unsupported",
+  "description": "Three unsupported rollout files: a pre-2025-09 bare-item file with record_type keys, a file whose first line is valid JSON but not session_meta, and a file with an unknown history_mode. The whole instance reports unsupported_schema.",
+  "synthetic": true,
+  "storage_variant": "bare-items"
+}

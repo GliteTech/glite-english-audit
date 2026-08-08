@@ -1,0 +1,2 @@
+{"session_id":"0193a1b2-0000-7000-8000-000000000001","ts":1768471205,"text":"FAKE history duplicate line, the adapter must never read history.jsonl"}
+{"session_id":"0193a1b2-0000-7000-8000-000000000002","ts":1770111010,"text":"FAKE second history line, never read"}

@@ -1,0 +1,6 @@
+{"timestamp":"2026-03-01T12:00:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000004","timestamp":"2026-03-01T12:00:00.000Z","cli_version":"0.146.2","cwd":"C:\\Users\\fake-user\\projects\\docs","originator":"codex_cli_rs","base_instructions":"FAKE synthetic base instructions.","source":"cli","history_mode":"legacy"}}
+{"timestamp":"2026-03-01T12:00:10.000Z","type":"event_msg","payload":{"type":"user_message","message":"Can you check my grammar in this readme file, it have many mistakes?"}}
+{"timestamp":"2026-03-01T12:00:10.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Can you check my grammar in this readme file, it have many mistakes?"}]}}
+{"timestamp":"2026-03-01T12:01:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"I didn't understood the difference between this two approaches."}}
+{"timestamp":"2026-03-01T12:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"I didn't understood the difference between this two approaches."}]}}
+{"timestamp":"2026-03-01T12:01:30.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"SYNTHETIC grammar review answer."}]}}

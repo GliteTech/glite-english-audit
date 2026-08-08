@@ -1,0 +1,7 @@
+{
+  "adapter_id": "codex",
+  "kind": "success",
+  "description": "Two synthetic Codex roots (WSL-side ~/.codex plus a Windows-host DrvFS mount) covering legacy-events with kind markers, modern legacy without kind, paginated, archived sessions, a subagent-excluded session, denylisted credential files, and a stray non-rollout file.",
+  "synthetic": true,
+  "storage_variant": "wsl-dual-root"
+}

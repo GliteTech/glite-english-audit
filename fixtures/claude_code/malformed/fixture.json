@@ -1,0 +1,7 @@
+{
+  "adapter_id": "claude_code",
+  "kind": "malformed",
+  "description": "One file under the 10% malformed threshold with a truncated final line, and one file over the threshold that must be excluded whole.",
+  "synthetic": true,
+  "storage_variant": "v2-current"
+}

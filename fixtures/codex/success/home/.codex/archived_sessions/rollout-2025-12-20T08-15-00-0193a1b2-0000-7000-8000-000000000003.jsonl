@@ -1,0 +1,7 @@
+{"timestamp":"2025-12-20T08:15:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000003","timestamp":"2025-12-20T08:15:00.000Z","cli_version":"0.150.0","cwd":"/home/fake-user/projects/site","originator":"codex_vscode","base_instructions":"FAKE synthetic base instructions.","source":"vscode","history_mode":"paginated"}}
+{"timestamp":"2025-12-20T08:16:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"How I can make this function more faster?"}]}}
+{"timestamp":"2025-12-20T08:16:20.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"kind":"assistant_message"}}}
+{"timestamp":"2025-12-20T08:16:30.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"SYNTHETIC assistant answer about performance."}]}}
+{"timestamp":"2025-12-20T08:17:00.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"Developer note FAKE, never user-authored."}]}}
+{"timestamp":"2025-12-20T08:18:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,RkFLRQ=="},{"type":"input_text","text":"Here is the screenshot, the button is not aligning good."}]}}
+{"timestamp":"2025-12-20T08:18:30.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"SYNTHETIC reasoning."}]}}

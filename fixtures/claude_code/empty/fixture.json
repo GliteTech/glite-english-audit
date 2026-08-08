@@ -1,0 +1,7 @@
+{
+  "adapter_id": "claude_code",
+  "kind": "empty",
+  "description": "An installed store with one zero-length session file and one file-less project directory: found-empty, never not-found.",
+  "synthetic": true,
+  "storage_variant": "v2-current"
+}

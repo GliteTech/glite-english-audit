@@ -1,0 +1,7 @@
+{
+  "adapter_id": "claude_code",
+  "kind": "unsupported",
+  "description": "Unknown record types and unrecognized user-message shapes only: detected, unsupported schema, zero extracted text.",
+  "synthetic": true,
+  "storage_variant": "unknown"
+}

@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-01T10:00:00.000Z","type":"turn_context","payload":{"cwd":"/home/fake-user","model":"gpt-5.2-codex"}}
+{"timestamp":"2026-05-01T10:00:05.000Z","type":"event_msg","payload":{"type":"user_message","message":"First line was not session_meta, SYNTHETIC, must not be extracted."}}

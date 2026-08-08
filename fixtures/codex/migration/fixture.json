@@ -1,0 +1,7 @@
+{
+  "adapter_id": "codex",
+  "kind": "migration",
+  "description": "Generational and lineage hazards: an older ~0.39 legacy-events file with kind markers and an instructions key, a parent session with a compacted line embedding replacement_history (never extracted), and a forked session repeating the parent's user turns (flagged forked_from for cross-file dedup).",
+  "synthetic": true,
+  "storage_variant": "fork-and-compacted"
+}

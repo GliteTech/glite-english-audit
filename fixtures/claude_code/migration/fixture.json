@@ -1,0 +1,7 @@
+{
+  "adapter_id": "claude_code",
+  "kind": "migration",
+  "description": "Legacy-generation store: head summary record, inline sidechain, bash passthrough tags, and a forked session copy sharing historical uuids for dedup.",
+  "synthetic": true,
+  "storage_variant": "v1-legacy"
+}

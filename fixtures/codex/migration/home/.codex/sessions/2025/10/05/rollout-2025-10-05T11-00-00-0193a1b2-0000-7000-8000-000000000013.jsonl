@@ -1,0 +1,4 @@
+{"timestamp":"2025-10-05T11:00:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000013","timestamp":"2025-10-05T11:00:00.000Z","cli_version":"0.39.0","cwd":"/home/fake-user/projects/old","originator":"codex_cli_rs","instructions":"FAKE old-generation instructions."}}
+{"timestamp":"2025-10-05T11:00:10.000Z","type":"event_msg","payload":{"type":"user_message","kind":"environment_context","message":"<environment_context>os=linux FAKE</environment_context>"}}
+{"timestamp":"2025-10-05T11:00:15.000Z","type":"event_msg","payload":{"type":"user_message","kind":"plain","message":"Old but supported generation message, I written it myself."}}
+{"timestamp":"2025-10-05T11:00:15.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Old but supported generation message, I written it myself."}]}}

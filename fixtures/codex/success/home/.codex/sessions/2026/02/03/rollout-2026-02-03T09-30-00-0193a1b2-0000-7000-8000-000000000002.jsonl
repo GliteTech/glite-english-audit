@@ -1,0 +1,13 @@
+{"timestamp":"2026-02-03T09:30:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000002","timestamp":"2026-02-03T09:30:00.000Z","cli_version":"0.146.2","cwd":"/home/fake-user/projects/webapp","originator":"codex_cli_rs","base_instructions":"FAKE synthetic base instructions.","source":"cli","history_mode":"legacy"}}
+{"timestamp":"2026-02-03T09:30:10.000Z","type":"event_msg","payload":{"type":"user_message","message":"Please explain me how this authentication module works.","images":[],"text_elements":[]}}
+{"timestamp":"2026-02-03T09:30:10.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Please explain me how this authentication module works."}]}}
+{"timestamp":"2026-02-03T09:30:11.000Z","type":"event_msg","payload":{"type":"user_message","message":"<user_instructions>FAKE wrapper that must be filtered by the tag rule.</user_instructions>"}}
+{"timestamp":"2026-02-03T09:30:11.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>FAKE wrapper that must be filtered by the tag rule.</user_instructions>"}]}}
+{"timestamp":"2026-02-03T09:31:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"I am agree that we should refactor it, but first write the tests."}}
+{"timestamp":"2026-02-03T09:31:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"I am agree that we should refactor it, but first write the tests."}]}}
+{"timestamp":"2026-02-03T09:31:05.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>shell=zsh os=macos FAKE</environment_context>"}]}}
+{"timestamp":"2026-02-03T09:31:06.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md\nFAKE synthetic agents file expansion, never user-authored."}]}}
+{"timestamp":"2026-02-03T09:31:07.000Z","type":"world_state","payload":{"capabilities":{"shell":true},"note":"SYNTHETIC"}}
+{"timestamp":"2026-02-03T09:32:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"Thanks you, now it works much more better."}}
+{"timestamp":"2026-02-03T09:32:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Thanks you, now it works much more better."}]}}
+{"timestamp":"2026-02-03T09:32:05.000Z","type":"brand_new_line_type","payload":{"note":"SYNTHETIC unknown line type, skipped"}}

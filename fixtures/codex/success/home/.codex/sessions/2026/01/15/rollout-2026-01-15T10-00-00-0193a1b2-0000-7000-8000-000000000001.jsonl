@@ -1,0 +1,18 @@
+{"timestamp":"2026-01-15T10:00:00.000Z","type":"session_meta","payload":{"id":"0193a1b2-0000-7000-8000-000000000001","timestamp":"2026-01-15T10:00:00.000Z","cli_version":"0.39.0","cwd":"/home/fake-user/projects/demo","originator":"codex_cli_rs","instructions":"FAKE synthetic base instructions, not user text.","git":{"branch":"main","commit":"0000000000000000000000000000000000000000","repository_url":"https://example.invalid/FAKE/demo.git"}}}
+{"timestamp":"2026-01-15T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","kind":"user_instructions","message":"<user_instructions>FAKE injected instructions block.</user_instructions>"}}
+{"timestamp":"2026-01-15T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>FAKE injected instructions block.</user_instructions>"}]}}
+{"timestamp":"2026-01-15T10:00:02.000Z","type":"event_msg","payload":{"type":"user_message","kind":"environment_context","message":"<environment_context>os=linux shell=bash FAKE</environment_context>"}}
+{"timestamp":"2026-01-15T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>os=linux shell=bash FAKE</environment_context>"}]}}
+{"timestamp":"2026-01-15T10:00:05.000Z","type":"event_msg","payload":{"type":"user_message","kind":"plain","message":"Hello, can you help me to write a small parser for the logs file?"}}
+{"timestamp":"2026-01-15T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello, can you help me to write a small parser for the logs file?"}]}}
+{"timestamp":"2026-01-15T10:00:20.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"SYNTHETIC assistant reply: here is a short plan."}]}}
+{"timestamp":"2026-01-15T10:00:20.000Z","type":"event_msg","payload":{"type":"agent_message","message":"SYNTHETIC assistant reply: here is a short plan."}}
+{"timestamp":"2026-01-15T10:00:21.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"SYNTHETIC reasoning summary."}],"content":[]}}
+{"timestamp":"2026-01-15T10:01:00.000Z","type":"event_msg","payload":{"type":"user_message","kind":"plain","message":"I very like this plan. Please continue with the second step."}}
+{"timestamp":"2026-01-15T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"I very like this plan. Please continue with the second step."}]}}
+{"timestamp":"2026-01-15T10:01:10.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"echo\",\"SYNTHETIC\"]}","call_id":"call-FAKE-1"}}
+{"timestamp":"2026-01-15T10:01:11.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-FAKE-1","output":"SYNTHETIC tool output"}}
+{"timestamp":"2026-01-15T10:01:12.000Z","type":"event_msg","payload":{"type":"token_count","input_tokens":100,"output_tokens":50}}
+{"timestamp":"2026-01-15T10:02:30.000Z","type":"event_msg","payload":{"type":"user_message","kind":"plain","message":"It give me error when I run the tests, what I am doing wrong?"}}
+{"timestamp":"2026-01-15T10:02:30.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"It give me error when I run the tests, what I am doing wrong?"}]}}
+{"timestamp":"2026-01-15T10:02:31.000Z","type":"turn_context","payload":{"cwd":"/home/fake-user/projects/demo","model":"gpt-5.2-codex","approval_policy":"on-request","sandbox_policy":{"mode":"workspace-write"}}}

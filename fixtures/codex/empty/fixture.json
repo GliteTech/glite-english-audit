@@ -1,0 +1,7 @@
+{
+  "adapter_id": "codex",
+  "kind": "empty",
+  "description": "A Codex root with a zero-byte rollout file, a session_meta-only rollout file, a date directory holding only a stray marker file, and an empty archived_sessions directory. Zero candidates, no errors.",
+  "synthetic": true,
+  "storage_variant": "modern-legacy"
+}
