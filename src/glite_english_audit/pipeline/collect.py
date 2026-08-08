@@ -69,6 +69,13 @@ def collect(
         msg = "the run has no confirmed selection; run start_run first"
         raise ValueError(msg)
 
+    # Registering here rather than at import time keeps the registry under a
+    # test's control, but this driver runs in its own process and must populate
+    # it: without this every adapter lookup raises and every source is excluded.
+    from glite_english_audit import adapters
+
+    adapters.register_all()
+
     inventory_dir = stage_dir(run_id, StageId.SOURCE_INVENTORY, root=runs_root)
     inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
     by_key: dict[str, SourceInstanceRecord] = {r.instance_key: r for r in inventory.records}

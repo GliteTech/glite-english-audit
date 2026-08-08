@@ -152,7 +152,7 @@ again; the adapter never reads a live database in place.
 `<repository>/runtime/runs/<run-id>/snapshots/`. If any parent directory is Dropbox, OneDrive,
 Google Drive, iCloud Drive, Box, CloudStorage, or Syncthing, snapshotting stops before a byte of
 source data is read. Clone the repository to a local, non-synced path. Two related refusals:
-`SOURCE_SNAPSHOT_NOT_IGNORED` (Git does not ignore `temp/`) and `SOURCE_SNAPSHOT_UNSAFE_PATH`
+`SOURCE_SNAPSHOT_NOT_IGNORED` (Git does not ignore `runtime/`) and `SOURCE_SNAPSHOT_UNSAFE_PATH`
 (a symlink or a target outside the repository).
 
 **The run cannot resume** (`STATE_EXPIRED_INPUT`). An unfinished run whose last checkpoint is more
