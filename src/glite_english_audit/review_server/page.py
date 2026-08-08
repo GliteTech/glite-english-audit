@@ -10,12 +10,11 @@ and dark themes are both first-class through CSS custom properties and
 import html
 
 from glite_english_audit.artifacts.models import ReviewedRecord
+from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
 
-# Version of the consent copy rendered below. Bump on any change to the
-# confirmation sentences, since stored consent references this exact text.
-CONSENT_POLICY_VERSION = "1"
+__all__ = ["CONSENT_POLICY_VERSION"]
 
 ADULT_CONFIRMATION_TEXT = "I confirm that I am at least 18 years old."
 STORAGE_CONFIRMATION_TEXT = (
