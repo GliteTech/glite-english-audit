@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 7
+**Version**: 8
 
 ## Goal
 
@@ -123,23 +123,26 @@ agent sees only the derived `InstanceInventorySummary`.
    Report an app whose data could not be read separately and plainly: that one
    is actionable, because English exists on this machine the audit cannot see.
 
-7. Hand the summary to the orchestration (`skills/run-english-audit/SKILL.md`) for
-   the selection questions.
+7. Say plainly where the answers went, and never claim more than happened.
+   Discovery writes only the inventory. The user's choice of apps and period is
+   not saved by this skill: it lives in the conversation until
+   `pipeline.start_run` records it in the run manifest, which is the moment a run
+   exists at all.
 
-Presentation rules:
+   So do not say "recorded", "saved", or "stored" about their choice. Say what is
+   true: you have their answer, nothing is on disk yet, and starting the audit is
+   what writes it down. If the conversation ends here, the choice is gone and
+   only the inventory remains.
 
-Do: "Claude Code 1 — stable — Mar 3 to Aug 1 — 61,900 candidate words". The opaque
-label plus aggregates is everything selection needs.
-Don't: "Claude Code (~/projects/acme-billing) — 61,900 words". The path reveals a
-private project name; V1 does not reveal a private label even to make an instance
-easier to recognize.
+   Do: "Got it — Claude Code only, last week. That is not saved yet; starting the
+   audit is what records it. Shall I start now?"
+   Don't: "Recorded: Claude Code only, last week." Nothing was recorded, and a
+   user who comes back tomorrow will find their choice gone.
 
-Do: "Codex — not found on this machine." A missing source is one neutral sentence.
-Don't: guessing why it is missing or listing the directories that were checked;
-checked paths are local detail the conversation does not need.
+   Then hand the summary and the choice to the orchestration
+   (`skills/run-english-audit/SKILL.md`), which asks the remaining questions and
+   starts the run.
 
-If the summary JSON is missing, malformed, or contains an unexpected field, stop and
-report the deterministic verifier's diagnostic instead of showing partial data.
 
 ## Asking a Choice Question in Plain Text
 
