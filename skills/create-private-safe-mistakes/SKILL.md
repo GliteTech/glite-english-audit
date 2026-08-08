@@ -5,7 +5,7 @@ description: "Turn each verified private mistake into a privacy-safe six-field m
 
 # Create Private Safe Mistakes
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -136,6 +136,19 @@ the removed detail protects nothing.
    inventing a synthetic sentence around the generic carrier words. Use a source fragment only
    when you are certain it contains nothing beyond generic language, and mark it `verbatim`
    (exact) or `redacted` (substitutions applied) honestly.
+
+   A `synthetic` example is a sentence you invented outright. It must read as ordinary English
+   and contain no placeholder standing in for removed material: no bracketed slots such as
+   `[application]`, no ellipses, no blanks. If the only way to keep a sentence safe is to hollow
+   out a word, that sentence is not synthetic — invent a different, fully natural sentence about
+   the same language problem instead.
+
+   Do — `{"example": "I really like this plan.", "example_type": "synthetic"}`
+   Why: a complete, natural sentence that shows the pattern and was written from scratch.
+
+   Don't — `{"example": "I have a [application] installed.", "example_type": "synthetic"}`
+   Why: the bracket marks removed source material, so the sentence is a redaction wearing a
+   synthetic label. Write "I have a printer installed." instead.
 6. Set `source_type` to the input's `source_adapter` (a stable public adapter ID such as
    `claude_code`, `codex`, or `wispr_flow` — no path, workspace, or instance detail). Copy
    `modality` from the input: `spoken_asr` only for text from a confirmed raw voice source or

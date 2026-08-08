@@ -5,7 +5,7 @@ description: "Analyze one batch of eligible user-authored English utterances and
 
 # Analyze English Text
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -104,6 +104,35 @@ of scope.
 Omit — "Discussed the requirements with team."
 Why: the dropped article before "team" could be a non-native pattern, but article dropping is
 also common in native note-style writing. The case is ambiguous, so it is omitted.
+
+### Dictated text has a stricter bar
+
+When an utterance came from speech recognition, the text is a machine's transcript of audio, not
+something the speaker typed. Insertion and deletion of short unstressed words is the recognizer's
+most common error class, so a finding built on one of those words cannot be attributed to the
+speaker.
+
+Rule: on a dictated utterance, do not report a finding whose entire evidence is a single
+unstressed function word — an article, a preposition, an auxiliary, or a plural inflection —
+unless the same pattern also appears in the speaker's typed text or in another dictated
+utterance in the batch. Report it only with that corroboration.
+
+Also ignore, on dictated text: mis-transcribed names and technical terms, homophone
+substitutions, one-word fragments produced by silence, fillers, and self-corrections where the
+speaker restarts a phrase.
+
+Do — flag: "I want to pick up few things from the store."
+Why: "a few" is a fixed, high-frequency phrase. A recognizer's own language model would supply
+"a" here rather than drop it, so the omission belongs to the speaker.
+
+Don't — flag: "I have a Whisper Flow installed on this computer."
+Why: the decisive word sits next to a product name the recognizer already mis-rendered, so the
+article is transcription output, not reliable authored text. It is also native-plausible as a
+"a copy of" reading.
+
+Don't — flag: "which other plugins are not cannot be developed right now"
+Why: a spoken self-correction. The speaker restarted the phrase; the transcript preserved both
+attempts.
 
 ## Steps
 
