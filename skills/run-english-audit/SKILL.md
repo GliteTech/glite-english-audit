@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 2
+**Version**: 3
 
 ## Goal
 
@@ -35,7 +35,13 @@ Run one complete English audit from the user's single command to a finished outc
 
 ## Context
 
-Read before starting:
+Do not read anything before greeting the user. This file carries the whole
+workflow; the references below are for the moment you actually need them, not a
+reading list to complete first. A user who types one command and then watches
+several minutes of file reads has already had a bad experience, whatever happens
+afterwards.
+
+Consult when the step at hand needs it:
 
 - `specifications/artifacts.md` — the nine stages, envelope, replacement rules.
 - `specifications/privacy_model.md` — what may leave the machine, retention rules.
@@ -54,14 +60,25 @@ runtime; naming both is confusing and wrong.
 
 ## Steps
 
-1. Resume check. List unfinished runs in the run store. For each compatible one
+1. Greet first, before any tool call. One or two short sentences: that you will run
+   an English audit on the English they wrote or dictated on this computer, and
+   that you are first checking whether an earlier audit was left unfinished. Then
+   do the resume check. Everything this skill does afterwards is announced before
+   it happens, never discovered by the user from a spinner.
+
+   Do: "I'll run an English audit on the writing and dictation on this computer.
+   First, let me check whether you have an unfinished audit to continue."
+   Don't: opening with a directory listing, a git command, or reading
+   specifications, so the user's first sight of the product is machinery.
+
+2. Resume check. List unfinished runs in the run store. For each compatible one
    (matching `CompatibilityFingerprint`), offer to continue it before offering a new
    audit. Report: when it started, what was selected, the last completed stage and
    item, whether inputs changed, and whether skill, schema, or model changes require
    migration or restart. If a required private input expired under the 30-day rule,
    say the run cannot resume and offer a new audit. Resume decisions follow the
    deterministic policy in the resume section below.
-2. First-run explanation. Before the first local scan, explain, in short sentences:
+3. First-run explanation. Before the first local scan, explain, in short sentences:
    what the audit does; which steps are local; that trusted local scripts read source
    data locally to find records and count volume; that discovery returns only
    aggregate inventory to the agent, never message contents; that selected text will
@@ -73,14 +90,14 @@ runtime; naming both is confusing and wrong.
    build an English-learning knowledge graph, train models, and publish aggregated
    datasets and research. Distinguish local deterministic work from model processing.
    Do not claim the audit is 100% local.
-3. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
+4. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
    local scripts may inspect supported source data to calculate an inventory without
    sending text to a model or network. This consent may be remembered until the
    consent version changes (`ConsentState.consent_policy_version`).
-4. Discovery. Run local discovery by following
+5. Discovery. Run local discovery by following
    `skills/discover-english-sources/SKILL.md`. Present only the aggregate inventory
    it returns.
-5. Selection. Ask several small questions, one at a time — sources, then period, then
+6. Selection. Ask several small questions, one at a time — sources, then period, then
    profile, then cost. Skip questions that do not apply.
    1. Sources: show a short table of detected sources with opaque instance labels
       (such as "Claude Code 1"), candidate counts, date ranges, and stability. Stable
@@ -103,10 +120,10 @@ runtime; naming both is confusing and wrong.
    Do: ask "Which period should I audit?" with the estimate table, then ask about the
    profile separately.
    Don't: combine sources, period, profile, budget, and consent into one question.
-6. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
+7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
    Ask this on every audit. A confirmation stored by a previous run does not count.
-7. Preflight. Show: selected sources and period; estimated messages and English
+8. Preflight. Show: selected sources and period; estimated messages and English
    words; processing profile and planned model roles; expected token range with a
    conservative upper bound; expected API cost range when API billing is detected;
    current subscription-limit percentages and reset times when available; estimated
@@ -122,9 +139,9 @@ runtime; naming both is confusing and wrong.
      status. Do not ask a mid-run question.
    If the preflight already predicts the period will not fit, let the user pick a
    smaller period now or accept that the run may checkpoint for later resumption.
-8. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
+9. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
    confirm the preflight. This is the final question before processing.
-9. Autonomous stage execution. Run stages 0-8 in order. Every semantic stage follows:
+10. Autonomous stage execution. Run stages 0-8 in order. Every semantic stage follows:
    producer, then deterministic verifier, then independent verifier in a fresh
    context, then bounded repair, then promotion only after both verifiers pass.
    Stage work and producers:
@@ -161,24 +178,24 @@ runtime; naming both is confusing and wrong.
    contract; verifiers run in fresh contexts without producer reasoning. Item
    failures: retry, then quarantine and continue. Source-wide failures: pause that
    source, continue others when safe, and explain the exclusion at the end.
-10. Progress. During active model or extraction work, post a concise update at least
+11. Progress. During active model or extraction work, post a concise update at least
     once per 60 seconds and at most once per 10 seconds, unless a stage changes or a
     material warning occurs. Render updates with the progress module
     (`glite_english_audit.progress`): percent complete, current step, per-source
     counts, collected totals, and remaining token and time ranges. If a provider call
     delayed an update, say the run was waiting for a provider response. No raw
     message content appears in progress updates.
-11. Checkpoints. The utterance is the smallest checkpoint unit; batches are transport
+12. Checkpoints. The utterance is the smallest checkpoint unit; batches are transport
     only. Write a checkpoint only after artifacts and manifests are durable. Rerun
     any unit interrupted before promotion. Do not reprocess promoted units unless
     their inputs or required versions changed.
-12. Review and outcome. After every local stage has passed, follow
+13. Review and outcome. After every local stage has passed, follow
     `skills/prepare-glite-submission/SKILL.md`: it starts the loopback review page,
     where consent moment 4 lives (the 18+ confirmation and the permanent-storage and
     disclosed-uses confirmation, both unchecked by default). Report the final
     outcome: sent directly, or downloaded for manual upload, with the withheld-count
     explanation; or the no-records outcome.
-13. Retention. When the run completes, immediately delete extracted source text,
+14. Retention. When the run completes, immediately delete extracted source text,
     eligible-utterance corpora, private findings, private structured mistakes,
     sensitive diagnostics, and remaining snapshots. Keep only the privacy-safe final
     package, non-sensitive completion and idempotency metadata, and numerical
@@ -186,7 +203,7 @@ runtime; naming both is confusing and wrong.
     artifacts no longer depend on them, using only the snapshot's cleanup manifest.
     On launch, delete artifacts of unfinished runs inactive for more than 30 days.
 
-Resume policy (deterministic, applied in step 1 and after interruptions):
+Resume policy (deterministic, applied in step 2 and after interruptions):
 
 - Fingerprints match: continue from the next incomplete unit.
 - A compatible change affects only downstream work: invalidate from the earliest
