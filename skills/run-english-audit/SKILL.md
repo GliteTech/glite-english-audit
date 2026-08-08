@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 4
+**Version**: 5
 
 ## Goal
 
@@ -78,18 +78,37 @@ runtime; naming both is confusing and wrong.
    migration or restart. If a required private input expired under the 30-day rule,
    say the run cannot resume and offer a new audit. Resume decisions follow the
    deterministic policy in the resume section below.
-3. First-run explanation. Before the first local scan, explain, in short sentences:
-   what the audit does; which steps are local; that trusted local scripts read source
-   data locally to find records and count volume; that discovery returns only
-   aggregate inventory to the agent, never message contents; that selected text will
-   later be sent through the active runtime (name it) to the user's current AI
-   provider for analysis; that Glite receives no raw text; that the user will see
-   every mistake record before anything is submitted; that submission is anonymous
-   (no name, email, or account); that Glite permanently stores submitted privacy-safe
-   records and aggregate counts; and that Glite may use them to improve the product,
-   build an English-learning knowledge graph, train models, and publish aggregated
-   datasets and research. Distinguish local deterministic work from model processing.
-   Do not claim the audit is 100% local.
+3. First-run explanation. Before the first local scan, tell the user how this
+   works. This is the message their consent rests on, so it has to be readable,
+   not merely complete: a lead line, then short bullets in three groups. Eleven
+   facts in one paragraph is a wall nobody reads, and consent to a wall is not
+   consent.
+
+   Cover every point below. Name the active runtime where marked; never name
+   both. Keep each bullet to one line. Distinguish local deterministic work from
+   model processing, and never claim the audit is entirely local.
+
+   On this machine:
+   - trusted local scripts read your app data to find records and count volume
+   - they send nothing to a model or over the network
+   - what comes back is counts and dates, never your messages
+
+   Sent for analysis, only after you agree:
+   - the text you select goes through <active runtime> to your current AI
+     provider — this is the step that is not local
+   - Glite never receives your raw text
+
+   If you choose to submit at the end:
+   - you see every record first, and nothing is sent until you say so
+   - submission is anonymous: no name, no email, no account
+   - Glite stores the submitted records and counts permanently
+   - Glite may use them to improve the product, build an English-learning
+     knowledge graph, train models, and publish aggregated research
+
+   Do: the grouped bullets above, in your own words.
+   Don't: one paragraph listing all eleven facts in sequence, which reads as
+   something to get past rather than something to agree to.
+
 4. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
    local scripts may inspect supported source data to calculate an inventory without
    sending text to a model or network. This consent may be remembered until the
@@ -117,12 +136,23 @@ runtime; naming both is confusing and wrong.
       (highest measured eligible models regardless of cost). Both may resolve to the
       same models. Record the resolved models in the manifest.
    4. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
-   Use the runtime's structured choice interface for every one of these
-   questions when it has one, so the user clicks rather than types. In Claude
-   Code that is `AskUserQuestion`: multi-select for which apps to include,
-   pre-selected to the default rule; single-select for the period, with each
-   preset's words and estimated time in its description; single-select for the
-   profile. Where no such interface exists, ask the same questions in text.
+   In Claude Code, ask through `AskUserQuestion`: multi-select for which apps to
+   include, pre-selected to the default rule; single-select for the period, with
+   each preset's words and estimated time in its description; single-select for
+   the profile.
+
+   In Codex, ask in plain text, following
+   `skills/discover-english-sources/SKILL.md` under "Asking a Choice Question in
+   Plain Text": numbered options, recommended first, numbers on the option line,
+   an explicit reply line, and a one-line read-back of the answer before acting.
+   Codex's own picker is single-select and available only in Plan mode, which
+   forbids writing files, so it cannot serve a run that writes artifacts at every
+   stage. Do not call it and do not ask the user to change modes.
+
+   The same questions are asked in the same order in both runtimes, with the same
+   options, defaults, and numbers, and nothing proceeds without an explicit
+   answer. Only the input surface differs. Typing a number is worse than clicking
+   an option, and that difference belongs to Codex rather than to this project.
 
    Write for someone who has never read this repository. "Adapter", "instance",
    "stability", "beta", "candidate count", and diagnostic codes are internal

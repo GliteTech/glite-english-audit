@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 6
+**Version**: 7
 
 ## Goal
 
@@ -44,18 +44,26 @@ agent sees only the derived `InstanceInventorySummary`.
 ## Steps
 
 1. Speak first, before any tool call. The user has just asked for a scan of their
-   own computer and deserves to know what is about to happen. Say, in your own
-   words and in three or four short sentences: that you will look for applications
-   on this computer that store English they wrote or dictated; that the scan is
-   local, makes no network request and no model call, and returns only counts and
-   dates, never their messages; and that it takes a few minutes on a large history.
-   Name the active runtime if you name one at all — "Claude Code" in Claude Code,
-   "Codex" in Codex, never both.
+   own computer and deserves to know what is about to happen before it does.
 
-   Do: "I'll scan this computer for apps that hold English you wrote — Claude
-   Code, Codex, Cursor and others. This runs locally: nothing is sent to a model
-   or over the network, and I only get counts and dates back, never your messages.
-   On a large history this takes a few minutes."
+   Write one line saying what you are about to look for, then the commitments as
+   short bullets. A promise the reader can check is easier to trust as its own
+   line than buried in a sentence with three others, and each bullet is something
+   they can hold you to. Name the active runtime if you name one at all — "Claude
+   Code" in Claude Code, "Codex" in Codex, never both.
+
+   Do:
+   ```text
+   I'll look for apps on this computer that hold English you wrote or dictated —
+   Claude Code, Codex, Cursor and others.
+
+   - Runs entirely on your machine
+   - Nothing goes to a model or over the network
+   - I get back counts and dates only, never your messages
+   - Takes a few minutes on a large history
+   ```
+   Don't: the same four promises run together in one paragraph, where the reader
+   has to take them on trust because none is separable enough to check.
    Don't: starting with a tool call, so the first thing the user sees is file
    reads and a spinner.
 
@@ -98,15 +106,18 @@ agent sees only the derived `InstanceInventorySummary`.
    Don't: the same facts run together in a paragraph, or the words "adapter",
    "beta", and "candidate" left undefined for the reader to decode.
 
-5. Ask with the runtime's structured choice interface when it has one, so the
-   user clicks instead of typing. In Claude Code use `AskUserQuestion`: one
-   multi-select question for which apps to include, pre-selected as the default
-   rule dictates, and one single-select for the period. Keep each option label
-   under about a dozen characters and put the numbers in its description. Where
-   the runtime offers no such interface, ask the same questions in text.
+5. Ask so the user can answer in one gesture. Ask about apps and period as
+   separate questions; never bundle sources, period, profile, and cost into one.
 
-   Ask about apps and period as separate questions. Never bundle sources,
-   period, profile, and cost into one.
+   In Claude Code, use `AskUserQuestion`: one multi-select question for which
+   apps to include, pre-selected to the default rule, and one single-select for
+   the period. Keep option labels under about a dozen characters and put the
+   numbers in each option's description.
+
+   In Codex, ask in plain text, using the pattern in the section below. Codex
+   does have a picker (`request_user_input`), but it is single-select and works
+   only in Plan mode, which forbids writing files — and this run writes files
+   continuously. Do not call it, and do not ask the user to switch modes.
 
 6. Say what was not found in one line naming the apps, with no diagnostic codes.
    Report an app whose data could not be read separately and plainly: that one
@@ -129,6 +140,36 @@ checked paths are local detail the conversation does not need.
 
 If the summary JSON is missing, malformed, or contains an unexpected field, stop and
 report the deterministic verifier's diagnostic instead of showing partial data.
+
+## Asking a Choice Question in Plain Text
+
+Used where the runtime has no usable picker. The aim is a question answerable
+with one short reply, and an answer you cannot misread.
+
+- Number the options from 1. Put the recommended one first and mark it
+  `(recommended)`.
+- Put the deciding numbers on the option line itself, not in a preamble.
+- End with an explicit reply line, so the user knows the expected shape.
+- For a multiple-choice set, show each item with `ON` or `off` and let the user
+  send only what changes.
+- Read the answer back in one line before acting on it. An ambiguous, empty, or
+  off-list reply means asking the same question again unchanged, never guessing.
+
+Do:
+```text
+Which period should I analyze?
+
+1. Last 30 days (recommended) — 121,000 words, about 25 minutes
+2. Last 3 months — 480,000 words, about 1.7 hours
+3. Everything — 2.8M words, about 9 hours
+
+Reply with a number.
+```
+
+Never write Markdown checkboxes such as `- [ ]` or `- [x]`. Codex does not
+render task lists, so they appear as literal text that looks clickable and is
+not — worse than plain numbering, because it invites a click that does nothing.
+Tables and headings do render if a grid genuinely reads better.
 
 ## Output Format
 
