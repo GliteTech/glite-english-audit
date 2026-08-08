@@ -100,7 +100,7 @@ def _repo_with_ignored_temp(tmp_path: Path) -> Path:
 
     repo = tmp_path / "checkout"
     repo.mkdir()
-    (repo / ".gitignore").write_text("temp/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text("runtime/\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
     subprocess.run(
@@ -164,7 +164,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     collected = collect.collect(run_id, runs_root=runs_root, repo=repo)
     assert collected["candidate_utterances"], "extraction produced no candidates"
     assert collected["excluded_instances"] == []
-    snapshots = repo / "temp" / "runtime" / run_id / "snapshots"
+    snapshots = repo / "runtime" / run_id / "snapshots"
     leftover = [p for p in snapshots.rglob("*") if p.is_file()] if snapshots.exists() else []
     assert leftover == [], "snapshots must be removed once extraction is durable"
 

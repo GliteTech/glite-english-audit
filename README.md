@@ -85,7 +85,7 @@ eligible provenance are selected by default; beta, inaccessible, and unsupported
 not. You then pick a period and see an estimate before anything is sent to a provider.
 
 **Resuming.** Everything a run writes stays inside the checkout, under the Git-ignored
-`temp/runtime/` directory: one place to inspect and one place to delete, identical on every
+`runtime/` directory: one place to inspect and one place to delete, identical on every
 platform. Deleting the checkout removes every trace of your audits with it. Say
 "Run an English audit" again and the agent offers any unfinished run. The resume decision is
 deterministic: matching versions continue from the next utterance; changed skills, prompts, or
@@ -149,7 +149,7 @@ again; the adapter never reads a live database in place.
 
 **Snapshot refused because the repository sits in a cloud-synced folder**
 (`SOURCE_SNAPSHOT_SYNCED_ROOT`). Snapshots are written under
-`<repository>/temp/runtime/<run-id>/snapshots/`. If any parent directory is Dropbox, OneDrive,
+`<repository>/runtime/runs/<run-id>/snapshots/`. If any parent directory is Dropbox, OneDrive,
 Google Drive, iCloud Drive, Box, CloudStorage, or Syncthing, snapshotting stops before a byte of
 source data is read. Clone the repository to a local, non-synced path. Two related refusals:
 `SOURCE_SNAPSHOT_NOT_IGNORED` (Git does not ignore `temp/`) and `SOURCE_SNAPSHOT_UNSAFE_PATH`

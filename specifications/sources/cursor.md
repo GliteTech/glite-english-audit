@@ -461,7 +461,7 @@ handled downstream by the privacy pipeline.
 
 - The global store is a live WAL-mode SQLite database that Cursor holds open. Snapshot uses
   the SQLite backup API (or, when Cursor is not running, a byte copy of `state.vscdb` plus its
-  `-wal` and `-shm` sidecars) into `<repository>/temp/runtime/<run-id>/snapshots/cursor/`,
+  `-wal` and `-shm` sidecars) into `<repository>/runtime/runs/<run-id>/snapshots/cursor/`,
   after the spec 3.6 path-safety preflight. Never treat the live file as an immutable flat
   file (spec 4.6).
 - Free-space preflight: the global database can exceed several GB. If free space is below the

@@ -19,7 +19,7 @@ from glite_english_audit.discovery.snapshot_safety import (
 _RUN_ID = "run-" + "0" * 32
 
 
-def _git_repo(path: Path, *, gitignore: str = "temp/\n") -> Path:
+def _git_repo(path: Path, *, gitignore: str = "runtime/\n") -> Path:
     path.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "--quiet", str(path)], check=True)
     (path / ".gitignore").write_text(gitignore, encoding="utf-8")
@@ -57,7 +57,7 @@ def _manifest(entries: list[SnapshotFileEntry]) -> SnapshotManifest:
         ),
         adapter_id="claude_code",
         instance_key="instance-1",
-        snapshot_relative_dir=f"temp/runtime/{_RUN_ID}/snapshots",
+        snapshot_relative_dir=f"runtime/{_RUN_ID}/snapshots",
         files=entries,
     )
 
@@ -74,7 +74,7 @@ def test_ensure_safe_snapshot_dir_succeeds(tmp_path: Path) -> None:
     repo = _git_repo(tmp_path / "checkout")
     target = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     assert target.is_dir()
-    assert target == repo.resolve() / "temp" / "runtime" / "runs" / _RUN_ID / "snapshots"
+    assert target == repo.resolve() / "runtime" / "runs" / _RUN_ID / "snapshots"
 
 
 def test_ensure_safe_snapshot_dir_fails_when_not_ignored(tmp_path: Path) -> None:
@@ -82,7 +82,7 @@ def test_ensure_safe_snapshot_dir_fails_when_not_ignored(tmp_path: Path) -> None
     with pytest.raises(SnapshotSafetyError) as excinfo:
         ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_NOT_IGNORED"
-    assert not (repo / "temp" / "runtime" / "runs" / _RUN_ID / "snapshots").exists()
+    assert not (repo / "runtime" / "runs" / _RUN_ID / "snapshots").exists()
 
 
 def test_ensure_safe_snapshot_dir_fails_under_synced_root(tmp_path: Path) -> None:
@@ -91,7 +91,7 @@ def test_ensure_safe_snapshot_dir_fails_under_synced_root(tmp_path: Path) -> Non
     with pytest.raises(SnapshotSafetyError) as excinfo:
         ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_SYNCED_ROOT"
-    assert not (repo / "temp" / "runtime").exists()
+    assert not (repo / "runtime").exists()
 
 
 def test_cleanup_deletes_exactly_manifest_files(tmp_path: Path) -> None:
@@ -220,7 +220,7 @@ def test_cleanup_refuses_symlinked_run_directory(tmp_path: Path) -> None:
     repo = _git_repo(tmp_path / "checkout")
     ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     victim = _victim_history(tmp_path / "real-history" / "snapshots")
-    run_directory = repo.resolve() / "temp" / "runtime" / "runs" / _RUN_ID
+    run_directory = repo.resolve() / "runtime" / "runs" / _RUN_ID
     shutil.rmtree(run_directory)
     run_directory.symlink_to(victim.parent.parent, target_is_directory=True)
 

@@ -1,7 +1,7 @@
 """Safety gates around the repository-owned snapshot directory.
 
 Source snapshots are the one kind of private data allowed inside the checkout,
-under ``temp/runtime/<run-id>/snapshots/`` (specification, 3.6). Before any
+under ``runtime/runs/<run-id>/snapshots/`` (specification, 3.6). Before any
 snapshot is created, every gate here must pass; on any failure snapshotting
 stops before a byte of source content is read. Cleanup is manifest-bounded: it
 deletes only files listed in the snapshot manifest, resolved under the run's
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from glite_english_audit.artifacts.models import SnapshotManifest
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.paths import repo_root, snapshot_dir
+from glite_english_audit.paths import RUNTIME_DIR_NAME, repo_root, snapshot_dir
 
 # Directory names that indicate a cloud-synced or roaming location. Git ignore
 # rules do not protect against sync clients, so snapshots are refused outright
@@ -84,7 +84,7 @@ def _gated_snapshot_dir(run_id: str, repo: Path | None) -> tuple[Path, Path]:
 
     Gates: the run ID must be well formed, because pathlib joins an absolute or
     ``..``-traversing ID away from the repository; the resolved target must sit
-    inside this repository's ``temp/runtime`` tree; and no component between
+    inside this repository's ``runtime`` tree; and no component between
     the repository root and the target may be a symlink, so a planted link
     cannot make foreign files look contained.
     """
@@ -96,11 +96,11 @@ def _gated_snapshot_dir(run_id: str, repo: Path | None) -> tuple[Path, Path]:
             "SOURCE_SNAPSHOT_UNSAFE_PATH",
             f"snapshot run identifier is not well formed: {run_id!r}",
         ) from error
-    expected_tree = (root / "temp" / "runtime").resolve()
+    expected_tree = (root / RUNTIME_DIR_NAME).resolve()
     if not target.resolve().is_relative_to(expected_tree):
         raise _fail(
             "SOURCE_SNAPSHOT_UNSAFE_PATH",
-            "snapshot target resolved outside the repository-owned temp/runtime tree",
+            "snapshot target resolved outside the repository-owned runtime tree",
         )
     _check_no_symlink_components(root, target)
     return root, target
@@ -133,7 +133,7 @@ def cleanup_snapshot(
     again, so the run ID, containment, and symlink checks must hold here too.
     Refuses unbounded paths, symlinks, and anything that resolves outside the
     run's snapshot directory. Never touches source application data: it only
-    ever operates under ``temp/runtime``.
+    ever operates under ``runtime``.
     """
     _, gated = _gated_snapshot_dir(run_id, repo)
     if gated.exists() and not gated.is_dir():

@@ -319,7 +319,7 @@ an error or as "no long-term usage".
 ## 8. Snapshot, extraction, verification
 
 - `snapshot()`: byte copy of selected chat files into
-  `<repository>/temp/runtime/<run-id>/snapshots/gemini_cli/<instance-hash>/`, preserving
+  `<repository>/runtime/runs/<run-id>/snapshots/gemini_cli/<instance-hash>/`, preserving
   relative filenames, after the spec 3.6 preflight (containment, symlink, git-ignore,
   cloud-sync checks). Plain append-only/rewrite files need no locking; a J1 file caught
   mid-rewrite that fails to parse in the snapshot is reported `malformed_file` for that

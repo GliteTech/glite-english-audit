@@ -326,7 +326,7 @@ Discovery (read-only, local, no network, no model):
 Snapshot:
 
 - Plain file copy of the selected rollout files into
-  `<repository>/temp/runtime/<run-id>/snapshots/codex/<instance-hash>/`, preserving the
+  `<repository>/runtime/runs/<run-id>/snapshots/codex/<instance-hash>/`, preserving the
   `sessions/YYYY/MM/DD` and `archived_sessions` relative layout, after the snapshot-path safety
   checks in the project specification (3.6).
 - Copy is byte-for-byte; no locking is required for append-only JSONL. The file currently being

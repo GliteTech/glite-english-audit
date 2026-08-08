@@ -25,14 +25,14 @@ _RUN_ID = "run-" + "0" * 32
 
 
 def test_runtime_root_is_inside_the_checkout(tmp_path: Path) -> None:
-    assert runtime_root(repo=tmp_path) == tmp_path / "temp" / "runtime"
+    assert runtime_root(repo=tmp_path) == tmp_path / "runtime"
     assert runtime_root().is_relative_to(repo_root())
 
 
 def test_runtime_root_is_identical_on_every_platform(tmp_path: Path) -> None:
     # The layout no longer branches per operating system, so a run made on one
     # platform is readable on any other and there is one path to audit.
-    assert runtime_root(repo=tmp_path) == tmp_path / "temp" / "runtime"
+    assert runtime_root(repo=tmp_path) == tmp_path / "runtime"
 
 
 def test_every_private_location_nests_under_the_runtime_root(tmp_path: Path) -> None:
@@ -69,10 +69,10 @@ def test_git_ignores_the_whole_runtime_tree() -> None:
     # at least hold: ask Git itself rather than trusting the .gitignore text.
     root = repo_root()
     for relative in (
-        f"temp/runtime/runs/{_RUN_ID}/run-manifest.json",
-        f"temp/runtime/runs/{_RUN_ID}/snapshots/session.jsonl",
-        "temp/runtime/calibration/local-history.jsonl",
-        "temp/runtime/config/submission-endpoint.json",
+        f"runtime/runs/{_RUN_ID}/run-manifest.json",
+        f"runtime/runs/{_RUN_ID}/snapshots/session.jsonl",
+        "runtime/calibration/local-history.jsonl",
+        "runtime/config/submission-endpoint.json",
     ):
         result = subprocess.run(
             ["git", "-C", str(root), "check-ignore", "--quiet", "--", relative],

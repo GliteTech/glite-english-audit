@@ -292,7 +292,7 @@ name allowlisted columns explicitly and must never use `SELECT *`.
 `flow.sqlite` is a live database owned by a long-running app (menu-bar/tray resident). Per
 spec 4.6 it is never treated as a flat file:
 
-1. Preflight the snapshot directory (`<repository>/temp/runtime/<run-id>/snapshots/wispr_flow/`)
+1. Preflight the snapshot directory (`<repository>/runtime/runs/<run-id>/snapshots/wispr_flow/`)
    per spec 3.6 (containment, symlink, git-ignore, cloud-sync checks).
 2. Preferred: Python `sqlite3` backup API from a read-only (`mode=ro`) source connection to a
    fresh snapshot file. This yields a consistent copy regardless of journal mode and never

@@ -1,15 +1,21 @@
 """Centralized filesystem locations for private runtime state.
 
 Everything the audit writes lives inside the checkout, under the Git-ignored
-``temp/runtime/`` tree. One location rather than two means one thing to
-inspect, one thing to delete, and one cleanup path to verify. It also removes
-the failure the split design allowed: deleting the checkout used to orphan
-private run data in a per-user application directory, where it stayed
-indefinitely with nothing left pointing at it.
+``runtime/`` tree. One location rather than two means one thing to inspect, one
+thing to delete, and one cleanup path to verify. It also removes the failure
+the split design allowed: deleting the checkout used to orphan private run data
+in a per-user application directory, where it stayed indefinitely with nothing
+left pointing at it.
+
+``runtime/`` is deliberately not under ``temp/``. That tree holds development
+material — research notes, calibration corpora, design references — and is
+deleted before the public release as though it never existed. This one is the
+opposite: it is what the released product creates on a user's machine the first
+time they run an audit.
 
 Layout::
 
-    <repository>/temp/runtime/
+    <repository>/runtime/
     ├── runs/<run-id>/
     │   ├── run-manifest.json
     │   ├── stages/<n>/
@@ -33,7 +39,7 @@ from pathlib import Path
 from glite_english_audit.artifacts.enums import OsEnvironment, StageId
 
 RUNTIME_DIR_NAME = "runtime"
-"""Subdirectory of ``temp/`` holding every private runtime artifact."""
+"""Top-level directory holding every private runtime artifact."""
 
 RUN_ID_PATTERN = re.compile(r"^run-[0-9a-f]{32}$")
 """The only accepted run-identifier shape, produced by ``new_run_id``."""
@@ -86,7 +92,7 @@ def runtime_root(*, repo: Path | None = None) -> Path:
     ``repo`` is injectable for tests; real runs use this repository.
     """
     base = repo if repo is not None else repo_root()
-    return base / "temp" / RUNTIME_DIR_NAME
+    return base / RUNTIME_DIR_NAME
 
 
 def runs_root(*, repo: Path | None = None) -> Path:

@@ -238,7 +238,7 @@ credential parsing of its own.
 ### 6.2 snapshot()
 
 Transcripts are plain append-only files; no SQLite, no WAL (E1, E6). Snapshot = byte copy of
-each selected `*.jsonl` into `<repository>/temp/runtime/<run-id>/snapshots/claude_code/`
+each selected `*.jsonl` into `<repository>/runtime/runs/<run-id>/snapshots/claude_code/`
 following the spec 3.6 preflight (path resolution, symlink refusal, git-ignore check,
 cloud-sync refusal). Because Claude Code may append during the copy, the snapshot reader must
 drop a truncated final line silently. Snapshot manifest records source file size, mtime, and

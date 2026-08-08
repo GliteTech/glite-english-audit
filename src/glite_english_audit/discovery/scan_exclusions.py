@@ -45,7 +45,7 @@ def audit_owned_roots(repo: Path | None = None) -> frozenset[Path]:
     fixture home while a scan of a real home stops at the fixture boundary.
     """
     root = repo if repo is not None else repo_root()
-    return frozenset({root / "temp"})
+    return frozenset({root / "temp", root / "runtime"})
 
 
 def should_prune_scan_dir(directory: Path, *, audit_roots: frozenset[Path]) -> bool:

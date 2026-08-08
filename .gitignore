@@ -9,10 +9,16 @@ dist/
 build/
 *.egg-info/
 
-# Private development material. The entire temp/ tree holds research notes,
-# runtime snapshots, calibration corpora, model evaluations, and design
-# references. None of it may ever be committed (spec sections 3.6, 3.7, 14.2).
+# Private development material: research notes, calibration corpora, model
+# evaluations, and design references. Deleted before the public release; none of
+# it may ever be committed (spec sections 3.7, 14.2).
 temp/
+
+# Everything the released product writes on a user's machine: runs, their
+# snapshots and artifacts, calibration history, and operator configuration.
+# Unlike temp/, this exists in a published checkout — it is created the first
+# time someone runs an audit, and deleting it removes every trace of their runs.
+runtime/
 
 # Operating system noise
 .DS_Store

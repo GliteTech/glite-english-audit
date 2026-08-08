@@ -306,7 +306,7 @@ line-ending style and whether any timestamp line failed to parse.
 ### 8.2 snapshot()
 
 Both files are plain append-only text; no locking exists. Snapshot = byte copy of the selected
-channel file into `<repository>/temp/runtime/<run-id>/snapshots/aider/<instance-hash>/` after
+channel file into `<repository>/runtime/runs/<run-id>/snapshots/aider/<instance-hash>/` after
 the spec 3.6 preflight (containment, symlink refusal, git-ignore check, cloud-sync refusal).
 A live Aider session may append mid-copy: the snapshot reader drops an incomplete final entry
 (input history: trailing `+` block not terminated by a newline; chat markdown: unterminated

@@ -33,8 +33,8 @@ def test_undeclared_and_malformed_markers_are_not_fixtures(tmp_path: Path) -> No
 
 def test_audit_owned_roots_cover_the_private_runtime_tree(tmp_path: Path) -> None:
     roots = audit_owned_roots(tmp_path)
-    assert roots == {tmp_path / "temp"}
-    assert should_prune_scan_dir(tmp_path / "temp" / "runtime" / "run-1", audit_roots=roots)
+    assert roots == {tmp_path / "temp", tmp_path / "runtime"}
+    assert should_prune_scan_dir(tmp_path / "runtime" / "run-1", audit_roots=roots)
     assert not should_prune_scan_dir(tmp_path / "projects" / "work", audit_roots=roots)
 
 
@@ -90,7 +90,7 @@ def test_scan_of_a_home_containing_a_checkout_skips_its_fixtures(tmp_path: Path)
 
 def test_scan_skips_the_private_runtime_tree(tmp_path: Path) -> None:
     checkout = tmp_path / "glite-english-audit"
-    snapshot = checkout / "temp" / "runtime" / "run-1" / "snapshots" / "proj"
+    snapshot = checkout / "runtime" / "run-1" / "snapshots" / "proj"
     snapshot.mkdir(parents=True)
     (snapshot / ".aider.input.history").write_text(
         "# 2026-08-01 10:00:00.000000\n+snapshot copies must never be re-ingested\n",

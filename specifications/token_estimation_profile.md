@@ -95,7 +95,7 @@ subscription percentage guarantees completion.
 Measurements persist across audits on the same machine, in the private runtime root
 (`paths.calibration_history_path()`):
 
-- Every platform: `<repository>/temp/runtime/calibration/local-history.jsonl`
+- Every platform: `<repository>/runtime/calibration/local-history.jsonl`
 
 The path is identical everywhere and sits inside the Git-ignored runtime tree. History therefore
 belongs to a checkout rather than to the machine: a fresh clone starts with no calibration history

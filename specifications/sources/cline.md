@@ -413,7 +413,7 @@ A message contributes candidate text only if all hold:
 
 Plain JSON files only; no database is ever opened, so no WAL handling applies. Snapshot = byte
 copy of each selected unit's allowlisted files into
-`<repository>/temp/runtime/<run-id>/snapshots/cline/<instance-hash>/<unit-hash>/`, after the
+`<repository>/runtime/runs/<run-id>/snapshots/cline/<instance-hash>/<unit-hash>/`, after the
 project snapshot-path preflight (containment, symlink, git-ignore, synced-root checks; spec
 3.6). Producers rewrite these files whole (G3 via temp-file-plus-rename, G1/G2 via plain
 rewrite, E3, E8); a copy taken mid-rewrite can be truncated or invalid JSON — the snapshot

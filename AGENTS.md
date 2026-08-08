@@ -80,7 +80,8 @@ styleguide/                   # python, agent-instruction, and prompting style g
 calibration/                  # committed default token-usage profile (numbers only)
 fixtures/                     # synthetic fixtures: fixtures/<adapter_id>/<variant>/
 tests/                        # pytest; files test_<area>_<topic>.py; use tmp_path
-temp/                         # private, ignored working area (research findings, drafts)
+temp/                         # private, ignored development area (research findings, drafts)
+runtime/                      # private, ignored runtime data the product writes
 ```
 
 ## Code conventions

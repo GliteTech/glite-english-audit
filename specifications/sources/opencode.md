@@ -328,7 +328,7 @@ Discovery (read-only, local, no network, no model):
 Snapshot (spec 3.6 preflight applies: containment, symlink, git-ignore, synced-root checks):
 
 - SQLite: copy via the SQLite backup API (Python `sqlite3.Connection.backup`) into
-  `<repository>/temp/runtime/<run-id>/snapshots/opencode/<instance-hash>/`, which yields a
+  `<repository>/runtime/runs/<run-id>/snapshots/opencode/<instance-hash>/`, which yields a
   consistent snapshot of a live WAL database without touching the source. Immediately after the
   backup completes and before any extraction, sanitize the snapshot: `DROP TABLE IF EXISTS` for
   every never-read table in 2.3 (including `account`, `credential`, `session_share`, `event`,

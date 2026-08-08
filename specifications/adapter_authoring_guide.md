@@ -117,7 +117,7 @@ SQLite and SwiftData-backed sources are read only from consistent snapshots:
 - Return "detected, unsupported schema" (`SOURCE_UNSUPPORTED_SCHEMA`) instead of guessing.
 - Never bypass encryption.
 
-Snapshots are created only under `<repository>/temp/runtime/<run-id>/snapshots/` after the
+Snapshots are created only under `<repository>/runtime/runs/<run-id>/snapshots/` after the
 path-safety preflight (containment, symlink, Git-ignore, and synced-root checks). Every snapshot
 directory carries a cleanup manifest; cleanup deletes only files listed there.
 

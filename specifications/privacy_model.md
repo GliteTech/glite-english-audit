@@ -147,7 +147,7 @@ the user reviews every record on the local review page before anything is sent.
 Private run state lives outside the Git checkout, with owner-only permissions (`0700`
 directories, `0600` files on POSIX; a user-limited ACL on Windows):
 
-- Every platform: `<repository>/temp/runtime/`
+- Every platform: `<repository>/runtime/`
 
 Private state lives inside the checkout, in a tree the committed `.gitignore` excludes. One
 location means one thing to inspect and one thing to delete: removing the checkout removes every
@@ -157,7 +157,7 @@ snapshot creation still asks Git whether the path is genuinely ignored before wr
 copies into it.
 
 Source snapshots are the one deliberate exception: they live only under
-`<repository>/temp/runtime/<run-id>/snapshots/`, which is Git-ignored. Snapshot preflight
+`<repository>/runtime/runs/<run-id>/snapshots/`, which is Git-ignored. Snapshot preflight
 verifies path containment, symlink safety, Git-ignore status, and refuses cloud-synced or network
 roots.
 

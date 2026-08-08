@@ -306,7 +306,7 @@ flagged `content_flags: ["unknown_wrapper"]` for normalization quarantine.
 Plain files; no SQLite, no WAL — the section 4.6 database rules do not apply (E1). Snapshot =
 byte copy of each selected task's `api_conversation_history.json`, `history_item.json`, and
 `ui_messages.json` (timestamp/cross-check use only) into
-`<repository>/temp/runtime/<run-id>/snapshots/roo_code/<instance-hash>/<task-hash>/`, after the
+`<repository>/runtime/runs/<run-id>/snapshots/roo_code/<instance-hash>/<task-hash>/`, after the
 project-spec 3.6 path preflight. Because upstream rewrites whole files atomically via temp-file
 rename, a copied file is either the old or the new complete version; after copying, the snapshot
 validator re-parses each JSON file and retries the copy once on parse failure before marking it
