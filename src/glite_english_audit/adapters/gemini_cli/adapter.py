@@ -255,7 +255,7 @@ class GeminiCliAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.STABLE
+        return Stability.BETA
 
     # -- discovery ---------------------------------------------------------
 
@@ -396,7 +396,7 @@ class GeminiCliAdapter:
             schema_fingerprint=_fingerprint(
                 scans, subagent_dirs=subagent_dirs, checkpoints=checkpoints
             ),
-            stability=Stability.STABLE,
+            stability=self.stability,
             estimated_records=sum(scan.message_records for scan in candidates.canonical),
             earliest=min(stamps) if stamps else None,
             latest=max(stamps) if stamps else None,

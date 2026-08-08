@@ -138,7 +138,7 @@ def test_factory_exposes_protocol_surface() -> None:
     adapter = create_adapter()
     assert adapter.adapter_id == ADAPTER_ID
     assert adapter.adapter_version == ADAPTER_VERSION
-    assert adapter.stability is Stability.STABLE
+    assert adapter.stability is Stability.BETA
 
 
 def test_discover_success_three_instances() -> None:
@@ -160,8 +160,8 @@ def test_discover_success_three_instances() -> None:
         assert outcome.instance_paths[record.instance_key].is_dir()
 
     # Labels follow earliest activity: stable March, nightly April, VSCodium May.
-    assert first.stability is Stability.STABLE
-    assert second.stability is Stability.STABLE
+    assert first.stability is Stability.BETA
+    assert second.stability is Stability.BETA
     assert third.stability is Stability.BETA
     assert ROO_EXT in outcome.instance_paths[first.instance_key].parts
     assert "rooveterinaryinc.roo-code-nightly" in outcome.instance_paths[second.instance_key].parts
@@ -567,10 +567,11 @@ def test_variant_editor_roots_and_stability(tmp_path: Path) -> None:
     assert len(outcome.records) == 4
     discovered = set(outcome.instance_paths.values())
     assert unknown_root not in discovered
+    # While the adapter is beta, every instance is beta at best: a variant
+    # editor can lower an instance's stability but never raise it above the
+    # adapter's own.
     for record in outcome.records:
-        root = outcome.instance_paths[record.instance_key]
-        expected = Stability.BETA if "VSCodium" in root.parts else Stability.STABLE
-        assert record.stability is expected
+        assert record.stability is Stability.BETA
 
 
 def test_ui_cross_check_reports_missing_match(tmp_path: Path) -> None:

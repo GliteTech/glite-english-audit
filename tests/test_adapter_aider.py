@@ -96,7 +96,7 @@ def test_factory_exposes_protocol_surface() -> None:
     adapter = create_adapter()
     assert adapter.adapter_id == ADAPTER_ID
     assert adapter.adapter_version == ADAPTER_VERSION
-    assert adapter.stability is Stability.STABLE
+    assert adapter.stability is Stability.BETA
 
 
 def test_discover_success_two_instances() -> None:

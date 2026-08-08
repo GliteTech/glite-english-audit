@@ -311,7 +311,7 @@ class ClineAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.STABLE
+        return Stability.BETA
 
     def discovery_diagnostics(self) -> list[Diagnostic]:
         """Aggregate-only diagnostics from the last discover() call."""
@@ -530,7 +530,7 @@ class ClineAdapter:
                     path_hash=item.path_hash,
                     os_environment=context.os_environment,
                     app_version=None,
-                    stability=Stability.STABLE,
+                    stability=self.stability,
                     accessibility=item.accessibility,
                     diagnostic_code=item.diagnostic_code,
                     estimated_records=item.estimated_records,

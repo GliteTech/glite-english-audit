@@ -117,7 +117,7 @@ def test_factory_exposes_protocol_surface() -> None:
     adapter = create_adapter()
     assert adapter.adapter_id == ADAPTER_ID
     assert adapter.adapter_version == ADAPTER_VERSION
-    assert adapter.stability is Stability.STABLE
+    assert adapter.stability is Stability.BETA
 
 
 def test_discover_success_two_instances() -> None:
@@ -131,7 +131,7 @@ def test_discover_success_two_instances() -> None:
     second = by_label["Gemini CLI 2"]
     for record in (first, second):
         assert record.accessibility is Accessibility.FOUND
-        assert record.stability is Stability.STABLE
+        assert record.stability is Stability.BETA
         assert record.storage_format == "json/jsonl"
         assert record.app_version is None
         assert record.diagnostic_code is None
@@ -229,7 +229,7 @@ def test_wsl_host_store_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     wsl_side = by_label["Gemini CLI 1"]
     host_side = by_label["Gemini CLI 2"]
 
-    assert wsl_side.stability is Stability.STABLE
+    assert wsl_side.stability is Stability.BETA
     assert wsl_side.candidate_messages == 1
     assert host_side.stability is Stability.EXPERIMENTAL
     assert host_side.diagnostic_code == "SOURCE_WSL_HOST_STORE_HINT"

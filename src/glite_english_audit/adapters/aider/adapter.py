@@ -17,6 +17,7 @@ local time (timezone unknown) exactly as Aider stores them.
 import hashlib
 import json
 import os
+import shutil
 from collections import deque
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -68,6 +69,10 @@ _SNAPSHOT_META_NAME = "aider-source-meta.json"
 
 # Spec 2.3: the filename scan descends at most this many levels below a root.
 DEFAULT_SCAN_DEPTH = 6
+
+# Depth of the cheap probe that decides whether the full scan is worth running.
+# Project directories normally sit within a few levels of home.
+_PROBE_DEPTH = 3
 
 # Spec section 3: every other file Aider writes must never be opened. The
 # allowlist assertion before each open is the primary guard; this denylist is
@@ -217,16 +222,56 @@ class AiderAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.STABLE
+        return Stability.BETA
 
     # -- discovery ---------------------------------------------------------
 
     def discover(self, context: DiscoveryContext) -> DiscoveryOutcome:
+        if not self._installation_signal(context):
+            return self._not_found_outcome(context)
         instances = self._collect_instances(context)
         if not instances:
             return self._not_found_outcome(context)
         provisional = [self._scan_instance(files) for files in instances]
         return self._label_and_build(context, provisional)
+
+    def _installation_signal(self, context: DiscoveryContext) -> bool:
+        """True when this machine shows any trace of Aider.
+
+        Aider keeps no central store: history sits beside each project, so
+        finding it means walking the home directory to
+        :data:`DEFAULT_SCAN_DEPTH`. On a large home that costs around two
+        minutes and, when Aider was never installed, returns nothing — which is
+        the common case and the one worth making fast.
+
+        Three cheap signals settle it first: an environment override, an
+        ``.aider`` entry in the home directory itself, or the executable on
+        PATH. If none matches, a shallow probe looks for a history file within
+        :data:`_PROBE_DEPTH` levels, which covers projects kept a few
+        directories below home.
+
+        This can still miss one case: Aider used only in a project buried
+        deeper than the probe, on a machine where it has since been uninstalled
+        and left no home entry. Point ``AIDER_INPUT_HISTORY_FILE`` at the file
+        or pass ``extra_scan_roots`` to recover it. Two minutes on every audit
+        is too high a price to pay for that case by default.
+        """
+        if context.environ.get(INPUT_HISTORY_ENV) or context.environ.get(CHAT_MARKDOWN_ENV):
+            return True
+        home = context.home
+        try:
+            if any(entry.name.startswith(".aider") for entry in home.iterdir()):
+                return True
+        except OSError:
+            return False
+        if shutil.which("aider") is not None:
+            return True
+        for root in (home, *self._extra_scan_roots):
+            for _directory, _names in self._walk(
+                root, context.os_environment, max_depth=_PROBE_DEPTH
+            ):
+                return True
+        return False
 
     def _collect_instances(self, context: DiscoveryContext) -> list[_InstanceFiles]:
         by_root: dict[str, _InstanceFiles] = {}
@@ -272,7 +317,9 @@ class AiderAdapter:
                         files.chat_markdown = Path(canonical_file)
         return list(by_root.values())
 
-    def _walk(self, root: Path, os_environment: OsEnvironment) -> Iterator[tuple[Path, list[str]]]:
+    def _walk(
+        self, root: Path, os_environment: OsEnvironment, *, max_depth: int | None = None
+    ) -> Iterator[tuple[Path, list[str]]]:
         if not root.is_dir() or self._pruned_directory(root, os_environment):
             return
         queue: deque[tuple[Path, int]] = deque([(root, 0)])
@@ -289,7 +336,7 @@ class AiderAdapter:
             ]
             if names:
                 yield directory, names
-            if depth >= self._max_scan_depth:
+            if depth >= (max_depth if max_depth is not None else self._max_scan_depth):
                 continue
             for item in entries:
                 if item.is_symlink() or not item.is_dir():
@@ -329,7 +376,7 @@ class AiderAdapter:
             path_hash=path_hash,
             os_environment=context.os_environment,
             app_version=None,
-            stability=Stability.STABLE,
+            stability=self.stability,
             accessibility=Accessibility.NOT_FOUND,
             diagnostic_code="SOURCE_NOT_FOUND",
             estimated_records=0,
@@ -468,7 +515,7 @@ class AiderAdapter:
                     path_hash=item.path_hash,
                     os_environment=context.os_environment,
                     app_version=None,
-                    stability=Stability.STABLE,
+                    stability=self.stability,
                     accessibility=item.accessibility,
                     diagnostic_code=item.diagnostic_code,
                     estimated_records=item.estimated_records,

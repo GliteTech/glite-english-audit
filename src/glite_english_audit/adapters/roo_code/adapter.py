@@ -301,7 +301,17 @@ class RooCodeAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.STABLE
+        return Stability.BETA
+
+    def _capped(self, editor_stability: Stability) -> Stability:
+        """No instance is more stable than the adapter that produced it.
+
+        Editor variants set their own stability — VS Code proper is steadier
+        than a fork — but that only ever lowers an instance. While the adapter
+        itself is beta, every instance is beta at best.
+        """
+        order = (Stability.EXPERIMENTAL, Stability.BETA, Stability.STABLE)
+        return min(editor_stability, self.stability, key=order.index)
 
     # -- file access guard --------------------------------------------------
 
@@ -444,7 +454,7 @@ class RooCodeAdapter:
                     path_hash=probe.path_hash,
                     os_environment=context.os_environment,
                     app_version=None,
-                    stability=probe.stability,
+                    stability=self._capped(probe.stability),
                     accessibility=probe.accessibility,
                     diagnostic_code=probe.diagnostic_code,
                     estimated_records=probe.estimated_records,

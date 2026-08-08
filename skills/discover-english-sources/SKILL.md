@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 3
+**Version**: 5
 
 ## Goal
 
@@ -69,19 +69,42 @@ agent sees only the derived `InstanceInventorySummary`.
    `start_run` adopts it. On a large history this takes a few minutes; say so before
    starting rather than leaving the user with a silent terminal.
 3. Read the summary JSON. Do not open the private artifact or any source path.
-4. Present one table row per instance: opaque label, stability, date range, and
-   candidate counts. Label every count "candidate". Counts become "eligible" only
-   after the stage-3 authorship and language filters; using "eligible" here
-   overstates what discovery knows.
-5. State the default selection rule: every stable source with a supported schema and
-   eligible provenance is selected by default. Beta, experimental, inaccessible,
-   unsupported-schema, cleaned-only, and unknown-provenance sources are not selected
-   automatically. The user can uncheck any source or any opaque instance; the run
-   manifest resolves labels to real paths locally.
-6. Report not-found, inaccessible, and unsupported-schema sources in one short line
-   each, using the diagnostic code from the summary (for example `SOURCE_NOT_FOUND`,
-   `SOURCE_INACCESSIBLE`, `SOURCE_UNSUPPORTED_SCHEMA` — registry:
-   `src/glite_english_audit/diagnostics/codes.py`).
+4. Answer the only question the user has: should they go ahead, and on what?
+   Write five or six lines of plain prose. Not a table — a table is for data a
+   user compares row by row, and here they cannot act on a single row of it.
+
+   Say which applications hold their English and which will be analyzed; give the
+   combined size once, rounded, as words; say plainly whether that is a lot; and
+   ask what they want to do. Nothing else belongs in this message.
+
+   Do:
+   ```text
+   Found English you wrote in five apps here.
+
+   Will analyze: Codex, Claude Code, OpenCode — about 2.8 million words.
+   Skipped for now: Cursor and Wispr Flow. Both are still experimental, so I
+   leave them off unless you ask.
+
+   2.8 million words is a lot — analyzing all of it would take hours. Most
+   people start with the last month.
+
+   Shall I go ahead with everything, or pick a shorter period first?
+   ```
+
+   Don't: a thirty-row table of instance labels, per-instance date ranges,
+   stability values, diagnostic codes, artifact permissions, or a note that every
+   row parsed. That is the audit trail, not the answer.
+
+5. Hold the detail until asked. A source may hold dozens of instances, one per
+   project, and their opaque labels exist so the user CAN exclude one — not so
+   they must read them all. Offer once, in the closing question, and print the
+   per-instance breakdown only if they take you up on it.
+
+6. Say what was not found only if it is short and useful — one line naming the
+   applications, no diagnostic codes. Report an inaccessible or unsupported source
+   separately and plainly, because that one is actionable: it means English exists
+   here that the audit cannot read.
+
 7. Hand the summary to the orchestration (`skills/run-english-audit/SKILL.md`) for
    the selection questions.
 
@@ -102,7 +125,8 @@ report the deterministic verifier's diagnostic instead of showing partial data.
 
 ## Output Format
 
-Discovery output to the agent is a JSON array of `InstanceInventorySummary` objects
+Discovery prints one JSON object with an `inventory` key holding an array of
+`InstanceInventorySummary` objects
 (`src/glite_english_audit/artifacts/models.py`). Key fields: `adapter_id` (stable
 public ID such as `claude_code` or `codex`), `opaque_label`, `stability`
 (`stable` | `beta` | `experimental`), `accessibility`, optional `diagnostic_code`,
@@ -135,6 +159,12 @@ same module.
   sentence from you, not a spinner.
 - Do not explore the repository: no `git` commands, no searching source files, no
   reading modules to work out what discovery does. Run the one command in step 2.
+- Do not report your own validation to the user: that every row parsed, that the
+  artifact has the right permissions, that a document is out of date. Those are
+  your job, not their reading. Fix a defect or note it for the maintainer; do not
+  make the user step over it to reach their answer.
+- Do not print the per-instance table unless asked. A user who wanted to know
+  which of their thirty projects contributed 46 words will ask.
 
 ## End-to-End Example (synthetic)
 

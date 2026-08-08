@@ -29,18 +29,23 @@ been tested, per adapter and per platform.
 
 ## Supported sources
 
-Nine adapters ship today. Stability comes from the adapter code and drives default selection:
-stable sources with a supported schema are selected by default, beta sources are not.
+Nine adapters ship today. Stability drives default selection: stable sources with a supported
+schema are selected by default, beta sources are not.
+
+An adapter is stable only once its user experience has been observed on a real installation, not
+merely once its tests pass. Six of the nine are beta for that reason: their formats are
+implemented and tested against synthetic fixtures, but nobody has yet watched one run against a
+real install of that application.
 
 | Source | Adapter ID | Stability | Notes |
 |---|---|---|---|
 | Claude Code | `claude_code` | stable | Project JSONL transcripts; human-authored user messages only |
 | OpenAI Codex CLI | `codex` | stable | Rollout JSONL sessions, including archived ones |
-| Aider | `aider` | stable | Input history, with chat Markdown as fallback |
-| Google Gemini CLI | `gemini_cli` | stable | Session chats; Windows-host stores fail closed under WSL |
+| Aider | `aider` | beta | Input history, with chat Markdown as fallback |
+| Google Gemini CLI | `gemini_cli` | beta | Session chats; Windows-host stores fail closed under WSL |
 | OpenCode | `opencode` | stable | SQLite store plus the older JSON storage generations |
-| Cline | `cline` | stable | Per-task API history |
-| Roo Code | `roo_code` | stable | Per-task API history |
+| Cline | `cline` | beta | Per-task API history |
+| Roo Code | `roo_code` | beta | Per-task API history |
 | Wispr Flow | `wispr_flow` | beta | Dictation. Only the raw ASR text is read; formatted, edited, clipboard, and context columns are never ingested. Native Windows is required; WSL fails closed. |
 | Cursor | `cursor` | beta | Inventory only. It reports counts and date ranges and contributes no analyzed text, because Cursor's text rawness is unknown. |
 
