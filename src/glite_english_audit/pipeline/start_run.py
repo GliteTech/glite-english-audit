@@ -1,0 +1,196 @@
+"""CLI: create a run and record the user's source and period selection.
+
+Run: ``uv run python -m glite_english_audit.pipeline.start_run --run-dir ...``
+
+Reads the stage-0 private inventory, resolves which instances the user chose,
+freezes the record-level source cutoff, and writes the run manifest. The
+cutoff makes later resumption deterministic: records created after it belong
+to the next audit (specification, 13.5).
+"""
+
+import argparse
+import json
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from glite_english_audit import CLIENT_VERSION
+from glite_english_audit.artifacts.enums import (
+    Accessibility,
+    AgentRuntime,
+    RunStatus,
+    Stability,
+    StageId,
+)
+from glite_english_audit.artifacts.envelope import utc_now
+from glite_english_audit.artifacts.hashing import new_run_id
+from glite_english_audit.artifacts.io import ensure_private_dir, read_model, write_model
+from glite_english_audit.artifacts.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    CompatibilityFingerprint,
+    ConsentState,
+    PeriodSelection,
+    RunManifest,
+    SelectionState,
+    empty_stage_map,
+)
+from glite_english_audit.consent import CONSENT_POLICY_VERSION
+from glite_english_audit.discovery.inventory import PrivateInventory
+from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
+from glite_english_audit.paths import run_dir, stage_dir
+
+INVENTORY_NAME = "source-inventory.json"
+MANIFEST_NAME = "run-manifest.json"
+
+PERIOD_PRESETS: dict[str, int | None] = {
+    "last-7-days": 7,
+    "last-30-days": 30,
+    "last-3-months": 91,
+    "last-year": 365,
+    "everything": None,
+}
+
+
+def resolve_period(preset: str, now: datetime) -> PeriodSelection:
+    """Turn a preset name into concrete UTC bounds."""
+    if preset not in PERIOD_PRESETS:
+        msg = f"unknown period preset: {preset!r}; choose one of {sorted(PERIOD_PRESETS)}"
+        raise ValueError(msg)
+    days = PERIOD_PRESETS[preset]
+    start = datetime(1970, 1, 1, tzinfo=UTC) if days is None else now - timedelta(days=days)
+    return PeriodSelection(preset=preset, start=start, end=now)
+
+
+def default_selection(inventory: PrivateInventory) -> list[str]:
+    """Stable, found instances with a supported schema, per specification 2.4.
+
+    Beta, experimental, inaccessible, and unsupported-schema instances are
+    never selected automatically.
+    """
+    return [
+        record.instance_key
+        for record in inventory.records
+        if record.stability is Stability.STABLE
+        and record.accessibility is Accessibility.FOUND
+        and record.candidate_messages > 0
+    ]
+
+
+def start_run(
+    *,
+    runtime: AgentRuntime,
+    os_environment_value: str,
+    preset: str,
+    instance_keys: list[str] | None,
+    processing_profile: str,
+    runs_root: Path | None,
+    inventory_dir: Path,
+    now: datetime | None = None,
+) -> RunManifest:
+    """Create the run directory, manifest, and frozen selection."""
+    from glite_english_audit.artifacts.enums import OsEnvironment
+
+    moment = now if now is not None else utc_now()
+    inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
+    selected = instance_keys if instance_keys else default_selection(inventory)
+    if not selected:
+        msg = "no eligible source instance was selected; nothing to audit"
+        raise ValueError(msg)
+    known = {record.instance_key for record in inventory.records}
+    unknown = sorted(set(selected) - known)
+    if unknown:
+        msg = f"selection names instances absent from the inventory: {unknown}"
+        raise ValueError(msg)
+
+    adapter_versions = {
+        record.adapter_id: record.adapter_version
+        for record in inventory.records
+        if record.instance_key in set(selected)
+    }
+    run_id = new_run_id()
+    manifest = RunManifest(
+        manifest_schema_version=MANIFEST_SCHEMA_VERSION,
+        run_id=run_id,
+        created_at=moment,
+        runtime=runtime,
+        os_environment=OsEnvironment(os_environment_value),
+        status=RunStatus.AWAITING_PREFLIGHT,
+        consent=ConsentState(
+            consent_policy_version=CONSENT_POLICY_VERSION,
+            local_scan_confirmed_at=moment,
+            provider_transfer_confirmed_at=moment,
+        ),
+        selection=SelectionState(
+            selected_instance_keys=sorted(selected),
+            excluded_instance_keys=sorted(known - set(selected)),
+            period=resolve_period(preset, moment),
+            processing_profile=processing_profile,
+            record_cutoff_at=moment,
+        ),
+        stages=empty_stage_map(),
+        fingerprint=CompatibilityFingerprint(
+            adapter_versions=adapter_versions,
+            artifact_schema_version=MANIFEST_SCHEMA_VERSION,
+            tokenizer_version=TOKENIZER_VERSION,
+            skill_versions={},
+            prompt_versions={},
+            model_ids={},
+            consent_policy_version=CONSENT_POLICY_VERSION,
+        ),
+    )
+    base = runs_root / run_id if runs_root is not None else run_dir(run_id)
+    ensure_private_dir(base)
+    for name in ("stages", "logs", "submission"):
+        ensure_private_dir(base / name)
+    # Carry the inventory into the run so later stages resolve labels locally.
+    inventory_target = stage_dir(run_id, StageId.SOURCE_INVENTORY, root=runs_root)
+    ensure_private_dir(inventory_target)
+    write_model(inventory_target / INVENTORY_NAME, inventory)
+    write_model(base / MANIFEST_NAME, manifest)
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(description="Create an audit run and freeze its selection")
+    parser.add_argument("--inventory-dir", type=Path, required=True)
+    parser.add_argument("--runtime", default="claude_code", choices=[r.value for r in AgentRuntime])
+    parser.add_argument("--os-environment", default="macos")
+    parser.add_argument("--period", default="last-30-days", choices=sorted(PERIOD_PRESETS))
+    parser.add_argument("--profile", default="recommended")
+    parser.add_argument("--instance-key", action="append", default=None)
+    parser.add_argument("--runs-root", type=Path, default=None, help="test override")
+    arguments = parser.parse_args(argv)
+
+    manifest = start_run(
+        runtime=AgentRuntime(arguments.runtime),
+        os_environment_value=arguments.os_environment,
+        preset=arguments.period,
+        instance_keys=arguments.instance_key,
+        processing_profile=arguments.profile,
+        runs_root=arguments.runs_root,
+        inventory_dir=arguments.inventory_dir,
+    )
+    selection = manifest.selection
+    assert selection is not None
+    sys.stdout.write(
+        json.dumps(
+            {
+                "run_id": manifest.run_id,
+                "client_version": CLIENT_VERSION,
+                "selected_instances": len(selection.selected_instance_keys),
+                "excluded_instances": len(selection.excluded_instance_keys),
+                "period": selection.period.preset,
+                "period_start": selection.period.start.isoformat(),
+                "period_end": selection.period.end.isoformat(),
+                "processing_profile": selection.processing_profile,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

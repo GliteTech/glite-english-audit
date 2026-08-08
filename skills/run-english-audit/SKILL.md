@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -128,21 +128,34 @@ runtime; naming both is confusing and wrong.
    producer, then deterministic verifier, then independent verifier in a fresh
    context, then bounded repair, then promotion only after both verifiers pass.
    Stage work and producers:
+   Every stage has one command or one skill. Run them in this order, and pass the
+   same `<run-id>` throughout. Each command prints aggregate numbers only.
    - Stage 0: inventory via `skills/discover-english-sources/SKILL.md` (already done
-     during setup; reuse the promoted artifact).
-   - Stage 1: adapter `snapshot()` scripts with the safety checks in
-     `src/glite_english_audit/discovery/snapshot_safety.py`.
-   - Stage 2: adapter `extract()` producing normalized utterances, checked by the
-     deterministic verifier and adapter `verify()`.
+     during setup; reuse the promoted artifact). It writes the private inventory the
+     next command reads.
+   - Selection: `uv run python -m glite_english_audit.pipeline.start_run
+     --inventory-dir <stage-0-dir> --period <preset> --profile <profile>`. It prints
+     the `<run-id>` and freezes the record cutoff. Add one `--instance-key` per
+     instance the user kept when they unchecked any.
+   - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
+     --run-id <run-id>`. It snapshots each selected instance under the safety gates,
+     extracts candidates from the snapshot only, removes each snapshot as soon as its
+     extraction is durable, and reports any source it had to exclude.
    - Stage 3: `skills/filter-authored-english/SKILL.md`.
-   - Stage 4: the `analyze-english-text` skill, verified by the independent
-     `verify-english-findings` skill.
-   - Stage 5: the `create-mistakes-jsonl` skill plus semantic verification.
-   - Stage 6: the `create-private-safe-mistakes` skill, checked by the privacy
-     scanner in `src/glite_english_audit/verification/privacy_scanner.py`.
-   - Stage 7: promotion of approved records after the scanner and the independent
-     `verify-mistake-confidentiality` skill both pass.
-   - Stage 8: `skills/prepare-glite-submission/SKILL.md`.
+   - Stage 4 input: `uv run python -m glite_english_audit.pipeline.batches
+     --run-id <run-id>`, then the `analyze-english-text` skill on each batch file,
+     verified by the independent `verify-english-findings` skill.
+   - Stage 5: the `create-mistakes-jsonl` skill plus semantic verification, writing
+     `mistakes.jsonl` into the stage-5 directory.
+   - Stage 6: the `create-private-safe-mistakes` skill, writing `candidates.jsonl`
+     into the stage-6 directory.
+   - Stage 7: the independent `verify-mistake-confidentiality` skill, then
+     `uv run python -m glite_english_audit.pipeline.promote_records --run-id <run-id>`,
+     which runs the deterministic scanner and promotes only records that pass both
+     gates. Records it withholds keep a non-descriptive reason code.
+   - Stage 8: `uv run python -m glite_english_audit.pipeline.build_review
+     --run-id <run-id>` computes the count set from the run's own artifacts, then
+     `skills/prepare-glite-submission/SKILL.md` serves the review page.
    Run batches in measured child processes or native subagents of the active runtime
    only. Each child receives only its batch, the canonical skill, and the artifact
    contract; verifiers run in fresh contexts without producer reasoning. Item
