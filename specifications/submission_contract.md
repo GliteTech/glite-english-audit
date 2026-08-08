@@ -21,8 +21,8 @@ per-source grouping may ever be added.
 | `recovery_secret` | `str` | 64 lowercase hex characters (256 random bits) |
 | `payload_hash` | `str` | SHA-256 hex digest; see Section 4 |
 | `client_version` | `str` | Local client version |
-| `producer_version` | `str` | Safe-record producer version |
-| `privacy_verifier_version` | `str` | Independent privacy-verifier version |
+| `producer_version` | `str` matching `^[0-9]+(\.[0-9]+)*$` | Safe-record producer version |
+| `privacy_verifier_version` | `str` matching `^[0-9]+(\.[0-9]+)*$` | Independent privacy-verifier version |
 | `records` | `list[SafeMistakeRecord]` | Approved privacy-safe mistake records |
 | `counts` | `SubmissionCounts` | Anonymous denominator and mistake counts |
 
@@ -31,7 +31,7 @@ Model invariant: `len(records) == counts.shared_mistakes`.
 ### SafeMistakeRecord
 
 Exactly six fields (defined in `artifacts/models.py`): `mistake`, `rule`, `example` (non-empty
-strings), `example_type` (`verbatim | redacted | synthetic`), `source_type` (public adapter ID
+strings), `example_type` (`verbatim | redacted | synthetic`), `source_type` (one of the nine shipped public adapter IDs
 such as `codex`, `claude_code`, `wispr_flow`), `modality` (`written | spoken_asr`; `unknown` is
 rejected).
 

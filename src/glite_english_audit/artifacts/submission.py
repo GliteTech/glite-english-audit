@@ -69,6 +69,39 @@ class SubmissionCounts(BaseModel):
         if self.shared_mistakes + withheld_total != self.verified_total_mistakes:
             msg = "verified_total_mistakes must equal shared plus withheld counts"
             raise ValueError(msg)
+        # The same partition rule as AuditCounts, repeated here because this
+        # model is also how a package arrives from outside: parsed from a
+        # downloaded file or posted by an untrusted client. Modality counts
+        # that fall short of the denominator understate every per-modality
+        # rate computed from them (specification, 5.6).
+        for label, parts, total in (
+            (
+                "eligible_words",
+                (self.written.eligible_words, self.spoken_asr.eligible_words),
+                self.eligible_english_words,
+            ),
+            (
+                "analyzed_words",
+                (self.written.analyzed_words, self.spoken_asr.analyzed_words),
+                self.analyzed_english_words,
+            ),
+            (
+                "eligible_utterances",
+                (self.written.eligible_utterances, self.spoken_asr.eligible_utterances),
+                self.eligible_utterances,
+            ),
+            (
+                "analyzed_utterances",
+                (self.written.analyzed_utterances, self.spoken_asr.analyzed_utterances),
+                self.analyzed_utterances,
+            ),
+        ):
+            if sum(parts) != total:
+                msg = (
+                    f"modality {label} must sum to {total}, but written plus spoken_asr "
+                    f"give {sum(parts)}"
+                )
+                raise ValueError(msg)
         return self
 
     @classmethod

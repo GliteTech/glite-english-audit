@@ -20,12 +20,23 @@ _FAKE_SECRET = "0" * 64
 _FAKE_SUBMISSION_ID = "sub-" + "ab" * 16
 
 
-def _zero_modality() -> ModalityCounts:
+def _written_modality() -> ModalityCounts:
+    """The written share of the totals in :func:`_counts`."""
     return ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
+        eligible_words=150,
+        analyzed_words=110,
+        eligible_utterances=15,
+        analyzed_utterances=11,
+    )
+
+
+def _spoken_modality() -> ModalityCounts:
+    """The spoken share; together the two partition the totals exactly."""
+    return ModalityCounts(
+        eligible_words=50,
+        analyzed_words=40,
+        eligible_utterances=5,
+        analyzed_utterances=4,
     )
 
 
@@ -43,8 +54,8 @@ def _counts(
         analyzed_english_words=150,
         eligible_utterances=20,
         analyzed_utterances=15,
-        written=_zero_modality(),
-        spoken_asr=_zero_modality(),
+        written=_written_modality(),
+        spoken_asr=_spoken_modality(),
         verified_total_mistakes=verified,
         shared_mistakes=shared,
         withheld_by_user=withheld_by_user,
@@ -107,18 +118,58 @@ def test_submission_counts_rejects_negative_reason_count() -> None:
         _counts(shared=0, other_withheld={"WITHHELD_PROCESSING_FAILED": -1})
 
 
+_WHOLE_CORPUS_WRITTEN = ModalityCounts(
+    eligible_words=10,
+    analyzed_words=10,
+    eligible_utterances=1,
+    analyzed_utterances=1,
+)
+_NO_SPOKEN = ModalityCounts(
+    eligible_words=0,
+    analyzed_words=0,
+    eligible_utterances=0,
+    analyzed_utterances=0,
+)
+
+
 def test_submission_counts_requires_arithmetic_identity() -> None:
-    with pytest.raises(ValidationError):
+    # The modality split here is valid, so only the mistake-count identity can
+    # fail: 1 shared plus 1 withheld does not make 5 verified.
+    with pytest.raises(ValidationError, match="verified_total_mistakes"):
         SubmissionCounts(
             eligible_english_words=10,
             analyzed_english_words=10,
             eligible_utterances=1,
             analyzed_utterances=1,
-            written=_zero_modality(),
-            spoken_asr=_zero_modality(),
+            written=_WHOLE_CORPUS_WRITTEN,
+            spoken_asr=_NO_SPOKEN,
             verified_total_mistakes=5,
             shared_mistakes=1,
             withheld_by_user=1,
+            withheld_for_privacy=0,
+        )
+
+
+def test_submission_counts_requires_modality_counts_to_partition_the_totals() -> None:
+    # A package parsed from outside can claim modality counts that fall short
+    # of the denominator, which would understate every per-modality rate.
+    understated = ModalityCounts(
+        eligible_words=10,
+        analyzed_words=2,  # the corpus analyzed 10; claiming 2 inflates the rate fivefold
+        eligible_utterances=1,
+        analyzed_utterances=1,
+    )
+    with pytest.raises(ValidationError, match="modality analyzed_words"):
+        SubmissionCounts(
+            eligible_english_words=10,
+            analyzed_english_words=10,
+            eligible_utterances=1,
+            analyzed_utterances=1,
+            written=understated,
+            spoken_asr=_NO_SPOKEN,
+            verified_total_mistakes=0,
+            shared_mistakes=0,
+            withheld_by_user=0,
             withheld_for_privacy=0,
         )
 

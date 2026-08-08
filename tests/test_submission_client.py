@@ -36,11 +36,18 @@ def _package() -> SubmissionPackage:
         source_type="claude_code",
         modality=Modality.WRITTEN,
     )
-    zero = ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
+    # The two modalities must partition the declared totals exactly.
+    written = ModalityCounts(
+        eligible_words=70,
+        analyzed_words=55,
+        eligible_utterances=7,
+        analyzed_utterances=5,
+    )
+    spoken = ModalityCounts(
+        eligible_words=30,
+        analyzed_words=25,
+        eligible_utterances=3,
+        analyzed_utterances=3,
     )
     draft = SubmissionPackage(
         submission_schema_version=1,
@@ -56,8 +63,8 @@ def _package() -> SubmissionPackage:
             analyzed_english_words=80,
             eligible_utterances=10,
             analyzed_utterances=8,
-            written=zero,
-            spoken_asr=zero,
+            written=written,
+            spoken_asr=spoken,
             verified_total_mistakes=1,
             shared_mistakes=1,
             withheld_by_user=0,

@@ -29,6 +29,7 @@ The safe-record creator (stage 6) must not include:
 - Names of people, companies, products, clients, projects, repositories, or locations.
 - Exact dates, amounts, percentages, user counts, prices, metrics, or uncommon quantities.
 - URLs, domains, emails, phone numbers, IDs, paths, or code.
+- Invisible or non-canonical characters. A zero-width space inside an address defeats every pattern check and is invisible to a human reviewer, so a record whose text changes under Unicode normalization is withheld (`PRIVACY_INVISIBLE_CHARACTER`) rather than rewritten.
 - Rare job titles or distinctive technical descriptions.
 - Long source phrases.
 - Context that reveals what the user or their organization is doing.
