@@ -146,9 +146,14 @@ the user reviews every record on the local review page before anything is sent.
 Private run state lives outside the Git checkout, with owner-only permissions (`0700`
 directories, `0600` files on POSIX; a user-limited ACL on Windows):
 
-- macOS: `~/Library/Application Support/Glite English Audit/`
-- Windows: `%LOCALAPPDATA%\Glite English Audit\`
-- WSL and native Linux: `${XDG_STATE_HOME:-~/.local/state}/glite-english-audit/`
+- Every platform: `<repository>/temp/runtime/`
+
+Private state lives inside the checkout, in a tree the committed `.gitignore` excludes. One
+location means one thing to inspect and one thing to delete: removing the checkout removes every
+run, snapshot, and artifact with it, so no private data is left orphaned somewhere the user no
+longer has a reason to look. Git ignoring the tree is a convention, not a permission boundary, so
+snapshot creation still asks Git whether the path is genuinely ignored before writing source
+copies into it.
 
 Source snapshots are the one deliberate exception: they live only under
 `<repository>/temp/runtime/<run-id>/snapshots/`, which is Git-ignored. Snapshot preflight

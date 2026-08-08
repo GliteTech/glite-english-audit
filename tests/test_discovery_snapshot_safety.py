@@ -74,7 +74,7 @@ def test_ensure_safe_snapshot_dir_succeeds(tmp_path: Path) -> None:
     repo = _git_repo(tmp_path / "checkout")
     target = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     assert target.is_dir()
-    assert target == repo.resolve() / "temp" / "runtime" / _RUN_ID / "snapshots"
+    assert target == repo.resolve() / "temp" / "runtime" / "runs" / _RUN_ID / "snapshots"
 
 
 def test_ensure_safe_snapshot_dir_fails_when_not_ignored(tmp_path: Path) -> None:
@@ -82,7 +82,7 @@ def test_ensure_safe_snapshot_dir_fails_when_not_ignored(tmp_path: Path) -> None
     with pytest.raises(SnapshotSafetyError) as excinfo:
         ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_NOT_IGNORED"
-    assert not (repo / "temp" / "runtime" / _RUN_ID / "snapshots").exists()
+    assert not (repo / "temp" / "runtime" / "runs" / _RUN_ID / "snapshots").exists()
 
 
 def test_ensure_safe_snapshot_dir_fails_under_synced_root(tmp_path: Path) -> None:
@@ -220,7 +220,7 @@ def test_cleanup_refuses_symlinked_run_directory(tmp_path: Path) -> None:
     repo = _git_repo(tmp_path / "checkout")
     ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
     victim = _victim_history(tmp_path / "real-history" / "snapshots")
-    run_directory = repo.resolve() / "temp" / "runtime" / _RUN_ID
+    run_directory = repo.resolve() / "temp" / "runtime" / "runs" / _RUN_ID
     shutil.rmtree(run_directory)
     run_directory.symlink_to(victim.parent.parent, target_is_directory=True)
 

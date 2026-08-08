@@ -79,9 +79,9 @@ on your machine and are never shown to the model. Stable sources with a supporte
 eligible provenance are selected by default; beta, inaccessible, and unsupported-schema sources are
 not. You then pick a period and see an estimate before anything is sent to a provider.
 
-**Resuming.** Private run state lives outside the checkout, under
-`~/Library/Application Support/Glite English Audit/` on macOS, `%LOCALAPPDATA%\Glite English Audit\`
-on Windows, and `${XDG_STATE_HOME:-~/.local/state}/glite-english-audit/` on Linux and WSL. Say
+**Resuming.** Everything a run writes stays inside the checkout, under the Git-ignored
+`temp/runtime/` directory: one place to inspect and one place to delete, identical on every
+platform. Deleting the checkout removes every trace of your audits with it. Say
 "Run an English audit" again and the agent offers any unfinished run. The resume decision is
 deterministic: matching versions continue from the next utterance; changed skills, prompts, or
 models recompute findings and later stages; changed adapter, artifact-schema, tokenizer, or consent

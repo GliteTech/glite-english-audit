@@ -1,5 +1,6 @@
-"""Runtime root resolution per OS and repository-owned snapshot locations."""
+"""Every private runtime path lives inside the checkout's ignored tree."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -8,7 +9,9 @@ import pytest
 from glite_english_audit.artifacts.enums import OsEnvironment, StageId
 from glite_english_audit.artifacts.hashing import new_run_id
 from glite_english_audit.paths import (
+    calibration_history_path,
     detect_os_environment,
+    endpoint_config_dir,
     repo_root,
     run_dir,
     runs_root,
@@ -18,51 +21,65 @@ from glite_english_audit.paths import (
     validate_run_id,
 )
 
-
-def test_runtime_root_macos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    expected = tmp_path / "Library" / "Application Support" / "Glite English Audit"
-    assert runtime_root(OsEnvironment.MACOS) == expected
+_RUN_ID = "run-" + "0" * 32
 
 
-def test_runtime_root_windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
-    expected = tmp_path / "AppData" / "Local" / "Glite English Audit"
-    assert runtime_root(OsEnvironment.WINDOWS) == expected
+def test_runtime_root_is_inside_the_checkout(tmp_path: Path) -> None:
+    assert runtime_root(repo=tmp_path) == tmp_path / "temp" / "runtime"
+    assert runtime_root().is_relative_to(repo_root())
 
 
-def test_runtime_root_windows_requires_localappdata(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    with pytest.raises(RuntimeError):
-        runtime_root(OsEnvironment.WINDOWS)
+def test_runtime_root_is_identical_on_every_platform(tmp_path: Path) -> None:
+    # The layout no longer branches per operating system, so a run made on one
+    # platform is readable on any other and there is one path to audit.
+    assert runtime_root(repo=tmp_path) == tmp_path / "temp" / "runtime"
 
 
-@pytest.mark.parametrize("environment", [OsEnvironment.LINUX, OsEnvironment.WSL])
-def test_runtime_root_linux_prefers_xdg_state_home(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, environment: OsEnvironment
-) -> None:
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    assert runtime_root(environment) == tmp_path / "state" / "glite-english-audit"
+def test_every_private_location_nests_under_the_runtime_root(tmp_path: Path) -> None:
+    root = runtime_root(repo=tmp_path)
+    assert runs_root(repo=tmp_path) == root / "runs"
+    assert run_dir(_RUN_ID, repo=tmp_path) == root / "runs" / _RUN_ID
+    assert snapshot_dir(_RUN_ID, repo=tmp_path) == root / "runs" / _RUN_ID / "snapshots"
+    assert endpoint_config_dir(repo=tmp_path) == root / "config"
+    assert calibration_history_path(repo=tmp_path) == root / "calibration" / "local-history.jsonl"
+    assert (
+        stage_dir(_RUN_ID, StageId.PLAIN_FINDINGS, repo=tmp_path)
+        == root / "runs" / _RUN_ID / "stages" / "4"
+    )
 
 
-@pytest.mark.parametrize("environment", [OsEnvironment.LINUX, OsEnvironment.WSL])
-def test_runtime_root_linux_falls_back_to_home_state(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, environment: OsEnvironment
-) -> None:
-    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    expected = tmp_path / ".local" / "state" / "glite-english-audit"
-    assert runtime_root(environment) == expected
+def test_deleting_the_checkout_removes_every_private_location(tmp_path: Path) -> None:
+    # The point of the in-repo layout: nothing survives the checkout, so no
+    # private run data can be orphaned somewhere the user never looks.
+    root = tmp_path.resolve()
+    for path in (
+        runtime_root(repo=root),
+        runs_root(repo=root),
+        run_dir(_RUN_ID, repo=root),
+        snapshot_dir(_RUN_ID, repo=root),
+        endpoint_config_dir(repo=root),
+        calibration_history_path(repo=root),
+        stage_dir(_RUN_ID, StageId.ELIGIBLE_ENGLISH, repo=root),
+    ):
+        assert path.is_relative_to(root)
 
 
-def test_runs_root_and_run_dir_nest_under_runtime_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    root = runtime_root(OsEnvironment.MACOS)
-    assert runs_root(OsEnvironment.MACOS) == root / "runs"
-    run_id = "run-" + "0" * 32
-    assert run_dir(run_id, OsEnvironment.MACOS) == root / "runs" / run_id
+def test_git_ignores_the_whole_runtime_tree() -> None:
+    # Ignoring is a convention rather than a permission boundary, but it must
+    # at least hold: ask Git itself rather than trusting the .gitignore text.
+    root = repo_root()
+    for relative in (
+        f"temp/runtime/runs/{_RUN_ID}/run-manifest.json",
+        f"temp/runtime/runs/{_RUN_ID}/snapshots/session.jsonl",
+        "temp/runtime/calibration/local-history.jsonl",
+        "temp/runtime/config/submission-endpoint.json",
+    ):
+        result = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "--quiet", "--", relative],
+            check=False,
+            capture_output=True,
+        )
+        assert result.returncode == 0, f"Git does not ignore {relative}"
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="detection test targets this macOS machine")
@@ -74,13 +91,6 @@ def test_repo_root_is_the_repository_checkout() -> None:
     root = repo_root()
     assert (root / "pyproject.toml").is_file()
     assert (root / "src" / "glite_english_audit").is_dir()
-
-
-def test_snapshot_dir_is_inside_repo_temp_runtime() -> None:
-    run_id = "run-" + "0" * 32
-    path = snapshot_dir(run_id)
-    assert path == repo_root() / "temp" / "runtime" / run_id / "snapshots"
-    assert path.is_relative_to(repo_root() / "temp" / "runtime")
 
 
 _MALFORMED_RUN_IDS = [
@@ -116,12 +126,9 @@ def test_snapshot_dir_rejects_malformed_run_id(run_id: str) -> None:
 
 
 @pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)
-def test_run_dir_rejects_malformed_run_id(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, run_id: str
-) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_run_dir_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
     with pytest.raises(ValueError, match="run identifier"):
-        run_dir(run_id, OsEnvironment.MACOS)
+        run_dir(run_id, repo=tmp_path)
 
 
 @pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)

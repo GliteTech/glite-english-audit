@@ -128,15 +128,6 @@ def _safe_record(**overrides: Any) -> SafeMistakeRecord:
     return SafeMistakeRecord(**data)
 
 
-def _zero_modality() -> ModalityCounts:
-    return ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
-    )
-
-
 def _audit_counts(**overrides: Any) -> AuditCounts:
     data: dict[str, Any] = {
         "eligible_english_words": 120,
@@ -257,6 +248,48 @@ def test_safe_mistake_record_rejects_bad_source_type(bad_source: str) -> None:
         _safe_record(source_type=bad_source)
 
 
+# The nine stable public adapter IDs. Pinned here as literals, not imported, so
+# the test fails if the shipped set ever changes (specification, 5.5).
+_PUBLIC_ADAPTER_IDS = (
+    "aider",
+    "claude_code",
+    "cline",
+    "codex",
+    "cursor",
+    "gemini_cli",
+    "opencode",
+    "roo_code",
+    "wispr_flow",
+)
+
+
+@pytest.mark.parametrize("source_type", _PUBLIC_ADAPTER_IDS)
+def test_safe_mistake_record_accepts_every_public_adapter_id(source_type: str) -> None:
+    assert _safe_record(source_type=source_type).source_type == source_type
+
+
+@pytest.mark.parametrize(
+    "unknown_source",
+    [
+        "acme_health_oncology_billing_migration_q3_client_novartis",
+        "claude_code_internal",
+        "acme_tool",
+        "codex2",
+    ],
+)
+def test_safe_mistake_record_rejects_source_type_outside_the_public_ids(
+    unknown_source: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        _safe_record(source_type=unknown_source)
+
+
+def test_private_models_still_accept_any_well_formed_adapter_id() -> None:
+    # Only the submitted record is restricted to the shipped public IDs; the
+    # private models must keep working with a newly added adapter.
+    assert _normalized_utterance(source_adapter="new_adapter").source_adapter == "new_adapter"
+
+
 def test_safe_record_candidate_failure_requires_reason_code() -> None:
     with pytest.raises(ValidationError):
         SafeRecordCandidate(
@@ -347,6 +380,63 @@ def test_audit_counts_rejects_analyzed_utterances_over_eligible() -> None:
         _audit_counts(analyzed_utterances=13)
 
 
+def test_audit_counts_rejects_modality_analyzed_words_below_the_denominator() -> None:
+    # The analyzed-word denominator is the honesty guarantee (specification,
+    # 5.6): modality analyzed words must add up to it exactly, or the per-1,000
+    # word rate the website computes is wrong by that factor.
+    with pytest.raises(ValidationError):
+        _audit_counts(
+            eligible_english_words=1000,
+            analyzed_english_words=100,
+            eligible_utterances=100,
+            analyzed_utterances=100,
+            written=ModalityCounts(
+                eligible_words=500,
+                analyzed_words=500,
+                eligible_utterances=50,
+                analyzed_utterances=50,
+            ),
+            spoken_asr=ModalityCounts(
+                eligible_words=500,
+                analyzed_words=500,
+                eligible_utterances=50,
+                analyzed_utterances=50,
+            ),
+        )
+
+
+def test_audit_counts_rejects_modality_eligible_words_below_the_total() -> None:
+    with pytest.raises(ValidationError):
+        _audit_counts(
+            written=ModalityCounts(
+                eligible_words=90,
+                analyzed_words=90,
+                eligible_utterances=10,
+                analyzed_utterances=9,
+            )
+        )
+
+
+def test_audit_counts_rejects_modality_eligible_utterances_below_the_total() -> None:
+    with pytest.raises(ValidationError):
+        _audit_counts(eligible_utterances=13)
+
+
+def test_audit_counts_rejects_modality_analyzed_utterances_below_the_total() -> None:
+    with pytest.raises(ValidationError):
+        _audit_counts(analyzed_utterances=9)
+
+
+def test_audit_counts_accepts_exact_modality_partition() -> None:
+    counts = _audit_counts()
+    assert counts.written.analyzed_words + counts.spoken_asr.analyzed_words == (
+        counts.analyzed_english_words
+    )
+    assert counts.written.eligible_words + counts.spoken_asr.eligible_words == (
+        counts.eligible_english_words
+    )
+
+
 def _reviewed_records() -> list[ReviewedRecord]:
     return [
         ReviewedRecord(
@@ -368,8 +458,6 @@ def _reviewed_records() -> list[ReviewedRecord]:
 
 def _reviewed_artifact_counts(*, shared: int, withheld_by_user: int) -> AuditCounts:
     return _audit_counts(
-        written=_zero_modality(),
-        spoken_asr=_zero_modality(),
         verified_total_mistakes=shared + withheld_by_user,
         shared_mistakes=shared,
         withheld_by_user=withheld_by_user,

@@ -95,9 +95,11 @@ subscription percentage guarantees completion.
 Measurements persist across audits on the same machine, in the private runtime root
 (`paths.calibration_history_path()`):
 
-- macOS: `~/Library/Application Support/Glite English Audit/calibration/local-history.jsonl`
-- Windows: `%LOCALAPPDATA%\Glite English Audit\calibration\local-history.jsonl`
-- WSL and native Linux: `${XDG_STATE_HOME:-~/.local/state}/glite-english-audit/calibration/local-history.jsonl`
+- Every platform: `<repository>/temp/runtime/calibration/local-history.jsonl`
+
+The path is identical everywhere and sits inside the Git-ignored runtime tree. History therefore
+belongs to a checkout rather than to the machine: a fresh clone starts with no calibration history
+and rebuilds it from its own runs.
 
 Native Windows and WSL keep separate histories. The file is JSONL, one numerical measurement
 record per line, with owner-only permissions. It contains no text, no source instance, path,

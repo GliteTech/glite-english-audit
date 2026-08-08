@@ -47,23 +47,37 @@ def _safe_record(
     )
 
 
-def _zero_modality() -> ModalityCounts:
+def _written_counts() -> ModalityCounts:
     return ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
+        eligible_words=60,
+        analyzed_words=50,
+        eligible_utterances=6,
+        analyzed_utterances=5,
     )
 
 
-def _reviewed(records: list[tuple[SafeMistakeRecord, bool]]) -> ReviewedSubmissionArtifact:
+def _spoken_counts() -> ModalityCounts:
+    return ModalityCounts(
+        eligible_words=40,
+        analyzed_words=30,
+        eligible_utterances=4,
+        analyzed_utterances=3,
+    )
+
+
+def _reviewed(
+    records: list[tuple[SafeMistakeRecord, bool]],
+    *,
+    creator_version: str = "1.2.0",
+    verifier_version: str = "1.1.0",
+) -> ReviewedSubmissionArtifact:
     reviewed_records = [
         ReviewedRecord(
             mistake_id=f"m-{index:03d}",
             record=record,
             included=included,
-            privacy_creator_version="1.2.0",
-            privacy_verifier_version="1.1.0",
+            privacy_creator_version=creator_version,
+            privacy_verifier_version=verifier_version,
         )
         for index, (record, included) in enumerate(records)
     ]
@@ -74,8 +88,8 @@ def _reviewed(records: list[tuple[SafeMistakeRecord, bool]]) -> ReviewedSubmissi
         analyzed_english_words=80,
         eligible_utterances=10,
         analyzed_utterances=8,
-        written=_zero_modality(),
-        spoken_asr=_zero_modality(),
+        written=_written_counts(),
+        spoken_asr=_spoken_counts(),
         verified_total_mistakes=len(records),
         shared_mistakes=included_count,
         withheld_by_user=excluded_count,
@@ -175,6 +189,42 @@ def test_zero_included_records_raises() -> None:
             recovery_secret=_RECOVERY_SECRET,
         )
     assert "SUBMISSION_NO_RECORDS" in {d.code for d in excinfo.value.diagnostics}
+
+
+@pytest.mark.parametrize("field", ["creator_version", "verifier_version"])
+def test_free_form_version_never_reaches_the_package(field: str) -> None:
+    leaky = "/Users/alice/work/acme-secret-merger  session 9f3a  raw: we ship on Tuesday"
+    records = [(_safe_record(), True)]
+    reviewed = (
+        _reviewed(records, creator_version=leaky)
+        if field == "creator_version"
+        else _reviewed(records, verifier_version=leaky)
+    )
+    with pytest.raises(MaterializationError) as excinfo:
+        materialize_package(
+            reviewed,
+            submission_id=_SUBMISSION_ID,
+            recovery_secret=_RECOVERY_SECRET,
+        )
+    codes = {d.code for d in excinfo.value.diagnostics}
+    assert "SUBMISSION_FORBIDDEN_FIELD" in codes
+    for diagnostic in excinfo.value.diagnostics:
+        assert "acme-secret-merger" not in diagnostic.message
+        assert "Tuesday" not in diagnostic.message
+
+
+def test_record_with_invisible_character_fails_the_gate() -> None:
+    leaky = _safe_record(example="Write to alice\u200b@acme\u200b.com please.")
+    reviewed = _reviewed([(leaky, True)])
+    with pytest.raises(MaterializationError) as excinfo:
+        materialize_package(
+            reviewed,
+            submission_id=_SUBMISSION_ID,
+            recovery_secret=_RECOVERY_SECRET,
+        )
+    codes = {d.code for d in excinfo.value.diagnostics}
+    assert "PRIVACY_INVISIBLE_CHARACTER" in codes
+    assert "PRIVACY_EMAIL_PRESENT" in codes
 
 
 def test_record_with_email_fails_the_gate() -> None:

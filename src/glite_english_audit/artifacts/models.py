@@ -26,6 +26,25 @@ from glite_english_audit.artifacts.envelope import ArtifactEnvelope
 _ADAPTER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
+# The stable public adapter IDs a submitted record may name (specification,
+# 5.5). Frozen here rather than derived from the discovery registry on purpose:
+# a submitted record must validate identically on a machine where no adapter is
+# registered, and adding an adapter must be a deliberate contract change to the
+# submission surface, not a side effect of registration.
+PUBLIC_SOURCE_TYPES: frozenset[str] = frozenset(
+    {
+        "aider",
+        "claude_code",
+        "cline",
+        "codex",
+        "cursor",
+        "gemini_cli",
+        "opencode",
+        "roo_code",
+        "wispr_flow",
+    }
+)
+
 
 def _validate_adapter_id(value: str) -> str:
     if not _ADAPTER_ID_PATTERN.fullmatch(value):
@@ -359,8 +378,14 @@ class SafeMistakeRecord(BaseModel):
 
     @field_validator("source_type")
     @classmethod
-    def _adapter_id(cls, value: str) -> str:
-        return _validate_adapter_id(value)
+    def _public_source_type(cls, value: str) -> str:
+        # A shipped record may name only a stable public adapter ID. Any other
+        # free-form string is a private label — a workspace, project, or client
+        # name — and must never reach the wire (specification, 8.3).
+        if value not in PUBLIC_SOURCE_TYPES:
+            msg = "source_type must be one of the stable public adapter IDs"
+            raise ValueError(msg)
+        return value
 
     @field_validator("modality")
     @classmethod
@@ -460,18 +485,46 @@ class AuditCounts(BaseModel):
                 f"{self.verified_total_mistakes} != {self.shared_mistakes} + {withheld_total}"
             )
             raise ValueError(msg)
-        if (
-            self.written.eligible_words + self.spoken_asr.eligible_words
-            > self.eligible_english_words
-        ):
-            msg = "modality eligible words exceed the overall eligible word count"
-            raise ValueError(msg)
         if self.analyzed_english_words > self.eligible_english_words:
             msg = "analyzed words cannot exceed eligible words"
             raise ValueError(msg)
         if self.analyzed_utterances > self.eligible_utterances:
             msg = "analyzed utterances cannot exceed eligible utterances"
             raise ValueError(msg)
+        # 'written' and 'spoken_asr' partition the corpus: every eligible and
+        # every analyzed unit belongs to exactly one of them. Anything less than
+        # exact equality lets a modality overstate its own denominator, and the
+        # website's per-1,000-word rate is wrong by that factor
+        # (specification, 5.6).
+        written, spoken = self.written, self.spoken_asr
+        partitions: tuple[tuple[str, int, int], ...] = (
+            (
+                "eligible words",
+                written.eligible_words + spoken.eligible_words,
+                self.eligible_english_words,
+            ),
+            (
+                "analyzed words",
+                written.analyzed_words + spoken.analyzed_words,
+                self.analyzed_english_words,
+            ),
+            (
+                "eligible utterances",
+                written.eligible_utterances + spoken.eligible_utterances,
+                self.eligible_utterances,
+            ),
+            (
+                "analyzed utterances",
+                written.analyzed_utterances + spoken.analyzed_utterances,
+                self.analyzed_utterances,
+            ),
+        )
+        for label, modality_total, overall in partitions:
+            if modality_total != overall:
+                msg = (
+                    f"modality {label} must sum to the overall count: {modality_total} != {overall}"
+                )
+                raise ValueError(msg)
         return self
 
 

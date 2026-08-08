@@ -6,10 +6,14 @@ from glite_english_audit.artifacts.enums import ExampleType, Modality
 from glite_english_audit.artifacts.models import SafeMistakeRecord
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.verification.privacy_scanner import (
-    MAX_NON_SYNTHETIC_EXAMPLE_WORDS,
+    MAX_EXAMPLE_WORDS,
     scan_safe_record,
     scan_text,
 )
+
+_ZERO_WIDTH_SPACE = "\u200b"
+_SOFT_HYPHEN = "\u00ad"
+_FULLWIDTH_FULL_STOP = "\uff0e"
 
 
 def _codes(diagnostics: list[Diagnostic]) -> set[str]:
@@ -121,22 +125,170 @@ def test_context_words_outside_the_rule_field_do_not_trigger() -> None:
 
 @pytest.mark.parametrize("example_type", [ExampleType.VERBATIM, ExampleType.REDACTED])
 def test_non_synthetic_example_at_word_limit_passes(example_type: ExampleType) -> None:
-    example = " ".join(["plan"] * MAX_NON_SYNTHETIC_EXAMPLE_WORDS)
+    example = " ".join(["plan"] * MAX_EXAMPLE_WORDS)
     diagnostics = scan_safe_record(_record(example=example, example_type=example_type))
     assert "PRIVACY_LONG_SOURCE_PHRASE" not in _codes(diagnostics)
 
 
 @pytest.mark.parametrize("example_type", [ExampleType.VERBATIM, ExampleType.REDACTED])
 def test_non_synthetic_example_over_word_limit_flagged(example_type: ExampleType) -> None:
-    example = " ".join(["plan"] * (MAX_NON_SYNTHETIC_EXAMPLE_WORDS + 1))
+    example = " ".join(["plan"] * (MAX_EXAMPLE_WORDS + 1))
     diagnostics = scan_safe_record(_record(example=example, example_type=example_type))
     assert "PRIVACY_LONG_SOURCE_PHRASE" in _codes(diagnostics)
 
 
-def test_synthetic_example_is_exempt_from_word_limit() -> None:
-    example = " ".join(["plan"] * (MAX_NON_SYNTHETIC_EXAMPLE_WORDS + 1))
+@pytest.mark.parametrize("example_type", list(ExampleType))
+def test_word_limit_applies_to_every_example_type(example_type: ExampleType) -> None:
+    # example_type is asserted by a skill, so a mislabel must not disable the
+    # only unconditional length defence (specification, 8.2).
+    example = " ".join(["plan"] * 16)
+    diagnostics = scan_safe_record(_record(example=example, example_type=example_type))
+    assert "PRIVACY_LONG_SOURCE_PHRASE" in _codes(diagnostics)
+
+
+def test_long_verbatim_sentence_mislabelled_synthetic_is_flagged() -> None:
+    example = (
+        "The onboarding team told me that our largest client cancelled several seats "
+        "last quarter, so the renewal numbers for the Berlin office will look much "
+        "worse than the forecast that we have presented to the board on Monday."
+    )
+    assert len(example.split()) == 38
     diagnostics = scan_safe_record(_record(example=example, example_type=ExampleType.SYNTHETIC))
-    assert "PRIVACY_LONG_SOURCE_PHRASE" not in _codes(diagnostics)
+    assert "PRIVACY_LONG_SOURCE_PHRASE" in _codes(diagnostics)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Use 'does' with he/she/it and 'do' with I/you/we/they.",
+        "English word order is normally subject/verb/object.",
+        "The pronouns he/she/they must agree with the noun.",
+    ],
+)
+def test_grammar_notation_is_not_a_path(text: str) -> None:
+    assert "PRIVACY_PATH_PRESENT" not in _codes(scan_text(text))
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "Place adverbs such as here and there after the verb.",
+        "Use 'there is' for a singular noun and 'here is' for something nearby.",
+    ],
+)
+def test_rules_about_the_adverb_here_stay_self_contained(rule: str) -> None:
+    assert "PRIVACY_CONTEXT_DEPENDENT_RULE" not in _codes(scan_safe_record(_record(rule=rule)))
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "The preposition is wrong here.",
+        "Here a definite article is required.",
+        "The gerund belongs here, not the infinitive.",
+        "As used here, the tense is wrong.",
+        "The pattern shown here needs a plural verb.",
+    ],
+)
+def test_deictic_here_is_still_context_dependent(rule: str) -> None:
+    assert "PRIVACY_CONTEXT_DEPENDENT_RULE" in _codes(scan_safe_record(_record(rule=rule)))
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "mycompany.se",
+        "mycompany.nl",
+        "mycompany.jp",
+        "mycompany.cn",
+        "mycompany.it",
+        "mycompany.in",
+        "mycompany.br",
+        "mycompany.info",
+        "mycompany.xyz",
+        "mycompany.cloud",
+    ],
+)
+def test_bare_domain_with_any_tld_is_flagged(domain: str) -> None:
+    assert "PRIVACY_URL_PRESENT" in _codes(scan_text(f"The team moved to {domain} last week."))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The sources are listed et.al style in the report.",
+        "The room measures about 30 sq.ft in total.",
+    ],
+)
+def test_ordinary_abbreviations_are_not_domains(text: str) -> None:
+    assert "PRIVACY_URL_PRESENT" not in _codes(scan_text(text))
+
+
+def test_three_digit_count_is_a_suspicious_number() -> None:
+    assert "PRIVACY_SUSPICIOUS_NUMBER" in _codes(scan_text("we lost 312 users last month"))
+
+
+def test_short_commit_hash_is_an_identifier() -> None:
+    assert "PRIVACY_IDENTIFIER_PRESENT" in _codes(scan_text("The fix landed in commit a3f9bd21."))
+
+
+def test_zero_width_space_does_not_defeat_the_patterns() -> None:
+    text = (
+        f"Write to alice{_ZERO_WIDTH_SPACE}@acme{_ZERO_WIDTH_SPACE}.com when it depends from input."
+    )
+    codes = _codes(scan_text(text))
+    assert "PRIVACY_EMAIL_PRESENT" in codes
+    assert "PRIVACY_URL_PRESENT" in codes
+    assert "PRIVACY_INVISIBLE_CHARACTER" in codes
+
+
+@pytest.mark.parametrize("invisible", [_ZERO_WIDTH_SPACE, _SOFT_HYPHEN, "\ufeff", "\u200d"])
+def test_invisible_characters_are_reported(invisible: str) -> None:
+    text = f"Their site exam{invisible}ple.com was mentioned."
+    codes = _codes(scan_text(text))
+    assert "PRIVACY_INVISIBLE_CHARACTER" in codes
+    assert "PRIVACY_URL_PRESENT" in codes
+
+
+def test_soft_hyphen_does_not_defeat_the_credential_pattern() -> None:
+    codes = _codes(scan_text(f"The note held sk-FAKE{_SOFT_HYPHEN}FAKEFAKE0000 inside."))
+    assert "PRIVACY_CREDENTIAL_PATTERN" in codes
+
+
+def test_fullwidth_full_stop_does_not_defeat_the_domain_pattern() -> None:
+    codes = _codes(scan_text(f"Their site example{_FULLWIDTH_FULL_STOP}com was mentioned."))
+    assert "PRIVACY_URL_PRESENT" in codes
+    assert "PRIVACY_INVISIBLE_CHARACTER" in codes
+
+
+def test_scanned_record_is_never_rewritten() -> None:
+    example = f"Write to alice{_ZERO_WIDTH_SPACE}@acme{_ZERO_WIDTH_SPACE}.com now."
+    record = _record(example=example)
+    diagnostics = scan_safe_record(record)
+    assert "PRIVACY_INVISIBLE_CHARACTER" in _codes(diagnostics)
+    assert "PRIVACY_EMAIL_PRESENT" in _codes(diagnostics)
+    # The record that would ship stays byte-identical to the scanned text.
+    assert record.example == example
+
+
+def test_plain_ascii_record_reports_no_invisible_character() -> None:
+    assert "PRIVACY_INVISIBLE_CHARACTER" not in _codes(scan_safe_record(_record()))
+
+
+def test_source_type_outside_the_known_adapter_ids_is_flagged() -> None:
+    leaky = "acme_health_oncology_billing_migration_q3_client_novartis"
+    record = _record().model_copy(update={"source_type": leaky})
+    diagnostics = scan_safe_record(record, item_ref="records[0]")
+    assert "SCHEMA_INVALID_VALUE" in _codes(diagnostics)
+    assert all(leaky not in diagnostic.message for diagnostic in diagnostics)
+
+
+def test_source_type_is_scanned_for_forbidden_patterns() -> None:
+    record = _record().model_copy(update={"source_type": "/Users/alice/work/acme"})
+    diagnostics = scan_safe_record(record)
+    path = [d for d in diagnostics if d.code == "PRIVACY_PATH_PRESENT"]
+    assert path
+    assert all("(field: source_type)" in diagnostic.message for diagnostic in path)
 
 
 def test_diagnostics_never_echo_scanned_text() -> None:

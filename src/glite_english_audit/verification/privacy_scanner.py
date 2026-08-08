@@ -8,26 +8,76 @@ positive costs one withheld record, while a false negative leaks data.
 Only privacy-safe surfaces are scanned — mistake records, submission packages,
 and progress text. Raw utterances are private and are never routed through
 shareable-content checks.
+
+Matching runs on a normalized copy of the text: NFKC plus removal of every
+Unicode format character (category Cf). Without it a single zero-width space
+inside ``alice@acme.com`` defeats every pattern here, and the character is
+invisible both on the review page and to the semantic verifier, so both gates
+fall together. The scanner never returns the normalized text and no caller
+rewrites the record: what ships stays byte-identical to what was scanned, or
+the same bypass would simply move one step downstream. Instead, text that
+changes under that normalization is reported as
+``PRIVACY_INVISIBLE_CHARACTER``, so a record carrying hidden characters is
+withheld rather than silently rewritten.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
-from glite_english_audit.artifacts.models import SafeMistakeRecord
+from glite_english_audit.artifacts.models import PUBLIC_SOURCE_TYPES, SafeMistakeRecord
 from glite_english_audit.diagnostics.codes import Diagnostic
 
-MAX_NON_SYNTHETIC_EXAMPLE_WORDS = 15
+MAX_EXAMPLE_WORDS = 15
+
+# Ordinary English abbreviations written with an internal period. They match the
+# bare-domain shape and are excluded so prose is not read as a hostname.
+_ABBREVIATIONS_NOT_DOMAINS: frozenset[str] = frozenset(
+    {"et.al", "op.cit", "loc.cit", "sq.ft", "cu.ft", "sq.mi"}
+)
+
+# Directory names that make a slash-separated run a path rather than grammar
+# notation such as "he/she/it".
+_PATH_ROOT_TOKENS = (
+    "bin",
+    "build",
+    "config",
+    "dist",
+    "etc",
+    "lib",
+    "node_modules",
+    "opt",
+    "packages",
+    "scripts",
+    "src",
+    "srv",
+    "tmp",
+    "usr",
+    "var",
+    "vendor",
+)
 
 _URL = re.compile(
-    r"(?:https?://|www\.)\S+"
-    r"|\b[a-z0-9][a-z0-9-]*\.(?:com|org|net|io|ai|dev|co|app|edu|gov|uk|de|ru|fr)\b",
-    re.IGNORECASE,
+    # Scheme or www prefix: any case, any host.
+    r"(?i:(?:https?://|www\.)\S+)"
+    # Bare domain: any label plus any 2-24 letter TLD, not just a fixed list.
+    # Lowercase only, so an ordinary sentence run together with the next one
+    # ("the plan.We agreed") is not read as a domain.
+    r"|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,24}\b"
 )
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 _PHONE = re.compile(r"(?<!\w)\+?\d[\d\s().-]{6,}\d(?!\w)")
 _PATH = re.compile(
-    r"(?:^|\s)(?:~|/[\w.-]+/|[A-Za-z]:\\)[\w./\\-]*"
-    r"|\b[\w.-]+/[\w.-]+/[\w./-]+\b"
+    # Absolute, home-relative, or explicitly relative POSIX paths.
+    r"(?:^|(?<=[\s\"'(\[]))(?:~|\.{1,2})?/[\w.-]+(?:/[\w.-]+)*"
+    # Windows drive letters and UNC prefixes.
+    r"|\b[A-Za-z]:[\\/][\w.\\/-]*"
+    r"|\\\\[\w.-]+\\[\w.\\-]*"
+    # Slash-separated segments ending in a dotted file extension.
+    r"|\b[\w.-]+(?:/[\w.-]+)*/[\w-]+\.[A-Za-z0-9]{1,8}\b"
+    # Slash-separated segments rooted in a well-known directory name.
+    r"|\b(?:" + "|".join(_PATH_ROOT_TOKENS) + r")/[\w.-]+(?:/[\w.-]+)*",
+    re.MULTILINE,
 )
 _CREDENTIAL = re.compile(
     r"\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}"
@@ -40,7 +90,10 @@ _CREDENTIAL = re.compile(
 )
 _IDENTIFIER = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
-    r"|\b[0-9a-f]{16,}\b",
+    r"|\b[0-9a-f]{16,}\b"
+    # Short commit hashes: eight or more hex characters mixing digits and
+    # letters, which no ordinary English word does.
+    r"|\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b",
     re.IGNORECASE,
 )
 _CODE = re.compile(
@@ -57,7 +110,9 @@ _CODE = re.compile(
     re.MULTILINE,
 )
 _NUMBER = re.compile(
-    r"\d{4,}"  # any long digit run, including years
+    # Three digits already carry an exact user count, price, or metric; one and
+    # two digit numbers are ordinary English ("we waited 45 minutes").
+    r"\d{3,}"
     r"|\d+(?:[.,]\d+)+"  # decimals and thousand groups
     r"|\d+\s?%"
     r"|[$€£¥]\s?\d+"
@@ -65,12 +120,25 @@ _NUMBER = re.compile(
 )
 _CONTEXT_DEPENDENT = re.compile(
     r"\bin this (?:case|sentence|example|context)\b"
-    r"|\bhere\b"
-    r"|\babove\b"
     r"|\bthe example\b"
-    r"|\bthis (?:sentence|phrase|message)\b",
+    r"|\bthis (?:sentence|phrase|message)\b"
+    r"|\babove\b"
+    # Deictic 'here': leading a sentence, closing a clause, or introducing what
+    # the reader is supposed to be looking at. A rule *about* the adverb, as in
+    # "Place adverbs such as here and there after the verb", keeps 'here' inside
+    # the clause and stays self-contained.
+    r"|\bhere the\b"
+    r"|\b(?:as used|shown|written|used) here\b"
+    r"|(?:^|(?<=[.!?])\s+)here\b"
+    r"|\bhere\s*(?=[.,;:!?]|$)",
     re.IGNORECASE,
 )
+
+
+def _normalize(text: str) -> str:
+    """NFKC plus removal of every Unicode format character."""
+    folded = unicodedata.normalize("NFKC", text)
+    return "".join(char for char in folded if unicodedata.category(char) != "Cf")
 
 
 @dataclass(frozen=True)
@@ -78,10 +146,22 @@ class _PatternCheck:
     code: str
     pattern: re.Pattern[str]
     label: str
+    ignored_matches: frozenset[str] = frozenset()
+
+    def matches(self, text: str) -> bool:
+        return any(
+            found.group(0).lower() not in self.ignored_matches
+            for found in self.pattern.finditer(text)
+        )
 
 
 _CONTENT_CHECKS: tuple[_PatternCheck, ...] = (
-    _PatternCheck("PRIVACY_URL_PRESENT", _URL, "URL or domain"),
+    _PatternCheck(
+        "PRIVACY_URL_PRESENT",
+        _URL,
+        "URL or domain",
+        ignored_matches=_ABBREVIATIONS_NOT_DOMAINS,
+    ),
     _PatternCheck("PRIVACY_EMAIL_PRESENT", _EMAIL, "email address"),
     _PatternCheck("PRIVACY_CREDENTIAL_PATTERN", _CREDENTIAL, "credential-shaped token"),
     _PatternCheck("PRIVACY_IDENTIFIER_PRESENT", _IDENTIFIER, "identifier"),
@@ -99,8 +179,17 @@ def scan_text(text: str, *, item_ref: str | None = None) -> list[Diagnostic]:
     end up in logs, and logs must stay content-free.
     """
     diagnostics: list[Diagnostic] = []
+    normalized = _normalize(text)
+    if normalized != text:
+        diagnostics.append(
+            Diagnostic.from_code(
+                "PRIVACY_INVISIBLE_CHARACTER",
+                "invisible or non-canonical characters change this text under normalization",
+                item_ref=item_ref,
+            )
+        )
     for check in _CONTENT_CHECKS:
-        if check.pattern.search(text):
+        if check.matches(normalized):
             diagnostics.append(
                 Diagnostic.from_code(
                     check.code,
@@ -114,8 +203,8 @@ def scan_text(text: str, *, item_ref: str | None = None) -> list[Diagnostic]:
 def scan_safe_record(record: SafeMistakeRecord, *, item_ref: str | None = None) -> list[Diagnostic]:
     """Scan one privacy-safe mistake record with field-specific rules."""
     diagnostics: list[Diagnostic] = []
-    for field_name in ("mistake", "rule", "example"):
-        value = getattr(record, field_name)
+    for field_name in ("mistake", "rule", "example", "source_type"):
+        value: str = getattr(record, field_name)
         for diagnostic in scan_text(value, item_ref=item_ref):
             diagnostics.append(
                 Diagnostic(
@@ -126,7 +215,15 @@ def scan_safe_record(record: SafeMistakeRecord, *, item_ref: str | None = None) 
                     evidence_path=None,
                 )
             )
-    if _CONTEXT_DEPENDENT.search(record.rule):
+    if record.source_type not in PUBLIC_SOURCE_TYPES:
+        diagnostics.append(
+            Diagnostic.from_code(
+                "SCHEMA_INVALID_VALUE",
+                "source_type is not one of the stable public adapter IDs",
+                item_ref=item_ref,
+            )
+        )
+    if _CONTEXT_DEPENDENT.search(_normalize(record.rule)):
         diagnostics.append(
             Diagnostic.from_code(
                 "PRIVACY_CONTEXT_DEPENDENT_RULE",
@@ -134,15 +231,31 @@ def scan_safe_record(record: SafeMistakeRecord, *, item_ref: str | None = None) 
                 item_ref=item_ref,
             )
         )
-    if record.example_type.value != "synthetic":
-        word_count = len(record.example.split())
-        if word_count > MAX_NON_SYNTHETIC_EXAMPLE_WORDS:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "PRIVACY_LONG_SOURCE_PHRASE",
-                    f"a {record.example_type.value} example of {word_count} words exceeds the "
-                    f"limit of {MAX_NON_SYNTHETIC_EXAMPLE_WORDS}",
-                    item_ref=item_ref,
-                )
+    # The limit holds for every example_type. example_type is asserted by a
+    # skill, so exempting 'synthetic' would let one mislabel carry a long
+    # verbatim source phrase through (specification, 8.2).
+    word_count = len(record.example.split())
+    if word_count > MAX_EXAMPLE_WORDS:
+        diagnostics.append(
+            Diagnostic.from_code(
+                "PRIVACY_LONG_SOURCE_PHRASE",
+                f"an example of {word_count} words exceeds the limit of {MAX_EXAMPLE_WORDS}",
+                item_ref=item_ref,
             )
+        )
     return diagnostics
+
+
+def scan_version(value: str, *, item_ref: str | None = None) -> list[Diagnostic]:
+    """Scan one declared version string for content that is not a version.
+
+    ``PRIVACY_SUSPICIOUS_NUMBER`` is not applicable: a version is a dotted digit
+    run by definition. Every other pattern still applies, because a free-form
+    version field is otherwise a straight channel for a path, a session ID, or a
+    raw sentence (specification, 8.3).
+    """
+    return [
+        diagnostic
+        for diagnostic in scan_text(value, item_ref=item_ref)
+        if diagnostic.code != "PRIVACY_SUSPICIOUS_NUMBER"
+    ]

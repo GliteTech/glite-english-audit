@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     ExampleType,
@@ -106,15 +108,6 @@ def _safe_record(
     )
 
 
-def _zero_modality() -> ModalityCounts:
-    return ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
-    )
-
-
 def _audit_counts(
     *, shared: int, withheld_by_user: int, withheld_for_privacy: int = 0
 ) -> AuditCounts:
@@ -123,8 +116,18 @@ def _audit_counts(
         analyzed_english_words=80,
         eligible_utterances=10,
         analyzed_utterances=8,
-        written=_zero_modality(),
-        spoken_asr=_zero_modality(),
+        written=ModalityCounts(
+            eligible_words=60,
+            analyzed_words=50,
+            eligible_utterances=6,
+            analyzed_utterances=5,
+        ),
+        spoken_asr=ModalityCounts(
+            eligible_words=40,
+            analyzed_words=30,
+            eligible_utterances=4,
+            analyzed_utterances=3,
+        ),
         verified_total_mistakes=shared + withheld_by_user + withheld_for_privacy,
         shared_mistakes=shared,
         withheld_by_user=withheld_by_user,
@@ -241,6 +244,39 @@ def test_verify_submission_package_empty_records() -> None:
     sealed = draft.model_copy(update={"payload_hash": compute_payload_hash(draft)})
     diagnostics = verify_submission_package(sealed)
     assert _codes(diagnostics) == ["SUBMISSION_NO_RECORDS"]
+
+
+@pytest.mark.parametrize("field", ["producer_version", "privacy_verifier_version"])
+def test_verify_submission_package_flags_free_form_version(field: str) -> None:
+    # A package can reach the gate from disk or from another machine, so the
+    # gate re-checks the version fields instead of trusting the materializer.
+    leaky = "/Users/alice/work/acme-secret-merger  session 9f3a  raw: we ship on Tuesday"
+    tampered = _package().model_copy(update={field: leaky})
+    sealed = tampered.model_copy(update={"payload_hash": compute_payload_hash(tampered)})
+    diagnostics = verify_submission_package(sealed)
+    assert "SUBMISSION_FORBIDDEN_FIELD" in _codes(diagnostics)
+    for diagnostic in diagnostics:
+        assert "acme-secret-merger" not in diagnostic.message
+        assert "Tuesday" not in diagnostic.message
+
+
+def test_verify_submission_package_accepts_plain_versions() -> None:
+    package = _package().model_copy(
+        update={"producer_version": "1.4", "privacy_verifier_version": "2"}
+    )
+    sealed = package.model_copy(update={"payload_hash": compute_payload_hash(package)})
+    assert verify_submission_package(sealed) == []
+
+
+def test_verify_submission_package_flags_unknown_source_type() -> None:
+    leaky = "acme_health_oncology_billing_migration_q3_client_novartis"
+    package = _package()
+    record = package.records[0].model_copy(update={"source_type": leaky})
+    tampered = package.model_copy(update={"records": [record]})
+    sealed = tampered.model_copy(update={"payload_hash": compute_payload_hash(tampered)})
+    diagnostics = verify_submission_package(sealed)
+    assert "SCHEMA_INVALID_VALUE" in _codes(diagnostics)
+    assert all(leaky not in diagnostic.message for diagnostic in diagnostics)
 
 
 def test_verify_package_against_review_matches() -> None:

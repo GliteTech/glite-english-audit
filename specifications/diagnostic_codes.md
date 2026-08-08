@@ -64,6 +64,7 @@ Generated from the registry; a sync test fails when this table and the registry 
 | `PRIVACY_CREDENTIAL_PATTERN` | error | A token, key, or secret-shaped string appears in checked content. |
 | `PRIVACY_EMAIL_PRESENT` | error | An email address appears in content that must not contain one. |
 | `PRIVACY_IDENTIFIER_PRESENT` | error | A UUID, hash, account number, or similar identifier appears in checked content. |
+| `PRIVACY_INVISIBLE_CHARACTER` | error | Checked content changes under Unicode normalization, so what is displayed and what is stored differ. |
 | `PRIVACY_LONG_SOURCE_PHRASE` | error | A verbatim example exceeds the allowed source-phrase length. |
 | `PRIVACY_NAME_PRESENT` | error | A person, company, product, project, or place name appears in checked content. |
 | `PRIVACY_PATH_PRESENT` | error | A file or directory path appears in content that must not contain one. |

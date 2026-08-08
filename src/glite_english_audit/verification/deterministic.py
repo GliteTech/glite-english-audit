@@ -12,12 +12,15 @@ from glite_english_audit.artifacts.hashing import sha256_hex
 from glite_english_audit.artifacts.manifest import RunManifest
 from glite_english_audit.artifacts.models import ReviewedSubmissionArtifact
 from glite_english_audit.artifacts.submission import (
+    VERSION_PATTERN,
     SubmissionCounts,
     SubmissionPackage,
     verify_payload_hash,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.verification.privacy_scanner import scan_safe_record
+from glite_english_audit.verification.privacy_scanner import scan_safe_record, scan_version
+
+_VERSION_FIELDS = ("producer_version", "privacy_verifier_version")
 
 
 def verify_file_hash(path: Path, expected_sha256: str, *, item_ref: str) -> list[Diagnostic]:
@@ -93,6 +96,28 @@ def verify_submission_package(package: SubmissionPackage) -> list[Diagnostic]:
                 "the package contains no detailed mistake record",
             )
         )
+    # A package can arrive from disk or from another machine, so the gate
+    # re-checks the version fields instead of trusting whoever built it.
+    for field_name in _VERSION_FIELDS:
+        value: str = getattr(package, field_name)
+        if not VERSION_PATTERN.fullmatch(value):
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "SUBMISSION_FORBIDDEN_FIELD",
+                    f"{field_name} is not a plain version number",
+                    item_ref=field_name,
+                )
+            )
+        for diagnostic in scan_version(value, item_ref=field_name):
+            diagnostics.append(
+                Diagnostic(
+                    code=diagnostic.code,
+                    severity=diagnostic.severity,
+                    message=f"{diagnostic.message} (field: {field_name})",
+                    item_ref=field_name,
+                    evidence_path=None,
+                )
+            )
     for index, record in enumerate(package.records):
         diagnostics.extend(scan_safe_record(record, item_ref=f"records[{index}]"))
     return diagnostics

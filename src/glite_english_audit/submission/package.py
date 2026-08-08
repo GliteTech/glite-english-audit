@@ -12,6 +12,7 @@ from glite_english_audit.artifacts.hashing import new_recovery_secret, new_submi
 from glite_english_audit.artifacts.models import ReviewedSubmissionArtifact
 from glite_english_audit.artifacts.submission import (
     SUBMISSION_SCHEMA_VERSION,
+    VERSION_PATTERN,
     SubmissionCounts,
     SubmissionPackage,
     compute_payload_hash,
@@ -23,6 +24,7 @@ from glite_english_audit.verification.deterministic import (
 )
 
 _PLACEHOLDER_HASH = "0" * 64
+_FALLBACK_VERSION = "0"
 
 
 class MaterializationError(Exception):
@@ -32,6 +34,31 @@ class MaterializationError(Exception):
         details = "; ".join(f"{d.code}: {d.message}" for d in diagnostics)
         super().__init__(f"submission package failed its deterministic gate: {details}")
         self.diagnostics = diagnostics
+
+
+def _highest_version(versions: set[str], *, field_name: str) -> tuple[str, list[Diagnostic]]:
+    """The highest declared version, or a diagnostic for any non-version string.
+
+    The reviewed artifact carries versions asserted by the privacy skills, so
+    they are validated here before they can be copied into the package. Ordering
+    compares release components numerically: sorting the strings would rank
+    '1.10.0' below '1.9.0'.
+    """
+    invalid = [value for value in versions if not VERSION_PATTERN.fullmatch(value)]
+    if invalid:
+        # The offending value is never echoed: it is exactly the kind of string
+        # that carries a path, a session ID, or raw source text.
+        return _FALLBACK_VERSION, [
+            Diagnostic.from_code(
+                "SUBMISSION_FORBIDDEN_FIELD",
+                f"{len(invalid)} reviewed record version(s) are not plain version numbers",
+                item_ref=field_name,
+            )
+        ]
+    if not versions:
+        return _FALLBACK_VERSION, []
+    highest = max(versions, key=lambda value: tuple(int(part) for part in value.split(".")))
+    return highest, []
 
 
 def materialize_package(
@@ -48,10 +75,17 @@ def materialize_package(
     through a new reviewed artifact, which produces a new payload ID.
     """
     included = [entry for entry in reviewed.records if entry.included]
-    producer_versions = {entry.privacy_creator_version for entry in included}
-    verifier_versions = {entry.privacy_verifier_version for entry in included}
-    producer_version = max(producer_versions) if producer_versions else "0"
-    privacy_verifier_version = max(verifier_versions) if verifier_versions else "0"
+    producer_version, producer_diagnostics = _highest_version(
+        {entry.privacy_creator_version for entry in included},
+        field_name="producer_version",
+    )
+    privacy_verifier_version, verifier_diagnostics = _highest_version(
+        {entry.privacy_verifier_version for entry in included},
+        field_name="privacy_verifier_version",
+    )
+    version_diagnostics = producer_diagnostics + verifier_diagnostics
+    if version_diagnostics:
+        raise MaterializationError(version_diagnostics)
 
     unsigned = SubmissionPackage(
         submission_schema_version=SUBMISSION_SCHEMA_VERSION,

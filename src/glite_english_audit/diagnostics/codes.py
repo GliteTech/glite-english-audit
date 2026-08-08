@@ -342,6 +342,14 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         severity=Severity.ERROR,
         description="A run directory name differs from the run ID recorded in its own manifest.",
     ),
+    DiagnosticDefinition(
+        code="PRIVACY_INVISIBLE_CHARACTER",
+        severity=Severity.ERROR,
+        description=(
+            "Checked content changes under Unicode normalization, so what is displayed and "
+            "what is stored differ."
+        ),
+    ),
 )
 
 DIAGNOSTIC_DEFINITIONS: dict[str, DiagnosticDefinition] = {

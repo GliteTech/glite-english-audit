@@ -24,12 +24,21 @@ from glite_english_audit.submission.capability import SubmissionCapability
 _FAKE_TOKEN = "review-token-FAKE-EXAMPLE"
 
 
-def _zero_modality() -> ModalityCounts:
+def _written_modality() -> ModalityCounts:
     return ModalityCounts(
-        eligible_words=0,
-        analyzed_words=0,
-        eligible_utterances=0,
-        analyzed_utterances=0,
+        eligible_words=800,
+        analyzed_words=750,
+        eligible_utterances=60,
+        analyzed_utterances=55,
+    )
+
+
+def _spoken_modality() -> ModalityCounts:
+    return ModalityCounts(
+        eligible_words=400,
+        analyzed_words=350,
+        eligible_utterances=30,
+        analyzed_utterances=25,
     )
 
 
@@ -74,8 +83,8 @@ def _artifact() -> ReviewedSubmissionArtifact:
         analyzed_english_words=1100,
         eligible_utterances=90,
         analyzed_utterances=80,
-        written=_zero_modality(),
-        spoken_asr=_zero_modality(),
+        written=_written_modality(),
+        spoken_asr=_spoken_modality(),
         verified_total_mistakes=3,
         shared_mistakes=2,
         withheld_by_user=0,

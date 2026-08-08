@@ -1,21 +1,39 @@
 """Centralized filesystem locations for private runtime state.
 
-Persistent private run state lives outside the Git checkout (specification,
-3.6). Source snapshots are the deliberate exception and live under
-``<repository>/temp/runtime/<run-id>/snapshots/``; their safety checks live in
-:mod:`glite_english_audit.discovery.snapshot_safety`.
+Everything the audit writes lives inside the checkout, under the Git-ignored
+``temp/runtime/`` tree. One location rather than two means one thing to
+inspect, one thing to delete, and one cleanup path to verify. It also removes
+the failure the split design allowed: deleting the checkout used to orphan
+private run data in a per-user application directory, where it stayed
+indefinitely with nothing left pointing at it.
+
+Layout::
+
+    <repository>/temp/runtime/
+    ├── runs/<run-id>/
+    │   ├── run-manifest.json
+    │   ├── stages/<n>/
+    │   ├── logs/
+    │   ├── snapshots/        # copies of source data, removed after extraction
+    │   └── submission/
+    ├── calibration/
+    └── config/
+
+Two consequences to keep in mind. Git ignoring this tree is a convention, not
+a permission boundary, so the snapshot gates in
+:mod:`glite_english_audit.discovery.snapshot_safety` still ask Git whether the
+path is really ignored before writing source copies into it. And calibration
+history now belongs to the checkout, so a fresh clone starts without it.
 """
 
-import os
 import platform
 import re
 from pathlib import Path
 
 from glite_english_audit.artifacts.enums import OsEnvironment, StageId
 
-APP_DIR_NAME_MACOS = "Glite English Audit"
-APP_DIR_NAME_WINDOWS = "Glite English Audit"
-APP_DIR_NAME_XDG = "glite-english-audit"
+RUNTIME_DIR_NAME = "runtime"
+"""Subdirectory of ``temp/`` holding every private runtime artifact."""
 
 RUN_ID_PATTERN = re.compile(r"^run-[0-9a-f]{32}$")
 """The only accepted run-identifier shape, produced by ``new_run_id``."""
@@ -57,68 +75,55 @@ def detect_os_environment() -> OsEnvironment:
     raise RuntimeError(msg)
 
 
-def runtime_root(environment: OsEnvironment | None = None) -> Path:
-    """The per-user private runtime root for the given environment."""
-    env = environment if environment is not None else detect_os_environment()
-    if env is OsEnvironment.MACOS:
-        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME_MACOS
-    if env is OsEnvironment.WINDOWS:
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if not local_app_data:
-            msg = "LOCALAPPDATA is not set; cannot locate the Windows runtime root"
-            raise RuntimeError(msg)
-        return Path(local_app_data) / APP_DIR_NAME_WINDOWS
-    # WSL and native Linux both use XDG state on the Linux filesystem. WSL
-    # state must never live under /mnt/<drive> (specification, 3.6).
-    xdg_state = os.environ.get("XDG_STATE_HOME")
-    base = Path(xdg_state) if xdg_state else Path.home() / ".local" / "state"
-    return base / APP_DIR_NAME_XDG
-
-
-def runs_root(environment: OsEnvironment | None = None) -> Path:
-    """Directory holding one subdirectory per run."""
-    return runtime_root(environment) / "runs"
-
-
-def run_dir(run_id: str, environment: OsEnvironment | None = None) -> Path:
-    """Private state directory for one run."""
-    return runs_root(environment) / validate_run_id(run_id)
-
-
-def stage_dir(
-    run_id: str,
-    stage: StageId,
-    environment: OsEnvironment | None = None,
-    *,
-    root: Path | None = None,
-) -> Path:
-    """Directory holding one stage's current artifacts inside a run.
-
-    ``root`` overrides the runs root for tests.
-    """
-    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, environment)
-    return base / "stages" / str(int(stage))
-
-
-def endpoint_config_dir(environment: OsEnvironment | None = None) -> Path:
-    """Directory holding operator-provided endpoint configuration."""
-    return runtime_root(environment) / "config"
-
-
-def calibration_history_path(environment: OsEnvironment | None = None) -> Path:
-    """Numerical token-calibration history shared across runs on this machine."""
-    return runtime_root(environment) / "calibration" / "local-history.jsonl"
-
-
 def repo_root() -> Path:
     """The repository root, resolved from this file's location."""
     return Path(__file__).resolve().parent.parent.parent
 
 
-def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
-    """Repository-owned snapshot directory for one run (Git-ignored).
+def runtime_root(*, repo: Path | None = None) -> Path:
+    """The private runtime root inside the checkout.
 
     ``repo`` is injectable for tests; real runs use this repository.
     """
     base = repo if repo is not None else repo_root()
-    return base / "temp" / "runtime" / validate_run_id(run_id) / "snapshots"
+    return base / "temp" / RUNTIME_DIR_NAME
+
+
+def runs_root(*, repo: Path | None = None) -> Path:
+    """Directory holding one subdirectory per run."""
+    return runtime_root(repo=repo) / "runs"
+
+
+def run_dir(run_id: str, *, repo: Path | None = None) -> Path:
+    """Private state directory for one run."""
+    return runs_root(repo=repo) / validate_run_id(run_id)
+
+
+def stage_dir(
+    run_id: str,
+    stage: StageId,
+    *,
+    root: Path | None = None,
+    repo: Path | None = None,
+) -> Path:
+    """Directory holding one stage's current artifacts inside a run.
+
+    ``root`` overrides the runs root for tests.
+    """
+    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
+    return base / "stages" / str(int(stage))
+
+
+def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
+    """Snapshot directory for one run, inside that run's own directory."""
+    return run_dir(run_id, repo=repo) / "snapshots"
+
+
+def endpoint_config_dir(*, repo: Path | None = None) -> Path:
+    """Directory holding operator-provided endpoint configuration."""
+    return runtime_root(repo=repo) / "config"
+
+
+def calibration_history_path(*, repo: Path | None = None) -> Path:
+    """Numerical token-calibration history shared across runs in this checkout."""
+    return runtime_root(repo=repo) / "calibration" / "local-history.jsonl"

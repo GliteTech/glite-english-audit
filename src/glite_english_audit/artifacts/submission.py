@@ -26,6 +26,11 @@ _RECOVERY_SECRET_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SUBMISSION_ID_PATTERN = re.compile(r"^sub-[0-9a-f]{32}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
+# Producer and verifier versions are reported by local components, so the
+# package accepts only a dotted digit run. A free-form string here is a path,
+# session ID, or raw sentence on its way to Glite (specification, 8.3).
+VERSION_PATTERN = re.compile(r"^[0-9]+(\.[0-9]+)*$")
+
 
 class SubmissionCounts(BaseModel):
     """Anonymous denominator and mistake counts inside the package."""
@@ -120,6 +125,14 @@ class SubmissionPackage(BaseModel):
     def _payload_hash(cls, value: str) -> str:
         if not _SHA256_PATTERN.fullmatch(value):
             msg = "payload_hash must be a SHA-256 hex digest"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("producer_version", "privacy_verifier_version")
+    @classmethod
+    def _version(cls, value: str) -> str:
+        if not VERSION_PATTERN.fullmatch(value):
+            msg = "version fields must be dot-separated digits, such as '1.2.0'"
             raise ValueError(msg)
         return value
 
