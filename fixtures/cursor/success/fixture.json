@@ -1,7 +1,7 @@
 {
   "adapter_id": "cursor",
   "kind": "success",
-  "description": "G4 global bubble store with two eligible composers, flag-excluded bubbles, best-of-N and sub-composer exclusions, a workspace index, and denylisted credential decoys that must never be opened.",
+  "description": "G4 global bubble store with two eligible composers covering every rawness-gate branch (byte-exact, whitespace-only, mention-sigil, mentions to strip, missing richText, genuine divergence, unknown Lexical node), flag-excluded bubbles, best-of-N and sub-composer exclusions, a workspace index, and denylisted credential decoys that must never be opened.",
   "synthetic": true,
   "storage_variant": "g4-global-bubble-store"
 }

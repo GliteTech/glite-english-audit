@@ -284,8 +284,9 @@ unproven one.
 
 `@name` mention tokens are UI file references produced by an editor affordance, not authored
 prose: the user selects a file from a picker rather than composing the token. They are stripped
-from extracted text before analysis and never counted toward the spec 5.6 word denominator.
-Stripping happens after reconciliation (reconciliation needs the sigil to explain the residual).
+from extracted text before analysis and never counted toward the project-spec 5.6 word
+denominator. Stripping happens after reconciliation (reconciliation needs the sigil to explain
+the residual).
 Every utterance from which one or more mention tokens were removed carries the content flag
 `mention_stripped`.
 
@@ -321,7 +322,7 @@ E11 does not touch this question: a dictated prompt reaches the editor state and
 verbatim from it, so a verbatim reconciliation says nothing about what happened upstream of the
 prompt box.
 
-Therefore `modality` stays `written` under the spec 5.5 operational convention (coding-agent
+Therefore `modality` stays `written` under the project-spec 5.5 operational convention (coding-agent
 text not positively matched to a raw voice source is `written`). Some `written` Cursor text may
 in fact be machine-transcribed; this undisclosed contamination risk, together with the
 single-machine scope of E11, is why the adapter ships as beta and is never auto-selected.
@@ -480,8 +481,8 @@ Runs only against the snapshot. Emits `NormalizedUtterance` records (spec 4.4) w
 `written`, a source-path hash of the canonical original path, and text status assigned per
 bubble by the section 6.3 gate. Only bubbles that reconcile carry `verbatim` and analyzable
 text; `unknown` bubbles are emitted for counting with no analyzable text, so they cannot enter
-the default corpus (spec 4.4) and cannot inflate the spec 5.6 denominator. Mention tokens are
-stripped and flagged (section 5.5) after the gate has run.
+the default corpus (spec 4.4) and cannot inflate the project-spec 5.6 denominator. Mention
+tokens are stripped and flagged (section 5.5) after the gate has run.
 
 ### 8.4 verify()
 
@@ -537,7 +538,7 @@ and 8 below carry what remains.
 1. **Voice Mode marker:** whether a bubble created through native Voice Mode carries any
    distinguishing field (the tested store contains no known dictated bubble). E11 does not help:
    it proves faithful storage of the editor state, not the provenance of what reached the editor
-   (section 5.7). Required behavior now: modality `written` by the spec 5.5 convention, beta
+   (section 5.7). Required behavior now: modality `written` by the project-spec 5.5 convention, beta
    stability, adapter never auto-selected. Required follow-up before any stable promotion:
    generate dictated bubbles on a test install and re-inspect; if a marker exists, dictated
    bubbles must be excluded until the STT raw-vs-cleaned question is settled; if none exists, the

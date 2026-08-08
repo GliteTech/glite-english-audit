@@ -99,6 +99,8 @@ Generated from the registry; a sync test fails when this table and the registry 
 | `STATE_EXPIRED_INPUT` | warning | A private input required for resume passed the 30-day retention limit. |
 | `STATE_INVALID_TRANSITION` | error | A run or stage attempted a transition the state machine forbids. |
 | `STATE_RESUME_INCOMPATIBLE` | warning | A checkpoint fingerprint is incompatible with the current versions. |
+| `STATE_RUN_DIRECTORY_MISMATCH` | error | A run directory name differs from the run ID recorded in its own manifest. |
+| `STATE_RUN_ID_INVALID` | error | A run identifier does not match the required run- plus 32 hex digits form. |
 | `STATE_UNSAFE_CLEANUP_PATH` | error | A retention cleanup target failed path-safety checks, so cleanup stopped. |
 | `SUBMISSION_COUNT_MISMATCH` | error | Submission counts disagree with the reviewed submission artifact. |
 | `SUBMISSION_FORBIDDEN_FIELD` | error | The submission package contains a field outside the allowlist. |

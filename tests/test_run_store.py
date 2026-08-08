@@ -1,10 +1,12 @@
 """Run store: create/load, unfinished listing, resume policy, retention."""
 
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
@@ -49,12 +51,12 @@ def _fingerprint(**overrides: object) -> CompatibilityFingerprint:
     return CompatibilityFingerprint.model_validate(base)
 
 
-def _create(root: Path) -> RunManifest:
+def _create(root: Path, fingerprint: CompatibilityFingerprint | None = None) -> RunManifest:
     return create_run(
         AgentRuntime.CLAUDE_CODE,
         OsEnvironment.MACOS,
         ConsentState(consent_policy_version="1"),
-        _fingerprint(),
+        fingerprint if fingerprint is not None else _fingerprint(),
         root=root,
     )
 
@@ -87,9 +89,28 @@ def test_create_load_round_trip(tmp_path: Path) -> None:
 
 def test_load_missing_manifest_raises_with_diagnostic(tmp_path: Path) -> None:
     with pytest.raises(RunStoreError) as excinfo:
-        load_manifest("run-does-not-exist", root=tmp_path)
+        load_manifest("run-" + "e" * 32, root=tmp_path)
     assert excinfo.value.diagnostic is not None
     assert excinfo.value.diagnostic.code == "STATE_CHECKPOINT_CORRUPT"
+
+
+@pytest.mark.parametrize("run_id", ["run-does-not-exist", "../../victim", "/absolute", ""])
+def test_load_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
+    with pytest.raises(RunStoreError) as excinfo:
+        load_manifest(run_id, root=tmp_path)
+    assert excinfo.value.diagnostic is not None
+    assert excinfo.value.diagnostic.code == "STATE_RUN_ID_INVALID"
+
+
+def test_load_rejects_manifest_belonging_to_another_run(tmp_path: Path) -> None:
+    original = _create(tmp_path)
+    copy_id = "run-" + "a" * 32
+    shutil.copytree(tmp_path / original.run_id, tmp_path / copy_id)
+
+    with pytest.raises(RunStoreError) as excinfo:
+        load_manifest(copy_id, root=tmp_path)
+    assert excinfo.value.diagnostic is not None
+    assert excinfo.value.diagnostic.code == "STATE_RUN_DIRECTORY_MISMATCH"
 
 
 def test_load_corrupt_manifest_raises(tmp_path: Path) -> None:
@@ -119,7 +140,9 @@ def test_list_unfinished_reports_promotion_and_checkpoint_age(tmp_path: Path) ->
         StageStatus.VERIFIED_DETERMINISTIC,
         StageStatus.PROMOTED,
     ):
-        stage_state.status = advance_stage(stage_state.status, target)
+        stage_state.status = advance_stage(
+            stage_state.status, target, stage=StageId.SOURCE_INVENTORY
+        )
     checkpoint_at = _NOW - timedelta(hours=6)
     write_checkpoint(manifest, root=tmp_path, now=checkpoint_at)
 
@@ -186,6 +209,33 @@ def test_resume_restart_on_incompatible_change(
     assert assessment.decision is ResumeDecision.RESTART
 
 
+def test_resume_invalidates_from_safe_records_on_client_version_change(tmp_path: Path) -> None:
+    # A pure-Python change (for example a privacy-scanner fix) must not let a
+    # run keep SAFE_RECORDS and PRIVACY_APPROVED artifacts approved by the
+    # known-bad scanner (specification, 6.6).
+    manifest = _create(tmp_path, _fingerprint(client_version="0.0.1"))
+    write_checkpoint(manifest, root=tmp_path, now=_NOW)
+
+    assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
+    assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
+    assert assessment.earliest_affected_stage is StageId.SAFE_RECORDS
+
+
+def test_resume_records_the_running_client_version_by_default() -> None:
+    assert _fingerprint().client_version == CLIENT_VERSION
+
+
+def test_resume_client_change_never_widens_an_earlier_invalidation(tmp_path: Path) -> None:
+    manifest = _create(tmp_path, _fingerprint(client_version="0.0.1"))
+    write_checkpoint(manifest, root=tmp_path, now=_NOW)
+
+    assessment = describe_resume(
+        manifest, _fingerprint(skill_versions={"analyze-english-text": 2}), now=_NOW
+    )
+    assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
+    assert assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
+
+
 def test_resume_continues_at_twenty_nine_days(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
     write_checkpoint(manifest, root=tmp_path, now=_NOW - timedelta(days=29))
@@ -236,6 +286,52 @@ def test_expire_routes_processing_through_checkpointed(tmp_path: Path) -> None:
 
     assert expire_stale_runs(tmp_path, now=_NOW) == [manifest.run_id]
     assert load_manifest(manifest.run_id, root=tmp_path).status is RunStatus.EXPIRED
+
+
+def test_expire_stale_runs_expires_an_abandoned_review(tmp_path: Path) -> None:
+    # A user who closes the review tab leaves the run in REVIEW with stage 4-7
+    # artifacts containing raw source language. Retention must still apply.
+    manifest = _create(tmp_path)
+    _advance(manifest, *_TO_PROCESSING, RunStatus.REVIEW)
+    manifest.last_checkpoint_at = _NOW - timedelta(days=400)
+    save_manifest(manifest, root=tmp_path)
+    run_directory = tmp_path / manifest.run_id
+    (run_directory / "stages" / "findings.md").write_text("private source language", "utf-8")
+
+    assert expire_stale_runs(tmp_path, now=_NOW) == [manifest.run_id]
+    assert load_manifest(manifest.run_id, root=tmp_path).status is RunStatus.EXPIRED
+    assert not (run_directory / "stages").exists()
+    assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
+
+
+def test_expire_stale_runs_ignores_a_copied_run_directory(tmp_path: Path) -> None:
+    # A restored backup or copied directory must never expire the run whose ID
+    # its manifest carries: that would leave the original unresumable with its
+    # private artifacts still on disk.
+    original = _create(tmp_path)
+    write_checkpoint(original, root=tmp_path, now=_NOW - timedelta(days=1))
+    original_directory = tmp_path / original.run_id
+    (original_directory / "stages" / "private.json").write_text("{}", "utf-8")
+
+    copy_directory = tmp_path / ("run-" + "a" * 32)
+    shutil.copytree(original_directory, copy_directory)
+    stale = load_manifest(original.run_id, root=tmp_path)
+    stale.last_checkpoint_at = _NOW - timedelta(days=31)
+    (copy_directory / RUN_MANIFEST_FILENAME).write_text(
+        stale.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    assert expire_stale_runs(tmp_path, now=_NOW) == []
+    assert load_manifest(original.run_id, root=tmp_path).status is RunStatus.CREATED
+    assert (original_directory / "stages" / "private.json").is_file()
+
+
+def test_list_unfinished_skips_a_copied_run_directory(tmp_path: Path) -> None:
+    original = _create(tmp_path)
+    shutil.copytree(tmp_path / original.run_id, tmp_path / ("run-" + "a" * 32))
+
+    summaries = list_unfinished(tmp_path, now=_NOW)
+    assert [summary.run_id for summary in summaries] == [original.run_id]
 
 
 def test_expire_refuses_symlinked_stages_dir(tmp_path: Path) -> None:

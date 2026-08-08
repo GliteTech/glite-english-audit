@@ -1,5 +1,6 @@
 """Snapshot safety gates and manifest-bounded cleanup against a real Git repo."""
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -110,6 +111,21 @@ def test_cleanup_deletes_exactly_manifest_files(tmp_path: Path) -> None:
     assert (base / "keep.txt").exists()  # undeclared file untouched
 
 
+def test_cleanup_never_removes_a_directory_through_a_symlink(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    victim = tmp_path / "empty-real-dir"
+    victim.mkdir()
+    (base / "link-dir").symlink_to(victim, target_is_directory=True)
+    (base / "a.txt").write_bytes(b"synthetic")
+
+    deleted = cleanup_snapshot(_manifest([_entry("a.txt")]), _RUN_ID, repo=repo)
+
+    assert {path.name for path in deleted} == {"a.txt"}
+    assert victim.is_dir()
+    assert (base / "link-dir").is_symlink()
+
+
 def test_cleanup_tolerates_already_missing_files(tmp_path: Path) -> None:
     repo = _git_repo(tmp_path / "checkout")
     ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
@@ -155,3 +171,103 @@ def test_snapshot_entry_model_rejects_unbounded_paths() -> None:
         _entry("../escape.txt")
     with pytest.raises(ValueError, match="relative"):
         _entry("/absolute.txt")
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "..\\..\\etc\\passwd",
+        "sub\\..\\..\\escape.txt",
+        "\\windows-absolute.txt",
+        "C:/drive-absolute.txt",
+        "c:relative-to-drive.txt",
+        "\\\\server\\share\\file.txt",
+        "",
+        ".",
+    ],
+)
+def test_snapshot_entry_model_rejects_windows_unbounded_paths(relative_path: str) -> None:
+    # Windows is a supported platform: a backslash is a separator there, so
+    # '..\\..' escapes the snapshot directory exactly like '../..' on POSIX.
+    with pytest.raises(ValueError, match="relative"):
+        _entry(relative_path)
+
+
+def _victim_history(directory: Path) -> Path:
+    """A file standing in for real coding-agent history outside the snapshot."""
+    directory.mkdir(parents=True, exist_ok=True)
+    victim = directory / "history.jsonl"
+    victim.write_bytes(b"real coding-agent history")
+    return victim
+
+
+def test_cleanup_refuses_symlinked_snapshot_directory(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    victim = _victim_history(tmp_path / "real-history")
+    # A resumed run re-runs cleanup without re-running the creation gates.
+    base.rmdir()
+    base.symlink_to(victim.parent, target_is_directory=True)
+
+    manifest = _manifest([_entry("history.jsonl", b"real coding-agent history")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert victim.exists()
+
+
+def test_cleanup_refuses_symlinked_run_directory(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    victim = _victim_history(tmp_path / "real-history" / "snapshots")
+    run_directory = repo.resolve() / "temp" / "runtime" / _RUN_ID
+    shutil.rmtree(run_directory)
+    run_directory.symlink_to(victim.parent.parent, target_is_directory=True)
+
+    manifest = _manifest([_entry("history.jsonl", b"real coding-agent history")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert victim.exists()
+
+
+def test_cleanup_refuses_absolute_run_id(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    victim = _victim_history(tmp_path / "outside" / "snapshots")
+
+    manifest = _manifest([_entry("history.jsonl", b"real coding-agent history")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, str(tmp_path / "outside"), repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert victim.exists()
+
+
+def test_cleanup_refuses_traversing_run_id(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    victim = _victim_history(repo / "victim" / "snapshots")
+
+    manifest = _manifest([_entry("history.jsonl", b"real coding-agent history")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, "../../victim", repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert victim.exists()
+
+
+@pytest.mark.parametrize("run_id", ["../../victim", "run-not-hex", "RUN-" + "0" * 32, ""])
+def test_ensure_safe_snapshot_dir_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        ensure_safe_snapshot_dir(run_id, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+
+
+def test_cleanup_refuses_non_directory_base(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    base.rmdir()
+    base.write_bytes(b"not a directory")
+
+    manifest = _manifest([_entry("history.jsonl")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"

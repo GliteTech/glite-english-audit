@@ -79,24 +79,43 @@ def _check_git_ignored(root: Path, target: Path) -> None:
         )
 
 
-def ensure_safe_snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
-    """Validate and create the snapshot directory for one run.
+def _gated_snapshot_dir(run_id: str, repo: Path | None) -> tuple[Path, Path]:
+    """Return the repository root and the gated snapshot path for one run.
 
-    Gates, in order: the resolved path must sit inside this repository's
-    ``temp/runtime`` tree; no component between the repository root and the
-    target may be a symlink; the repository must not live under a known
-    cloud-synced root; and Git must confirm the path is ignored.
-
-    ``repo`` is injectable for tests; real runs use this repository.
+    Gates: the run ID must be well formed, because pathlib joins an absolute or
+    ``..``-traversing ID away from the repository; the resolved target must sit
+    inside this repository's ``temp/runtime`` tree; and no component between
+    the repository root and the target may be a symlink, so a planted link
+    cannot make foreign files look contained.
     """
     root = (repo if repo is not None else repo_root()).resolve()
-    target = snapshot_dir(run_id, repo=root)
+    try:
+        target = snapshot_dir(run_id, repo=root)
+    except ValueError as error:
+        raise _fail(
+            "SOURCE_SNAPSHOT_UNSAFE_PATH",
+            f"snapshot run identifier is not well formed: {run_id!r}",
+        ) from error
     expected_tree = (root / "temp" / "runtime").resolve()
     if not target.resolve().is_relative_to(expected_tree):
         raise _fail(
             "SOURCE_SNAPSHOT_UNSAFE_PATH",
             "snapshot target resolved outside the repository-owned temp/runtime tree",
         )
+    _check_no_symlink_components(root, target)
+    return root, target
+
+
+def ensure_safe_snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
+    """Validate and create the snapshot directory for one run.
+
+    Gates, in order: the run ID, containment, and symlink checks of
+    :func:`_gated_snapshot_dir`; the repository must not live under a known
+    cloud-synced root; and Git must confirm the path is ignored.
+
+    ``repo`` is injectable for tests; real runs use this repository.
+    """
+    root, target = _gated_snapshot_dir(run_id, repo)
     _check_not_synced_root(root)
     _check_git_ignored(root, target)
     target.mkdir(parents=True, exist_ok=True)
@@ -109,11 +128,22 @@ def cleanup_snapshot(
 ) -> list[Path]:
     """Delete exactly the files listed in ``manifest`` for this run.
 
-    Returns the deleted paths. Refuses unbounded paths, symlinks, and anything
-    that resolves outside the run's snapshot directory. Never touches source
-    application data: it only ever operates under ``temp/runtime``.
+    Returns the deleted paths. Re-runs the path gates first: a resumed run
+    reaches cleanup without passing through :func:`ensure_safe_snapshot_dir`
+    again, so the run ID, containment, and symlink checks must hold here too.
+    Refuses unbounded paths, symlinks, and anything that resolves outside the
+    run's snapshot directory. Never touches source application data: it only
+    ever operates under ``temp/runtime``.
     """
-    base = snapshot_dir(run_id, repo=repo).resolve()
+    _, gated = _gated_snapshot_dir(run_id, repo)
+    if gated.exists() and not gated.is_dir():
+        raise _fail(
+            "SOURCE_SNAPSHOT_UNSAFE_PATH",
+            "snapshot base is not a directory",
+        )
+    base = gated.resolve()
+    if not gated.exists():
+        return []
     deleted: list[Path] = []
     for entry in manifest.files:
         unresolved = base / entry.relative_path
@@ -134,11 +164,14 @@ def cleanup_snapshot(
             candidate.unlink()
             deleted.append(candidate)
     # Remove now-empty directories bottom-up, staying inside the snapshot dir.
-    for directory in sorted(
-        (p for p in base.rglob("*") if p.is_dir()),
-        key=lambda p: len(p.parts),
-        reverse=True,
-    ):
+    # A symlinked directory, or one reached through a symlinked parent, is
+    # skipped: rmdir through a link removes a directory outside the tree.
+    directories = [
+        path
+        for path in base.rglob("*")
+        if path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(base)
+    ]
+    for directory in sorted(directories, key=lambda p: len(p.parts), reverse=True):
         if not any(directory.iterdir()):
             directory.rmdir()
     return deleted

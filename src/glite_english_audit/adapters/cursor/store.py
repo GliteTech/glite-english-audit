@@ -1,11 +1,15 @@
-"""Cursor global-store access and G4 record classification.
+"""Cursor global-store access, G4 record classification, and the rawness gate.
 
-Implements the storage-generation detection, composer eligibility, and bubble
-inclusion rules from ``specifications/sources/cursor.md`` (sections 2, 4, and
-6) against one ``state.vscdb`` SQLite key-value store. Every read goes through
+Implements the storage-generation detection, composer eligibility, bubble
+inclusion, and per-bubble reconciliation rules from
+``specifications/sources/cursor.md`` (sections 2, 4, 5, and 6) against one
+``state.vscdb`` SQLite key-value store. Every read goes through
 :class:`StateDatabase`, which enforces the section 3 key allowlist before
-executing any SQL and reports each access to an audit callback. Aggregates
-only: no function here returns, prints, or stores source text.
+executing any SQL and reports each access to an audit callback.
+
+Discovery scans return aggregates only. Bubble text is retained solely when a
+caller passes ``collect_text=True``, which extraction does against a snapshot;
+discovery never does, so no discovery path can return or log source text.
 """
 
 import json
@@ -17,6 +21,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
+from glite_english_audit.adapters.cursor.lexical import GateResult, TextGate, reconcile
 from glite_english_audit.normalization.tokenizer import count_words
 
 COMPOSER_PREFIX = "composerData:"
@@ -41,6 +46,17 @@ BUBBLE_TYPE_USER = 1
 # Mirrors the claude_code adapter: prompts longer than this carry a
 # possible-paste flag so normalization can quarantine them (spec 6.2).
 PASTE_LENGTH_THRESHOLD = 2000
+
+# Spec 6.3: the post-sigil residual observed in E11 is ~0%. A quarter of an
+# instance's editor states failing to reconcile means the store no longer
+# behaves like the proven variant, so it falls to unsupported schema rather
+# than quietly emitting a shrinking corpus.
+MISMATCH_DRIFT_SHARE_DENOMINATOR = 4
+
+# Content flags carried on extracted utterances (spec 6.3).
+FLAG_MENTION_STRIPPED = "mention_stripped"
+FLAG_POSSIBLE_PASTE = "possible_paste"
+FLAG_UNKNOWN_LEXICAL_NODE = "unknown_lexical_node"
 
 # Spec 8.4: these tags in bubble text would mean request-context leaked into
 # the composer buffer, i.e. a schema change; the instance fails closed.
@@ -258,52 +274,37 @@ def parse_composer(key: str, raw: str) -> ComposerRecord:
     )
 
 
+def _no_editor_state() -> GateResult:
+    return GateResult(
+        gate=TextGate.NO_EDITOR_STATE, text="", mention_stripped=False, unknown_nodes=False
+    )
+
+
 @dataclass(frozen=True)
 class BubbleRecord:
-    """One parsed ``bubbleId:`` row. ``text`` is dropped after aggregation."""
+    """One parsed ``bubbleId:`` row.
+
+    ``text`` is the stored prompt used for inventory counting; ``gate`` holds
+    the spec 6.3 verdict and the mention-stripped text a reconciled bubble may
+    contribute. Both are dropped after aggregation unless the caller collects.
+    """
 
     outcome: BubbleOutcome
     version: int | None = None
     text: str = ""
     created_at: datetime | None = None
     possible_paste: bool = False
-    fidelity: str = "unchecked"
+    gate: GateResult = field(default_factory=_no_editor_state)
 
-
-def _collect_lexical_texts(node: object, found: list[str]) -> None:
-    if not isinstance(node, dict):
-        return
-    text = node.get("text")
-    if isinstance(text, str):
-        found.append(text)
-    children = node.get("children")
-    if isinstance(children, list):
-        for child in children:
-            _collect_lexical_texts(child, found)
-
-
-def check_richtext_fidelity(text: str, rich_text: object) -> str:
-    """Spec 8.4 cross-check: ``text`` against the Lexical tree's text nodes.
-
-    Returns ``match``, ``mismatch``, or ``unchecked``. Whitespace-normalized
-    equality or containment counts as a match (mention chips and code fences
-    serialize differently, spec section 5).
-    """
-    if not isinstance(rich_text, str) or not rich_text.strip():
-        return "unchecked"
-    try:
-        tree = json.loads(rich_text)
-    except ValueError:
-        return "unchecked"
-    if not isinstance(tree, dict):
-        return "unchecked"
-    nodes: list[str] = []
-    _collect_lexical_texts(tree.get("root"), nodes)
-    joined = " ".join(" ".join(nodes).split())
-    plain = " ".join(text.split())
-    if not joined:
-        return "mismatch"
-    return "match" if (plain == joined or plain in joined) else "mismatch"
+    def content_flags(self) -> tuple[str, ...]:
+        flags: list[str] = []
+        if self.gate.mention_stripped:
+            flags.append(FLAG_MENTION_STRIPPED)
+        if self.possible_paste:
+            flags.append(FLAG_POSSIBLE_PASTE)
+        if self.gate.unknown_nodes:
+            flags.append(FLAG_UNKNOWN_LEXICAL_NODE)
+        return tuple(sorted(flags))
 
 
 def parse_bubble(raw: str) -> BubbleRecord:
@@ -338,13 +339,28 @@ def parse_bubble(raw: str) -> BubbleRecord:
         text=text,
         created_at=parse_iso_timestamp(payload.get("createdAt")),
         possible_paste=len(text) > PASTE_LENGTH_THRESHOLD,
-        fidelity=check_richtext_fidelity(text, payload.get("richText")),
+        gate=reconcile(text, payload.get("richText")),
     )
+
+
+@dataclass(frozen=True)
+class ExtractedBubble:
+    """One reconciled bubble's analyzable text and its identity (spec 6.3)."""
+
+    composer_id: str
+    bubble_id: str
+    text: str
+    created_at: datetime | None
+    content_flags: tuple[str, ...]
 
 
 @dataclass
 class GlobalStoreScan:
-    """Aggregate result of scanning one global store. Counts only, no text."""
+    """Aggregate result of scanning one global store.
+
+    Counts only, except for ``extracted``, which stays empty unless the caller
+    asked for text collection.
+    """
 
     composers_total: int = 0
     composers_g4: int = 0
@@ -368,16 +384,31 @@ class GlobalStoreScan:
     excluded_skip_rendering: int = 0
     excluded_empty: int = 0
     wrapper_leaks: int = 0
-    fidelity_checked: int = 0
-    fidelity_mismatches: int = 0
     possible_paste: int = 0
+    # Spec 6.3 gate outcomes; these three sum to bubbles_kept.
+    gate_verbatim: int = 0
+    gate_no_editor_state: int = 0
+    gate_projection_mismatch: int = 0
+    # Which comparison admitted each reconciled bubble (spec 5.3 buckets).
+    gate_exact: int = 0
+    gate_whitespace_normalized: int = 0
+    gate_mention_sigil: int = 0
+    mention_stripped_bubbles: int = 0
+    unknown_node_bubbles: int = 0
+    mention_only_bubbles: int = 0
+    # Inventory: every bubble passing spec 6.2, regardless of the gate.
     candidate_messages: int = 0
     candidate_words: int = 0
     candidate_bytes: int = 0
+    # Analyzable: the reconciled subset that still carries words.
+    analyzable_messages: int = 0
+    analyzable_words: int = 0
+    analyzable_bytes: int = 0
     earliest: datetime | None = None
     latest: datetime | None = None
     composer_versions: set[int] = field(default_factory=set)
     bubble_versions: set[int] = field(default_factory=set)
+    extracted: list[ExtractedBubble] = field(default_factory=list)
 
     @property
     def malformed_bubbles_over_threshold(self) -> bool:
@@ -389,6 +420,27 @@ class GlobalStoreScan:
         """Spec 6.2.2: unknown bubble revisions dominating the instance."""
         return (
             self.bubbles_fetched > 0 and self.bubbles_unsupported_version * 2 > self.bubbles_fetched
+        )
+
+    @property
+    def gate_checked(self) -> int:
+        """Bubbles that had a usable editor state to reconcile against."""
+        return self.gate_verbatim + self.gate_projection_mismatch
+
+    @property
+    def projection_mismatch_over_threshold(self) -> bool:
+        """Spec 6.3: divergence far above the E11 residual is schema drift."""
+        return (
+            self.gate_checked > 0
+            and self.gate_projection_mismatch * MISMATCH_DRIFT_SHARE_DENOMINATOR > self.gate_checked
+        )
+
+    @property
+    def gate_counters_consistent(self) -> bool:
+        """Spec 8.4: the gate's three outcomes account for every candidate."""
+        return (
+            self.gate_verbatim + self.gate_no_editor_state + self.gate_projection_mismatch
+            == self.bubbles_kept
         )
 
 
@@ -404,22 +456,73 @@ _BUBBLE_OUTCOME_COUNTERS: dict[BubbleOutcome, str] = {
 }
 
 
+_GATE_BRANCH_COUNTERS: dict[TextGate, str] = {
+    TextGate.VERBATIM_EXACT: "gate_exact",
+    TextGate.VERBATIM_WHITESPACE: "gate_whitespace_normalized",
+    TextGate.VERBATIM_MENTION_SIGIL: "gate_mention_sigil",
+}
+
+
+def _apply_gate(
+    composer: ComposerRecord,
+    bubble_id: str,
+    record: BubbleRecord,
+    scan: GlobalStoreScan,
+    *,
+    collect_text: bool,
+) -> None:
+    """Spec 6.3: inclusion already passed, so decide what the bubble carries."""
+    gate = record.gate
+    if gate.unknown_nodes:
+        scan.unknown_node_bubbles += 1
+    if gate.gate is TextGate.NO_EDITOR_STATE:
+        scan.gate_no_editor_state += 1
+        return
+    if gate.gate is TextGate.PROJECTION_MISMATCH:
+        scan.gate_projection_mismatch += 1
+        return
+    scan.gate_verbatim += 1
+    setattr(
+        scan, _GATE_BRANCH_COUNTERS[gate.gate], getattr(scan, _GATE_BRANCH_COUNTERS[gate.gate]) + 1
+    )
+    if gate.mention_stripped:
+        scan.mention_stripped_bubbles += 1
+    if not gate.text.strip():
+        # Spec 5.5 stripping consumed the whole prompt: nothing authored is
+        # left, so the bubble stays in inventory and analyzes nothing.
+        scan.mention_only_bubbles += 1
+        return
+    scan.analyzable_messages += 1
+    scan.analyzable_words += count_words(gate.text)
+    scan.analyzable_bytes += len(gate.text.encode("utf-8"))
+    if collect_text:
+        scan.extracted.append(
+            ExtractedBubble(
+                composer_id=composer.composer_id,
+                bubble_id=bubble_id,
+                text=gate.text,
+                created_at=record.created_at or composer.created_at,
+                content_flags=record.content_flags(),
+            )
+        )
+
+
 def _scan_composer_bubbles(
-    db: StateDatabase, composer: ComposerRecord, scan: GlobalStoreScan
+    db: StateDatabase, composer: ComposerRecord, scan: GlobalStoreScan, *, collect_text: bool
 ) -> None:
     references = composer.user_bubble_ids
     scan.bubbles_referenced += len(references)
-    fetched: list[BubbleRecord] = []
+    fetched: list[tuple[str, BubbleRecord]] = []
     missing = 0
     for bubble_id in references:
         raw = db.kv_value(f"{BUBBLE_PREFIX}{composer.composer_id}:{bubble_id}")
         if raw is None:
             missing += 1
             continue
-        fetched.append(parse_bubble(raw))
+        fetched.append((bubble_id, parse_bubble(raw)))
     scan.bubbles_missing += missing
     scan.bubbles_fetched += len(fetched)
-    for record in fetched:
+    for _, record in fetched:
         if record.version is not None:
             scan.bubble_versions.add(record.version)
         counter = _BUBBLE_OUTCOME_COUNTERS.get(record.outcome)
@@ -431,7 +534,7 @@ def _scan_composer_bubbles(
         scan.composers_missing_bubbles += 1
         return
     scan.composers_g4_eligible += 1
-    for record in fetched:
+    for bubble_id, record in fetched:
         if record.outcome is not BubbleOutcome.KEPT:
             continue
         scan.bubbles_kept += 1
@@ -440,10 +543,7 @@ def _scan_composer_bubbles(
         scan.candidate_bytes += len(record.text.encode("utf-8"))
         if record.possible_paste:
             scan.possible_paste += 1
-        if record.fidelity != "unchecked":
-            scan.fidelity_checked += 1
-            if record.fidelity == "mismatch":
-                scan.fidelity_mismatches += 1
+        _apply_gate(composer, bubble_id, record, scan, collect_text=collect_text)
         timestamp = record.created_at or composer.created_at
         if timestamp is not None:
             if scan.earliest is None or timestamp < scan.earliest:
@@ -452,9 +552,14 @@ def _scan_composer_bubbles(
                 scan.latest = timestamp
 
 
-def scan_global_store(db: StateDatabase) -> GlobalStoreScan:
+def scan_global_store(db: StateDatabase, *, collect_text: bool = False) -> GlobalStoreScan:
     """Scan one global store per spec 8.1: composers first, then only the
-    ``type == 1`` bubble rows by exact key, never the assistant rows."""
+    ``type == 1`` bubble rows by exact key, never the assistant rows.
+
+    ``collect_text`` retains the reconciled, mention-stripped text of each
+    analyzable bubble. Discovery must leave it off (spec 8.1: discovery never
+    returns text); extraction turns it on against a snapshot.
+    """
     scan = GlobalStoreScan()
     composers = [parse_composer(key, raw) for key, raw in db.kv_items(COMPOSER_PREFIX)]
     known_sub_ids = {sub_id for composer in composers for sub_id in composer.sub_composer_ids}
@@ -483,7 +588,7 @@ def scan_global_store(db: StateDatabase) -> GlobalStoreScan:
         if composer.composer_id in known_sub_ids:
             scan.excluded_sub_composer += 1
             continue
-        _scan_composer_bubbles(db, composer, scan)
+        _scan_composer_bubbles(db, composer, scan, collect_text=collect_text)
     return scan
 
 

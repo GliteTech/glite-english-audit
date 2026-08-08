@@ -9,6 +9,7 @@ goes through the separate submission models, which strip it.
 
 import re
 from datetime import datetime
+from pathlib import PurePosixPath, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -134,9 +135,15 @@ class SnapshotFileEntry(BaseModel):
     @field_validator("relative_path")
     @classmethod
     def _relative(cls, value: str) -> str:
-        if value.startswith(("/", "\\")) or ".." in value.split("/"):
-            msg = f"snapshot entry path must be relative and contained: {value!r}"
-            raise ValueError(msg)
+        # Checked under both path flavours because Windows is a supported
+        # platform: there a backslash separates components and a drive letter
+        # or UNC prefix makes the path absolute, so '..\\..' escapes exactly
+        # like '../..' does on POSIX.
+        msg = f"snapshot entry path must be relative and contained: {value!r}"
+        for flavour in (PurePosixPath, PureWindowsPath):
+            pure = flavour(value)
+            if pure.anchor or pure.drive or ".." in pure.parts or not pure.parts:
+                raise ValueError(msg)
         return value
 
 

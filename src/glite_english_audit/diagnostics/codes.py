@@ -332,6 +332,16 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         severity=Severity.ERROR,
         description="A local file referenced by a skill does not exist in the repository.",
     ),
+    DiagnosticDefinition(
+        code="STATE_RUN_ID_INVALID",
+        severity=Severity.ERROR,
+        description="A run identifier does not match the required run- plus 32 hex digits form.",
+    ),
+    DiagnosticDefinition(
+        code="STATE_RUN_DIRECTORY_MISMATCH",
+        severity=Severity.ERROR,
+        description="A run directory name differs from the run ID recorded in its own manifest.",
+    ),
 )
 
 DIAGNOSTIC_DEFINITIONS: dict[str, DiagnosticDefinition] = {

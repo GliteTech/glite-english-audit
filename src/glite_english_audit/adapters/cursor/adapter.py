@@ -1,12 +1,17 @@
-"""The Cursor IDE source adapter (beta, inventory only).
+"""The Cursor IDE source adapter (beta).
 
 Implements ``specifications/sources/cursor.md`` for the verified macOS G4
 global bubble store: discovery opens the live ``state.vscdb`` read-only for
 aggregate counting, snapshotting uses the SQLite backup API, and extraction
-scans the snapshot for count verification but yields no utterances. Cursor's
-rawness is unknown (native Voice Mode, spec section 5 and 10.1), so under
-project specification 4.7 the adapter inventories chat data — counts and date
-ranges — and contributes no analyzable text while it remains beta.
+runs the section 6.3 rawness gate against the snapshot.
+
+Evidence E11 proved that the tested variant stores the prompt verbatim, so
+each user bubble is reconciled individually against its ``richText`` editor
+state: a bubble whose stored text matches the projection is ``verbatim`` and
+contributes text; every other bubble stays in the inventory counts and
+contributes none. The proof covers macOS, G4, composer ``_v`` 10-16, bubble
+``_v`` 3 and nothing else, so every other platform and generation remains
+inventory-only. Stability stays beta: the adapter is never auto-selected.
 
 The adapter opens only ``globalStorage/state.vscdb``,
 ``workspaceStorage/<hash>/state.vscdb``, and
@@ -23,7 +28,7 @@ import stat
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from glite_english_audit.adapters.cursor.store import (
@@ -38,7 +43,13 @@ from glite_english_audit.adapters.cursor.store import (
     parse_workspace_index,
     scan_global_store,
 )
-from glite_english_audit.artifacts.enums import Accessibility, OsEnvironment, Stability
+from glite_english_audit.artifacts.enums import (
+    Accessibility,
+    Modality,
+    OsEnvironment,
+    Stability,
+    TextStatus,
+)
 from glite_english_audit.artifacts.io import ensure_private_dir
 from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
@@ -54,7 +65,7 @@ from glite_english_audit.discovery.base import (
 )
 
 ADAPTER_ID = "cursor"
-ADAPTER_VERSION = "0.1.0"
+ADAPTER_VERSION = "0.2.0"
 PRODUCER_VERSION = ADAPTER_VERSION
 
 _HUMAN_NAME = "Cursor"
@@ -62,9 +73,18 @@ _STORAGE_FORMAT = "sqlite"
 _SNAPSHOT_META_NAME = "cursor-snapshot-meta.json"
 _GLOBAL_DB_RELATIVE = "globalStorage/state.vscdb"
 
-# Spec 4.7 (project) and cursor spec sections 5/10.1: rawness is unknown, so
-# the beta adapter records this reason instead of emitting any utterance.
-BETA_NO_TEXT_REASON = "beta_rawness_unknown_no_analyzable_text"
+# Why an extraction contributed what it did; recorded in the snapshot metadata
+# and the extraction stats (spec sections 5.4 and 5.8).
+RECONCILED_TEXT_REASON = "macos_g4_richtext_reconciled_verbatim_only"
+UNPROVEN_VARIANT_REASON = "unproven_variant_inventory_only_no_analyzable_text"
+PROJECTION_DRIFT_REASON = "projection_mismatch_over_threshold_no_analyzable_text"
+
+# Spec 5.4/6.3: reconciliation is the whole authorship-plus-rawness basis for a
+# Cursor utterance, so it is named in every record it admits.
+AUTHORSHIP_BASIS = "explicit_user_role_type1+richtext_reconciled"
+# Contamination (spec 5.6) is handled by the shared authorship filter, not
+# here; this stays below the claude_code origin-confirmed value on purpose.
+AUTHORSHIP_CONFIDENCE = 0.9
 
 # Names the adapter must never open (spec section 3). Enumeration is
 # allowlist-only (exactly three file names), so this set is defense in depth
@@ -113,6 +133,8 @@ _FREE_SPACE_MARGIN_BYTES = 64 << 20
 _HASH_CHUNK_BYTES = 1 << 20
 _POSIX_MODE_FILE = stat.S_IRUSR | stat.S_IWUSR
 
+_EARLIEST_PLAUSIBLE = datetime(2020, 1, 1, tzinfo=UTC)
+
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -146,10 +168,12 @@ class CursorInventoryStats:
 
 @dataclass(frozen=True)
 class CursorExtractionStats:
-    """Why extraction emitted nothing, plus the snapshot re-scan counts."""
+    """What extraction emitted and why, plus the snapshot re-scan counts."""
 
     reason: str
     scan: GlobalStoreScan | None
+    utterance_count: int = 0
+    proven_variant: bool = False
 
 
 @dataclass(frozen=True)
@@ -216,6 +240,21 @@ def _fingerprint(stats: CursorInventoryStats) -> str:
     return ";".join(parts)
 
 
+def _is_proven_variant(instance: SourceInstanceRecord) -> bool:
+    """Spec 5.4/5.8: reconciliation runs only inside the proven variant.
+
+    The E11 proof covers macOS, G4, composer ``_v`` 10-16 and bubble ``_v`` 3.
+    The per-record version checks live in the store scan; what cannot be
+    feature-detected from a record is the platform, so it is checked here.
+    Equivalence is never inferred for Windows, Linux, WSL, or a remote store,
+    however plausible the shared Electron codebase makes it.
+    """
+    return (
+        instance.os_environment is OsEnvironment.MACOS
+        and instance.accessibility is Accessibility.FOUND
+    )
+
+
 def _legacy_material_present(stats: CursorInventoryStats) -> bool:
     scan = stats.scan
     in_store = scan is not None and (
@@ -240,6 +279,9 @@ class CursorAdapter:
         self._key_audit: list[tuple[str, str]] = []
         self._inventory_stats: dict[str, CursorInventoryStats] = {}
         self._extraction_stats: dict[str, CursorExtractionStats] = {}
+        # utterance ID -> SHA-256 of the text extraction produced, so verify()
+        # can re-check every record without holding source text.
+        self._expected_digests: dict[str, dict[str, str]] = {}
 
     @property
     def adapter_id(self) -> str:
@@ -508,6 +550,9 @@ class CursorAdapter:
             scan.malformed_bubbles_over_threshold
             or scan.unsupported_bubbles_dominate
             or scan.wrapper_leaks > 0
+            # Spec 6.3: a store whose editor states stop reconciling is no
+            # longer the proven variant, whatever its version fields say.
+            or scan.projection_mismatch_over_threshold
             or (scan.composers_total > 0 and scan.composers_g4 == 0)
             or (scan.composers_total == 0 and _legacy_material_present(stats))
         )
@@ -611,7 +656,7 @@ class CursorAdapter:
 
         payload = json.dumps(
             {
-                "reason": BETA_NO_TEXT_REASON,
+                "extraction_policy": RECONCILED_TEXT_REASON,
                 "source_path_hashes": source_hashes,
                 "workspace_folder_hashes": workspace_hashes,
             },
@@ -696,31 +741,87 @@ class CursorAdapter:
         instance: SourceInstanceRecord,
         snapshot_dir: Path,
     ) -> Iterator[NormalizedUtterance]:
-        """Scan the snapshot for count verification; contribute no text.
+        """Yield the reconciled bubbles of a proven-variant snapshot.
 
-        Cursor is beta because rawness is unknown (spec sections 5 and 10.1);
-        under project specification 4.7 an unknown variant may be inventoried
-        but contributes no analyzable text, so this always yields nothing.
+        Only macOS G4 instances run the section 6.3 gate; every other platform
+        or generation is inventoried and yields nothing (spec 5.8). Within a
+        proven instance, a bubble contributes text only when its stored prompt
+        reconciles with its editor-state projection.
         """
-        scan: GlobalStoreScan | None = None
-        snapshot_db = snapshot_dir / "globalStorage" / "state.vscdb"
-        if snapshot_db.is_file():
-            try:
-                database = self._open_state_db(snapshot_db)
-            except sqlite3.Error:
-                database = None
-            if database is not None:
-                try:
-                    if database.table_names() >= REQUIRED_TABLES:
-                        scan = scan_global_store(database)
-                except sqlite3.DatabaseError:
-                    scan = None
-                finally:
-                    database.close()
+        proven = _is_proven_variant(instance)
+        scan = self._scan_snapshot(snapshot_dir, collect_text=proven)
+        drifted = scan is not None and scan.projection_mismatch_over_threshold
+        emit = proven and scan is not None and not drifted
+        source_path_hash = self._snapshot_source_hash(snapshot_dir) or instance.path_hash
+        digests: dict[str, str] = {}
+        if emit and scan is not None:
+            for bubble in scan.extracted:
+                session_hash = _hash_text(bubble.composer_id)
+                utterance_id = f"{ADAPTER_ID}-{session_hash[:16]}-{bubble.bubble_id}"
+                digests[utterance_id] = _hash_text(bubble.text)
+                yield NormalizedUtterance(
+                    utterance_id=utterance_id,
+                    source_adapter=ADAPTER_ID,
+                    adapter_version=ADAPTER_VERSION,
+                    session_hash=session_hash,
+                    timestamp=bubble.created_at,
+                    text=bubble.text,
+                    modality=Modality.WRITTEN,
+                    text_status=TextStatus.VERBATIM,
+                    authorship_confidence=AUTHORSHIP_CONFIDENCE,
+                    authorship_basis=AUTHORSHIP_BASIS,
+                    source_path_hash=source_path_hash,
+                    content_flags=list(bubble.content_flags),
+                )
+        # Drift is reported ahead of the platform gate: it is the more
+        # actionable signal, and it holds whatever the platform is.
+        if drifted:
+            reason = PROJECTION_DRIFT_REASON
+        elif not proven:
+            reason = UNPROVEN_VARIANT_REASON
+        else:
+            reason = RECONCILED_TEXT_REASON
         self._extraction_stats[instance.instance_key] = CursorExtractionStats(
-            reason=BETA_NO_TEXT_REASON, scan=scan
+            reason=reason,
+            scan=scan,
+            utterance_count=len(digests),
+            proven_variant=proven,
         )
-        return iter(())
+        self._expected_digests[instance.instance_key] = digests
+
+    def _scan_snapshot(self, snapshot_dir: Path, *, collect_text: bool) -> GlobalStoreScan | None:
+        snapshot_db = snapshot_dir / "globalStorage" / "state.vscdb"
+        if not snapshot_db.is_file():
+            return None
+        try:
+            database = self._open_state_db(snapshot_db)
+        except sqlite3.Error:
+            return None
+        try:
+            if not database.table_names() >= REQUIRED_TABLES:
+                return None
+            return scan_global_store(database, collect_text=collect_text)
+        except sqlite3.DatabaseError:
+            return None
+        finally:
+            database.close()
+
+    def _snapshot_source_hash(self, snapshot_dir: Path) -> str | None:
+        """The hash of the canonical original global-database path."""
+        meta_path = snapshot_dir / _SNAPSHOT_META_NAME
+        if not meta_path.is_file():
+            return None
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        hashes = payload.get("source_path_hashes")
+        if not isinstance(hashes, dict):
+            return None
+        value = hashes.get(_GLOBAL_DB_RELATIVE)
+        return value if isinstance(value, str) else None
 
     def extraction_stats(self, instance_key: str) -> CursorExtractionStats | None:
         """Accounting for the last extraction of one instance, if any."""
@@ -728,54 +829,150 @@ class CursorAdapter:
 
     # -- verification ------------------------------------------------------
 
+    def _verify_utterances(
+        self, instance: SourceInstanceRecord, utterances: list[NormalizedUtterance]
+    ) -> list[Diagnostic]:
+        """Spec 8.4: every emitted record must re-reconcile and belong here."""
+        diagnostics: list[Diagnostic] = []
+        expected = self._expected_digests.get(instance.instance_key)
+        upper_bound = datetime.now(UTC) + timedelta(days=1)
+        seen: set[str] = set()
+        for utterance in utterances:
+            problems: list[tuple[str, str]] = []
+            if utterance.utterance_id in seen:
+                problems.append(("CARDINALITY_MISMATCH", "duplicate utterance ID in one instance"))
+            seen.add(utterance.utterance_id)
+            if utterance.source_adapter != ADAPTER_ID or not utterance.utterance_id.startswith(
+                f"{ADAPTER_ID}-"
+            ):
+                problems.append(
+                    ("SCHEMA_INVALID_VALUE", "utterance does not belong to the cursor adapter")
+                )
+            if utterance.text_status is not TextStatus.VERBATIM:
+                problems.append(
+                    ("SCHEMA_INVALID_VALUE", "cursor emits only reconciled verbatim text")
+                )
+            if utterance.modality is not Modality.WRITTEN:
+                problems.append(
+                    (
+                        "SCHEMA_INVALID_VALUE",
+                        "cursor bubbles carry no positive voice provenance (spec 5.7)",
+                    )
+                )
+            if not utterance.text.strip():
+                problems.append(("SCHEMA_INVALID_VALUE", "utterance text is empty"))
+            if utterance.timestamp is not None and not (
+                _EARLIEST_PLAUSIBLE <= utterance.timestamp <= upper_bound
+            ):
+                problems.append(
+                    ("SCHEMA_INVALID_VALUE", "utterance timestamp is outside the plausible range")
+                )
+            if expected is None:
+                problems.append(
+                    (
+                        "CARDINALITY_MISMATCH",
+                        "utterance was not produced by an extraction of this instance",
+                    )
+                )
+            else:
+                digest = expected.get(utterance.utterance_id)
+                if digest is None:
+                    problems.append(
+                        (
+                            "SCHEMA_INVALID_VALUE",
+                            "utterance does not map to a reconciled snapshot bubble",
+                        )
+                    )
+                elif digest != _hash_text(utterance.text):
+                    # Spec 8.4: a verbatim record that no longer re-reconciles
+                    # is a hard failure, not a tolerance.
+                    problems.append(
+                        (
+                            "SCHEMA_INVALID_VALUE",
+                            "utterance text does not re-reconcile with its editor state",
+                        )
+                    )
+            diagnostics.extend(
+                Diagnostic.from_code(code, message, item_ref=utterance.utterance_id)
+                for code, message in problems
+            )
+        return diagnostics
+
+    def _verify_counts(
+        self, instance: SourceInstanceRecord, utterances: list[NormalizedUtterance]
+    ) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        stats = self._extraction_stats.get(instance.instance_key)
+        if stats is None:
+            return diagnostics
+        if len(utterances) != stats.utterance_count:
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "CARDINALITY_MISMATCH",
+                    f"verify received {len(utterances)} utterances but extraction emitted "
+                    f"{stats.utterance_count}",
+                    item_ref=instance.instance_key,
+                )
+            )
+        if not stats.proven_variant and utterances:
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "SCHEMA_INVALID_VALUE",
+                    "an unproven Cursor variant must contribute no analyzable text (spec 5.8)",
+                    item_ref=instance.instance_key,
+                )
+            )
+        scan = stats.scan
+        if scan is None:
+            return diagnostics
+        if (
+            instance.accessibility is Accessibility.FOUND
+            and scan.candidate_messages != instance.candidate_messages
+        ):
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "CARDINALITY_MISMATCH",
+                    f"snapshot re-scan counted {scan.candidate_messages} candidate "
+                    f"messages but discovery counted {instance.candidate_messages}",
+                    item_ref=instance.instance_key,
+                )
+            )
+        if not scan.gate_counters_consistent:
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "ARITHMETIC_INVARIANT_VIOLATION",
+                    "the rawness gate counters do not sum to the candidate bubble count",
+                    item_ref=instance.instance_key,
+                )
+            )
+        if scan.wrapper_leaks > 0:
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "SCHEMA_INVALID_VALUE",
+                    "bubble text contains an injected wrapper tag; the store schema "
+                    "changed and the instance fails closed",
+                    item_ref=instance.instance_key,
+                )
+            )
+        if scan.projection_mismatch_over_threshold:
+            diagnostics.append(
+                Diagnostic.from_code(
+                    "SCHEMA_INVALID_VALUE",
+                    f"{scan.gate_projection_mismatch} of {scan.gate_checked} editor states "
+                    "failed to reconcile; the store no longer behaves like the proven variant",
+                    item_ref=instance.instance_key,
+                )
+            )
+        return diagnostics
+
     def verify(
         self,
         instance: SourceInstanceRecord,
         utterances: list[NormalizedUtterance],
     ) -> list[Diagnostic]:
         diagnostics: list[Diagnostic] = []
-        for utterance in utterances:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "SCHEMA_INVALID_VALUE",
-                    "beta Cursor adapter must not contribute analyzable text "
-                    "(rawness unknown, project specification 4.7)",
-                    item_ref=utterance.utterance_id,
-                )
-            )
-        stats = self._extraction_stats.get(instance.instance_key)
-        if stats is not None and stats.scan is not None:
-            scan = stats.scan
-            if (
-                instance.accessibility is Accessibility.FOUND
-                and scan.candidate_messages != instance.candidate_messages
-            ):
-                diagnostics.append(
-                    Diagnostic.from_code(
-                        "CARDINALITY_MISMATCH",
-                        f"snapshot re-scan counted {scan.candidate_messages} candidate "
-                        f"messages but discovery counted {instance.candidate_messages}",
-                        item_ref=instance.instance_key,
-                    )
-                )
-            if scan.wrapper_leaks > 0:
-                diagnostics.append(
-                    Diagnostic.from_code(
-                        "SCHEMA_INVALID_VALUE",
-                        "bubble text contains an injected wrapper tag; the store schema "
-                        "changed and the instance fails closed",
-                        item_ref=instance.instance_key,
-                    )
-                )
-            if scan.fidelity_checked > 0 and scan.fidelity_mismatches * 3 > scan.fidelity_checked:
-                diagnostics.append(
-                    Diagnostic.from_code(
-                        "SCHEMA_INVALID_VALUE",
-                        "richText fidelity cross-check failed beyond the mention and "
-                        "code-fence tolerance",
-                        item_ref=instance.instance_key,
-                    )
-                )
+        diagnostics.extend(self._verify_utterances(instance, utterances))
+        diagnostics.extend(self._verify_counts(instance, utterances))
         for path in self._opened_paths:
             if path.name in DENY_FILE_NAMES or any(part in DENY_DIR_NAMES for part in path.parts):
                 diagnostics.append(

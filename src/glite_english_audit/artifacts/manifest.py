@@ -9,6 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
@@ -16,6 +17,7 @@ from glite_english_audit.artifacts.enums import (
     StageId,
     StageStatus,
 )
+from glite_english_audit.paths import validate_run_id
 
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -75,6 +77,13 @@ class CompatibilityFingerprint(BaseModel):
     prompt_versions: dict[str, int]
     model_ids: dict[str, str]
     consent_policy_version: str
+    client_version: str = CLIENT_VERSION
+    """Version of this package.
+
+    Without it a checkpoint survives any pure-Python change, so a run
+    checkpointed before a privacy-scanner fix would resume with records the
+    known-bad scanner approved (specification, 6.6).
+    """
 
 
 class StageState(BaseModel):
@@ -106,6 +115,13 @@ class RunManifest(BaseModel):
     stages: dict[StageId, StageState]
     fingerprint: CompatibilityFingerprint
     last_checkpoint_at: datetime | None = None
+
+    @field_validator("run_id")
+    @classmethod
+    def _run_id(cls, value: str) -> str:
+        # The run ID names the private run directory and the repository-owned
+        # snapshot directory, so it may never be absolute or traversing.
+        return validate_run_id(value)
 
     @field_validator("stages")
     @classmethod

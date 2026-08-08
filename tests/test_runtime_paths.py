@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from glite_english_audit.artifacts.enums import OsEnvironment
+from glite_english_audit.artifacts.enums import OsEnvironment, StageId
+from glite_english_audit.artifacts.hashing import new_run_id
 from glite_english_audit.paths import (
     detect_os_environment,
     repo_root,
@@ -13,6 +14,8 @@ from glite_english_audit.paths import (
     runs_root,
     runtime_root,
     snapshot_dir,
+    stage_dir,
+    validate_run_id,
 )
 
 
@@ -78,3 +81,50 @@ def test_snapshot_dir_is_inside_repo_temp_runtime() -> None:
     path = snapshot_dir(run_id)
     assert path == repo_root() / "temp" / "runtime" / run_id / "snapshots"
     assert path.is_relative_to(repo_root() / "temp" / "runtime")
+
+
+_MALFORMED_RUN_IDS = [
+    "",
+    "run-does-not-exist",
+    "run-" + "0" * 31,
+    "run-" + "0" * 33,
+    "RUN-" + "0" * 32,
+    "run-" + "G" * 32,
+    "../../victim",
+    "run-" + "0" * 32 + "/../..",
+    "/absolute",
+]
+
+
+@pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)
+def test_validate_run_id_rejects_malformed_identifiers(run_id: str) -> None:
+    with pytest.raises(ValueError, match="run identifier"):
+        validate_run_id(run_id)
+
+
+def test_validate_run_id_accepts_the_generated_format() -> None:
+    generated = new_run_id()
+    assert validate_run_id(generated) == generated
+
+
+@pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)
+def test_snapshot_dir_rejects_malformed_run_id(run_id: str) -> None:
+    # pathlib joins an absolute or traversing run ID away from the repository,
+    # so every path-joining site must reject it before a path exists.
+    with pytest.raises(ValueError, match="run identifier"):
+        snapshot_dir(run_id)
+
+
+@pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)
+def test_run_dir_rejects_malformed_run_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, run_id: str
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(ValueError, match="run identifier"):
+        run_dir(run_id, OsEnvironment.MACOS)
+
+
+@pytest.mark.parametrize("run_id", _MALFORMED_RUN_IDS)
+def test_stage_dir_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
+    with pytest.raises(ValueError, match="run identifier"):
+        stage_dir(run_id, StageId.SOURCE_INVENTORY, root=tmp_path)

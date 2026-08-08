@@ -8,6 +8,7 @@ Persistent private run state lives outside the Git checkout (specification,
 
 import os
 import platform
+import re
 from pathlib import Path
 
 from glite_english_audit.artifacts.enums import OsEnvironment, StageId
@@ -15,6 +16,23 @@ from glite_english_audit.artifacts.enums import OsEnvironment, StageId
 APP_DIR_NAME_MACOS = "Glite English Audit"
 APP_DIR_NAME_WINDOWS = "Glite English Audit"
 APP_DIR_NAME_XDG = "glite-english-audit"
+
+RUN_ID_PATTERN = re.compile(r"^run-[0-9a-f]{32}$")
+"""The only accepted run-identifier shape, produced by ``new_run_id``."""
+
+
+def validate_run_id(run_id: str) -> str:
+    """Return ``run_id`` if it is a well-formed run identifier.
+
+    Every path below joins the run ID into a filesystem path, and pathlib
+    resolves ``base / "/absolute"`` to ``/absolute`` and keeps ``..`` segments.
+    An unvalidated run ID therefore points anywhere on disk, so the format is
+    checked at each joining site rather than trusted from the caller.
+    """
+    if not RUN_ID_PATTERN.fullmatch(run_id):
+        msg = f"not a valid run identifier: {run_id!r}"
+        raise ValueError(msg)
+    return run_id
 
 
 def detect_os_environment() -> OsEnvironment:
@@ -64,7 +82,7 @@ def runs_root(environment: OsEnvironment | None = None) -> Path:
 
 def run_dir(run_id: str, environment: OsEnvironment | None = None) -> Path:
     """Private state directory for one run."""
-    return runs_root(environment) / run_id
+    return runs_root(environment) / validate_run_id(run_id)
 
 
 def stage_dir(
@@ -78,7 +96,7 @@ def stage_dir(
 
     ``root`` overrides the runs root for tests.
     """
-    base = root / run_id if root is not None else run_dir(run_id, environment)
+    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, environment)
     return base / "stages" / str(int(stage))
 
 
@@ -103,4 +121,4 @@ def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
     ``repo`` is injectable for tests; real runs use this repository.
     """
     base = repo if repo is not None else repo_root()
-    return base / "temp" / "runtime" / run_id / "snapshots"
+    return base / "temp" / "runtime" / validate_run_id(run_id) / "snapshots"

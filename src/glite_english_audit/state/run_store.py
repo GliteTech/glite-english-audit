@@ -47,6 +47,14 @@ RETENTION_DAYS = 30
 EARLIEST_SEMANTIC_STAGE = StageId.PLAIN_FINDINGS
 """First stage whose output depends on skills, prompts, or model choice."""
 
+EARLIEST_CLIENT_CODE_STAGE = StageId.SAFE_RECORDS
+"""First stage a pure-Python change invalidates.
+
+Stages 6 and 7 depend on the deterministic privacy scanner and the packaging
+allowlist, so a client change may not leave records approved by the previous
+code promoted (specification, 6.6, 8.3).
+"""
+
 _PRIVATE_SUBDIRS = ("stages", "logs", "submission")
 _CLEANUP_ONLY_SUBDIRS = ("stages", "logs")
 _CLEANUP_ONLY_FILES = ("selection.json", "progress.json")
@@ -100,11 +108,17 @@ def _base_dir(root: Path | None) -> Path:
 
 
 def _run_directory(run_id: str, root: Path | None) -> Path:
-    return _base_dir(root) / run_id
-
-
-def _manifest_path(run_id: str, root: Path | None) -> Path:
-    return _run_directory(run_id, root) / RUN_MANIFEST_FILENAME
+    try:
+        validated = paths.validate_run_id(run_id)
+    except ValueError as error:
+        raise RunStoreError(
+            f"not a valid run identifier: {run_id!r}",
+            diagnostic=Diagnostic.from_code(
+                "STATE_RUN_ID_INVALID",
+                "run identifier does not match the required form",
+            ),
+        ) from error
+    return _base_dir(root) / validated
 
 
 def _last_checkpoint(manifest: RunManifest) -> datetime:
@@ -143,23 +157,53 @@ def create_run(
 
 def save_manifest(manifest: RunManifest, *, root: Path | None = None) -> None:
     """Atomically write the manifest into its run directory."""
-    write_model(_manifest_path(manifest.run_id, root), manifest)
+    _save_manifest_in(_run_directory(manifest.run_id, root), manifest)
+
+
+def _save_manifest_in(directory: Path, manifest: RunManifest) -> None:
+    """Write ``manifest`` into ``directory`` regardless of the ID it carries.
+
+    Retention and cleanup address a run by the directory they are iterating, so
+    they must never write through the ID a copied or restored manifest claims.
+    """
+    write_model(directory / RUN_MANIFEST_FILENAME, manifest)
+
+
+def _load_manifest_in(directory: Path) -> RunManifest:
+    """Read the manifest stored in ``directory`` and confirm it owns it.
+
+    A copied or restored run directory holds a manifest naming the original
+    run. Accepting it would let a sweep over the copy write through to the
+    original, so the mismatch is refused here and the copy is left untouched
+    for an explicit repair.
+    """
+    path = directory / RUN_MANIFEST_FILENAME
+    try:
+        manifest = read_model(path, RunManifest)
+    except (OSError, ValidationError, ValueError) as error:
+        raise RunStoreError(
+            f"cannot read run manifest in {directory.name!r}",
+            diagnostic=Diagnostic.from_code(
+                "STATE_CHECKPOINT_CORRUPT",
+                f"run manifest is unreadable or invalid: {path.name}",
+                item_ref=directory.name,
+            ),
+        ) from error
+    if manifest.run_id != directory.name:
+        raise RunStoreError(
+            f"run directory {directory.name!r} holds a manifest for {manifest.run_id!r}",
+            diagnostic=Diagnostic.from_code(
+                "STATE_RUN_DIRECTORY_MISMATCH",
+                "run directory name and manifest run ID disagree",
+                item_ref=directory.name,
+            ),
+        )
+    return manifest
 
 
 def load_manifest(run_id: str, *, root: Path | None = None) -> RunManifest:
     """Read and validate the manifest for ``run_id``."""
-    path = _manifest_path(run_id, root)
-    try:
-        return read_model(path, RunManifest)
-    except (OSError, ValidationError, ValueError) as error:
-        raise RunStoreError(
-            f"cannot read run manifest for {run_id!r}",
-            diagnostic=Diagnostic.from_code(
-                "STATE_CHECKPOINT_CORRUPT",
-                f"run manifest is unreadable or invalid: {path.name}",
-                item_ref=run_id,
-            ),
-        ) from error
+    return _load_manifest_in(_run_directory(run_id, root))
 
 
 def _last_promoted_stage(manifest: RunManifest) -> StageId | None:
@@ -176,8 +220,9 @@ def list_unfinished(
 ) -> list[RunSummary]:
     """Summaries for runs that are neither completed nor expired.
 
-    Unreadable manifests are skipped: a corrupt run cannot be offered for
-    resume, and repair is a separate explicit action.
+    Unreadable manifests and directories whose name disagrees with their
+    manifest are skipped: neither can be offered for resume, and repair is a
+    separate explicit action.
     """
     base = _base_dir(root)
     if not base.is_dir():
@@ -188,7 +233,7 @@ def list_unfinished(
         if not child.is_dir() or not (child / RUN_MANIFEST_FILENAME).is_file():
             continue
         try:
-            manifest = load_manifest(child.name, root=base)
+            manifest = _load_manifest_in(child)
         except RunStoreError:
             continue
         if manifest.status in _FINISHED_STATUSES:
@@ -251,22 +296,37 @@ def describe_resume(
         )
 
     downstream_changes = [
-        name
-        for name, matches in (
-            ("skill versions", recorded.skill_versions == current.skill_versions),
-            ("prompt versions", recorded.prompt_versions == current.prompt_versions),
-            ("model ids", recorded.model_ids == current.model_ids),
+        (name, stage)
+        for name, stage, matches in (
+            (
+                "skill versions",
+                EARLIEST_SEMANTIC_STAGE,
+                recorded.skill_versions == current.skill_versions,
+            ),
+            (
+                "prompt versions",
+                EARLIEST_SEMANTIC_STAGE,
+                recorded.prompt_versions == current.prompt_versions,
+            ),
+            ("model ids", EARLIEST_SEMANTIC_STAGE, recorded.model_ids == current.model_ids),
+            (
+                "client version",
+                EARLIEST_CLIENT_CODE_STAGE,
+                recorded.client_version == current.client_version,
+            ),
         )
         if not matches
     ]
     if downstream_changes:
+        earliest = min(stage for _, stage in downstream_changes)
+        names = [name for name, _ in downstream_changes]
         return ResumeAssessment(
             decision=ResumeDecision.INVALIDATE_DOWNSTREAM,
             detail=(
-                f"Changed since the checkpoint: {', '.join(downstream_changes)}. "
-                "Findings and later stages are recomputed after a refreshed preflight."
+                f"Changed since the checkpoint: {', '.join(names)}. "
+                f"Stage {int(earliest)} and later are recomputed after a refreshed preflight."
             ),
-            earliest_affected_stage=EARLIEST_SEMANTIC_STAGE,
+            earliest_affected_stage=earliest,
         )
 
     return ResumeAssessment(
@@ -317,7 +377,11 @@ def _delete_subtree(run_directory: Path, name: str) -> None:
 
 
 def _expire_status(status: RunStatus) -> RunStatus | None:
-    """Route ``status`` to EXPIRED through the state machine, or None if barred."""
+    """Route ``status`` to EXPIRED through the state machine, or None if barred.
+
+    Every unfinished status can reach EXPIRED, directly or through
+    CHECKPOINTED; None is left for a status the tables later close off.
+    """
     if can_advance_run(status, RunStatus.EXPIRED):
         return advance_run(status, RunStatus.EXPIRED)
     if can_advance_run(status, RunStatus.CHECKPOINTED) and can_advance_run(
@@ -338,6 +402,10 @@ def expire_stale_runs(
     Marks each stale manifest EXPIRED via the state machine, then deletes the
     private ``stages/``, ``logs/``, and ``submission/`` subtrees. The manifest
     itself is kept. Returns the expired run IDs.
+
+    Each directory is read and written through itself. A directory whose name
+    disagrees with its manifest is left alone: writing through the claimed ID
+    would expire a different, possibly live run.
     """
     base = _base_dir(root)
     if not base.is_dir():
@@ -348,7 +416,7 @@ def expire_stale_runs(
         if not child.is_dir() or not (child / RUN_MANIFEST_FILENAME).is_file():
             continue
         try:
-            manifest = load_manifest(child.name, root=base)
+            manifest = _load_manifest_in(child)
         except RunStoreError:
             continue
         if manifest.status in _FINISHED_STATUSES:
@@ -357,12 +425,10 @@ def expire_stale_runs(
             continue
         new_status = _expire_status(manifest.status)
         if new_status is None:
-            # REVIEW cannot expire: the run is at final review and only user
-            # action finishes it. Retention re-applies once it leaves REVIEW.
             continue
         _refuse_symlinks(child, _PRIVATE_SUBDIRS)
         manifest.status = new_status
-        save_manifest(manifest, root=base)
+        _save_manifest_in(child, manifest)
         for name in _PRIVATE_SUBDIRS:
             _delete_subtree(child, name)
         expired.append(manifest.run_id)
@@ -386,7 +452,7 @@ def cleanup_completed(manifest_dir: Path) -> None:
                 f"run manifest not found: {manifest_path.name}",
             ),
         )
-    manifest = load_manifest(manifest_dir.name, root=manifest_dir.parent)
+    manifest = _load_manifest_in(manifest_dir)
     if manifest.status not in (RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_EXCLUSIONS):
         raise RunStoreError(
             f"run {manifest.run_id!r} is {manifest.status.value!r}; "

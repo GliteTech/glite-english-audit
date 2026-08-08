@@ -6,7 +6,7 @@ raises :class:`InvalidTransitionError` carrying the stable
 new transition is a reviewed contract change, not an accident.
 """
 
-from glite_english_audit.artifacts.enums import RunStatus, StageStatus
+from glite_english_audit.artifacts.enums import RunStatus, StageId, StageStatus
 from glite_english_audit.diagnostics.codes import Diagnostic
 
 _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
@@ -27,7 +27,17 @@ _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.BLOCKED: frozenset(
         {RunStatus.PROCESSING, RunStatus.AWAITING_PREFLIGHT, RunStatus.EXPIRED}
     ),
-    RunStatus.REVIEW: frozenset({RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_EXCLUSIONS}),
+    # A review the user abandons must still reach EXPIRED, or its stage 4-7
+    # artifacts keep raw source language past the 30-day retention rule
+    # (specification, 3.6). Reopening a review re-enters processing.
+    RunStatus.REVIEW: frozenset(
+        {
+            RunStatus.COMPLETED,
+            RunStatus.COMPLETED_WITH_EXCLUSIONS,
+            RunStatus.PROCESSING,
+            RunStatus.EXPIRED,
+        }
+    ),
     RunStatus.COMPLETED: frozenset(),
     RunStatus.COMPLETED_WITH_EXCLUSIONS: frozenset(),
     RunStatus.EXPIRED: frozenset(),
@@ -50,6 +60,22 @@ _STAGE_TRANSITIONS: dict[StageStatus, frozenset[StageStatus]] = {
     StageStatus.FAILED: frozenset({StageStatus.IN_PROGRESS}),
     StageStatus.INVALIDATED: frozenset({StageStatus.IN_PROGRESS}),
 }
+
+SEMANTIC_STAGES: frozenset[StageId] = frozenset(
+    {
+        StageId.PLAIN_FINDINGS,
+        StageId.PRIVATE_MISTAKES,
+        StageId.SAFE_RECORDS,
+        StageId.PRIVACY_APPROVED,
+    }
+)
+"""Stages whose artifacts carry model judgment (specification, 5.1, 6.1).
+
+They are promoted only after both the deterministic and the independent
+semantic verifier pass; for privacy stages the confidentiality verifier is the
+second line of defence (specification, 6.6). The remaining stages are fully
+deterministic and promote straight from ``VERIFIED_DETERMINISTIC``.
+"""
 
 
 class InvalidTransitionError(Exception):
@@ -77,18 +103,30 @@ def advance_run(current: RunStatus, target: RunStatus) -> RunStatus:
     return target
 
 
-def can_advance_stage(current: StageStatus, target: StageStatus) -> bool:
-    """True when a stage may move from ``current`` to ``target``."""
-    return target in _STAGE_TRANSITIONS[current]
+def allowed_stage_targets(current: StageStatus, *, stage: StageId) -> frozenset[StageStatus]:
+    """Statuses ``stage`` may move to from ``current``.
+
+    The table is stage-agnostic except for one rule: a semantic stage may not
+    jump from ``VERIFIED_DETERMINISTIC`` straight to ``PROMOTED``.
+    """
+    targets = _STAGE_TRANSITIONS[current]
+    if stage in SEMANTIC_STAGES and current is StageStatus.VERIFIED_DETERMINISTIC:
+        return targets - {StageStatus.PROMOTED}
+    return targets
 
 
-def advance_stage(current: StageStatus, target: StageStatus) -> StageStatus:
+def can_advance_stage(current: StageStatus, target: StageStatus, *, stage: StageId) -> bool:
+    """True when ``stage`` may move from ``current`` to ``target``."""
+    return target in allowed_stage_targets(current, stage=stage)
+
+
+def advance_stage(current: StageStatus, target: StageStatus, *, stage: StageId) -> StageStatus:
     """Validate and perform a stage transition."""
-    if not can_advance_stage(current, target):
+    if not can_advance_stage(current, target, stage=stage):
         raise InvalidTransitionError(
             Diagnostic.from_code(
                 "STATE_INVALID_TRANSITION",
-                f"stage may not move from {current.value!r} to {target.value!r}",
+                f"stage {int(stage)} may not move from {current.value!r} to {target.value!r}",
             )
         )
     return target

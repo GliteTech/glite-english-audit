@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
@@ -33,10 +34,10 @@ def _fingerprint() -> CompatibilityFingerprint:
     )
 
 
-def _manifest(stages: dict[StageId, StageState]) -> RunManifest:
+def _manifest(stages: dict[StageId, StageState], *, run_id: str = "run-" + "0" * 32) -> RunManifest:
     return RunManifest(
         manifest_schema_version=MANIFEST_SCHEMA_VERSION,
-        run_id="run-" + "0" * 32,
+        run_id=run_id,
         created_at=utc_now(),
         runtime=AgentRuntime.CLAUDE_CODE,
         os_environment=OsEnvironment.MACOS,
@@ -77,3 +78,40 @@ def test_run_manifest_rejects_mismatched_stage_key() -> None:
     stages[StageId.SOURCE_INVENTORY] = StageState(stage=StageId.SOURCE_SNAPSHOTS)
     with pytest.raises(ValidationError):
         _manifest(stages)
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "",
+        "run-does-not-exist",
+        "run-" + "0" * 31,
+        "RUN-" + "0" * 32,
+        "../../victim",
+        "/absolute",
+        "run-" + "0" * 32 + "/../..",
+    ],
+)
+def test_run_manifest_rejects_malformed_run_id(run_id: str) -> None:
+    # The run ID is joined into filesystem paths, so a manifest may never carry
+    # an absolute or traversing value.
+    with pytest.raises(ValidationError):
+        _manifest(empty_stage_map(), run_id=run_id)
+
+
+def test_fingerprint_records_the_running_client_version() -> None:
+    assert _fingerprint().client_version == CLIENT_VERSION
+
+
+def test_fingerprint_keeps_a_recorded_client_version() -> None:
+    recorded = CompatibilityFingerprint(
+        adapter_versions={},
+        artifact_schema_version=1,
+        tokenizer_version="1.0.0",
+        skill_versions={},
+        prompt_versions={},
+        model_ids={},
+        consent_policy_version="2026-01",
+        client_version="0.0.1",
+    )
+    assert recorded.client_version == "0.0.1"
