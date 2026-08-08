@@ -1,0 +1,30 @@
+# Local hooks only: every check runs through uv against the locked project
+# environment, so pre-commit and CI cannot drift apart.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy src tests
+        language: system
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+      - id: verify-skills
+        name: skill verifier
+        entry: uv run python -m glite_english_audit.verification.verify_skills
+        language: system
+        pass_filenames: false

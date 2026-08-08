@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "description": "Server rejection carrying only safe diagnostic codes.",
+  "properties": {
+    "diagnostic_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Diagnostic Codes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "diagnostic_codes"
+  ],
+  "title": "SubmissionRejected",
+  "type": "object"
+}

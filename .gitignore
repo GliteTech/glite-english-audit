@@ -1,0 +1,18 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Private development material. The entire temp/ tree holds research notes,
+# runtime snapshots, calibration corpora, model evaluations, and design
+# references. None of it may ever be committed (spec sections 3.6, 3.7, 14.2).
+temp/
+
+# Operating system noise
+.DS_Store

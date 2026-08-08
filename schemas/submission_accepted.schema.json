@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "description": "Server acknowledgment for an accepted or already-known submission.",
+  "properties": {
+    "report_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Report Url"
+    },
+    "state": {
+      "enum": [
+        "received",
+        "processing",
+        "report_ready"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "submission_id": {
+      "title": "Submission Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "submission_id",
+    "state"
+  ],
+  "title": "SubmissionAccepted",
+  "type": "object"
+}

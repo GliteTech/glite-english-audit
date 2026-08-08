@@ -1,0 +1,126 @@
+"""Run manifest: consent, selection, per-stage state, and compatibility.
+
+The manifest points to exactly one current artifact per stage. There is no
+revision chain: replacing an artifact repoints the manifest and invalidates
+downstream stages (specification, 5.2, 6.5).
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from glite_english_audit.artifacts.enums import (
+    AgentRuntime,
+    OsEnvironment,
+    RunStatus,
+    StageId,
+    StageStatus,
+)
+
+MANIFEST_SCHEMA_VERSION = 1
+
+
+class ConsentState(BaseModel):
+    """Which consents were given, with their policy versions and times.
+
+    Local-scan consent may be remembered across runs until the consent version
+    changes. Provider-transfer consent is per-run and never inferred from a
+    prior audit (specification, 2.2).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    consent_policy_version: str
+    local_scan_confirmed_at: datetime | None = None
+    provider_transfer_confirmed_at: datetime | None = None
+    preflight_confirmed_at: datetime | None = None
+
+
+class PeriodSelection(BaseModel):
+    """The audited period, resolved to concrete UTC dates."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    preset: str
+    start: datetime
+    end: datetime
+
+
+class SelectionState(BaseModel):
+    """What the user selected. Instance keys are local; labels are opaque."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selected_instance_keys: list[str]
+    excluded_instance_keys: list[str] = Field(default_factory=list)
+    period: PeriodSelection
+    processing_profile: str
+    record_cutoff_at: datetime
+    """Record-level source cutoff frozen when selection is confirmed.
+
+    Records created after this moment belong to the next audit and never
+    invalidate resume (specification, 13.5).
+    """
+
+
+class CompatibilityFingerprint(BaseModel):
+    """Everything a checkpoint depends on. Any mismatch drives resume policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    adapter_versions: dict[str, str]
+    artifact_schema_version: int
+    tokenizer_version: str
+    skill_versions: dict[str, int]
+    prompt_versions: dict[str, int]
+    model_ids: dict[str, str]
+    consent_policy_version: str
+
+
+class StageState(BaseModel):
+    """Verification lifecycle and current artifact pointer for one stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage: StageId
+    status: StageStatus = StageStatus.PENDING
+    current_artifact_id: str | None = None
+    current_artifact_hash: str | None = None
+    producer_version: str | None = None
+    updated_at: datetime | None = None
+
+
+class RunManifest(BaseModel):
+    """The single authoritative state file for one audit run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manifest_schema_version: int = Field(ge=1)
+    run_id: str
+    created_at: datetime
+    runtime: AgentRuntime
+    os_environment: OsEnvironment
+    status: RunStatus
+    consent: ConsentState
+    selection: SelectionState | None = None
+    stages: dict[StageId, StageState]
+    fingerprint: CompatibilityFingerprint
+    last_checkpoint_at: datetime | None = None
+
+    @field_validator("stages")
+    @classmethod
+    def _complete_stage_map(cls, value: dict[StageId, StageState]) -> dict[StageId, StageState]:
+        missing = [stage for stage in StageId if stage not in value]
+        if missing:
+            msg = f"manifest must track every stage; missing: {missing}"
+            raise ValueError(msg)
+        for stage, state in value.items():
+            if state.stage is not stage:
+                msg = f"stage state under key {stage} claims to be {state.stage}"
+                raise ValueError(msg)
+        return value
+
+
+def empty_stage_map() -> dict[StageId, StageState]:
+    """A fresh all-pending stage map for a new run."""
+    return {stage: StageState(stage=stage) for stage in StageId}

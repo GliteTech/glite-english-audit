@@ -1,0 +1,78 @@
+[project]
+name = "glite-english-audit"
+version = "0.1.0"
+description = "Find high-confidence non-native English mistakes in the English you naturally wrote or dictated on your computer — locally, privately, through Codex or Claude Code."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+authors = [{ name = "Glite Tech Ltd", email = "info@glite.ai" }]
+maintainers = [{ name = "Vassili Philippov", email = "vassili@glite.ai" }]
+keywords = [
+    "english",
+    "language-learning",
+    "claude-code",
+    "codex",
+    "privacy",
+    "local-first",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Education",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/GliteTech/glite-english-audit"
+Repository = "https://github.com/GliteTech/glite-english-audit"
+Company = "https://glite.ai"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/glite_english_audit"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# The tokenizer and its fixtures legitimately handle curly punctuation.
+allowed-confusables = ["’", "‘", "“", "”", "–", "—"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "types-pyyaml>=6.0.12.20260724",
+]

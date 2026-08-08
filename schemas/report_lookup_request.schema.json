@@ -1,0 +1,239 @@
+{
+  "$defs": {
+    "ExampleType": {
+      "description": "Provenance of the example inside a privacy-safe mistake record.",
+      "enum": [
+        "verbatim",
+        "redacted",
+        "synthetic"
+      ],
+      "title": "ExampleType",
+      "type": "string"
+    },
+    "Modality": {
+      "description": "How the user produced the text, at extraction time.",
+      "enum": [
+        "written",
+        "spoken_asr",
+        "unknown"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "ModalityCounts": {
+      "additionalProperties": false,
+      "description": "Word and utterance counts for one modality.",
+      "properties": {
+        "analyzed_utterances": {
+          "minimum": 0,
+          "title": "Analyzed Utterances",
+          "type": "integer"
+        },
+        "analyzed_words": {
+          "minimum": 0,
+          "title": "Analyzed Words",
+          "type": "integer"
+        },
+        "eligible_utterances": {
+          "minimum": 0,
+          "title": "Eligible Utterances",
+          "type": "integer"
+        },
+        "eligible_words": {
+          "minimum": 0,
+          "title": "Eligible Words",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "eligible_words",
+        "analyzed_words",
+        "eligible_utterances",
+        "analyzed_utterances"
+      ],
+      "title": "ModalityCounts",
+      "type": "object"
+    },
+    "SafeMistakeRecord": {
+      "additionalProperties": false,
+      "description": "Stage 6 record: the only per-mistake shape Glite may ever receive.\n\nExactly the six fields from specification 5.5. Content-level privacy rules\n(no names, numbers, URLs, context-dependent rules) are enforced by the\ncreator skill and the deterministic scanner, not by this model.",
+      "properties": {
+        "example": {
+          "title": "Example",
+          "type": "string"
+        },
+        "example_type": {
+          "$ref": "#/$defs/ExampleType"
+        },
+        "mistake": {
+          "title": "Mistake",
+          "type": "string"
+        },
+        "modality": {
+          "$ref": "#/$defs/Modality"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mistake",
+        "rule",
+        "example",
+        "example_type",
+        "source_type",
+        "modality"
+      ],
+      "title": "SafeMistakeRecord",
+      "type": "object"
+    },
+    "SubmissionCounts": {
+      "additionalProperties": false,
+      "description": "Anonymous denominator and mistake counts inside the package.",
+      "properties": {
+        "analyzed_english_words": {
+          "minimum": 0,
+          "title": "Analyzed English Words",
+          "type": "integer"
+        },
+        "analyzed_utterances": {
+          "minimum": 0,
+          "title": "Analyzed Utterances",
+          "type": "integer"
+        },
+        "eligible_english_words": {
+          "minimum": 0,
+          "title": "Eligible English Words",
+          "type": "integer"
+        },
+        "eligible_utterances": {
+          "minimum": 0,
+          "title": "Eligible Utterances",
+          "type": "integer"
+        },
+        "other_withheld": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Other Withheld",
+          "type": "object"
+        },
+        "shared_mistakes": {
+          "minimum": 0,
+          "title": "Shared Mistakes",
+          "type": "integer"
+        },
+        "spoken_asr": {
+          "$ref": "#/$defs/ModalityCounts"
+        },
+        "verified_total_mistakes": {
+          "minimum": 0,
+          "title": "Verified Total Mistakes",
+          "type": "integer"
+        },
+        "withheld_by_user": {
+          "minimum": 0,
+          "title": "Withheld By User",
+          "type": "integer"
+        },
+        "withheld_for_privacy": {
+          "minimum": 0,
+          "title": "Withheld For Privacy",
+          "type": "integer"
+        },
+        "written": {
+          "$ref": "#/$defs/ModalityCounts"
+        }
+      },
+      "required": [
+        "eligible_english_words",
+        "analyzed_english_words",
+        "eligible_utterances",
+        "analyzed_utterances",
+        "written",
+        "spoken_asr",
+        "verified_total_mistakes",
+        "shared_mistakes",
+        "withheld_by_user",
+        "withheld_for_privacy"
+      ],
+      "title": "SubmissionCounts",
+      "type": "object"
+    },
+    "SubmissionPackage": {
+      "additionalProperties": false,
+      "description": "The downloadable, resubmittable, allowlist-only package.",
+      "properties": {
+        "client_version": {
+          "title": "Client Version",
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/SubmissionCounts"
+        },
+        "payload_hash": {
+          "title": "Payload Hash",
+          "type": "string"
+        },
+        "privacy_verifier_version": {
+          "title": "Privacy Verifier Version",
+          "type": "string"
+        },
+        "producer_version": {
+          "title": "Producer Version",
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/SafeMistakeRecord"
+          },
+          "title": "Records",
+          "type": "array"
+        },
+        "recovery_secret": {
+          "title": "Recovery Secret",
+          "type": "string"
+        },
+        "submission_id": {
+          "title": "Submission Id",
+          "type": "string"
+        },
+        "submission_schema_version": {
+          "minimum": 1,
+          "title": "Submission Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "submission_schema_version",
+        "submission_id",
+        "recovery_secret",
+        "payload_hash",
+        "client_version",
+        "producer_version",
+        "privacy_verifier_version",
+        "records",
+        "counts"
+      ],
+      "title": "SubmissionPackage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Resubmission of an existing package purely to retrieve its report.\n\nCreates no new learner data and needs no new storage attestation.",
+  "properties": {
+    "package": {
+      "$ref": "#/$defs/SubmissionPackage"
+    }
+  },
+  "required": [
+    "package"
+  ],
+  "title": "ReportLookupRequest",
+  "type": "object"
+}
