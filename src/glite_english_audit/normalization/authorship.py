@@ -1,29 +1,35 @@
-"""Removal of non-authored material from candidate text (specification, 4.5).
+"""Candidate pre-filter for the stage-3 authorship judgment (specification, 5.6).
 
-Adapters attribute whole records structurally; this layer removes pasted,
-quoted, generated, and code-like lines *inside* an otherwise user-authored
-record. The rules are line-based, deterministic, and order-preserving:
+The model decides authorship; this module only bounds what asking costs. It
+removes the material whose shape settles the question on its own — fenced code
+blocks, stack traces, log lines, and structured payloads — so a five-thousand
+word lint dump never has to be sent to a model, and hands everything else to
+the ``filter-authored-english`` skill as candidate text.
 
-- Fenced code blocks (``` or ~~~ fences, up to 3 leading spaces), including
-  an unclosed fence running to the end of the text.
-- Blockquote lines starting with ``>``.
+The bias is toward keeping. A removed line is invisible from here on: the
+model never sees it, so it can never be retained, never counted, and never
+reported as coverage loss. Anything merely suspicious therefore stays — a
+short line, a line of mostly punctuation, a quoted line, a bare URL, an
+indented sentence, the readable exception message at the end of a trace.
+
+Removed, line by line, in order:
+
+- Fenced code blocks (three backticks or three tildes, up to 3 leading
+  spaces), including an unclosed fence running to the end of the text.
 - Log and stack-trace lines: leading ``Traceback``, JS/Java-style
   ``at frame(...)`` lines, Python ``File "...", line N`` lines, leading
   ``[HH:MM:SS]``/``HH:MM:SS`` or ISO date-time stamps, and uppercase
   severity prefixes ``ERROR:``/``WARNING:``/``WARN:``/``INFO:``/``DEBUG:``.
-- Indented code: lines indented 4+ spaces (or a tab) that also carry a code
-  signal — a character from ``{}()[];=<>|`$``, a trailing ``:``, or an
-  unambiguous keyword opener (``def``, ``return``, ``import``, ``from``,
-  ``class``, ``const``, ``let``, ``var``, ``function``). Indented prose
-  without a code signal is kept.
-- JSON/XML-looking lines: ``<...>`` lines, ``"key":`` lines, and lines that
-  both start and end with JSON structure characters.
-- Lines whose non-whitespace characters are more than 50% non-letters.
-- Lines consisting only of URL tokens. URLs inside a sentence are kept; the
-  tokenizer already excludes them from the word count.
+- Structured-payload lines: tag-only lines, ``"key":`` lines, and lines that
+  both open and close with JSON structure characters.
+- Indented code: lines indented four spaces or a tab that also carry a
+  conclusive code signal — one of ``{};=<>|`$`` or a keyword opener (``def``,
+  ``return``, ``import``, ``from``, ``class``, ``const``, ``let``, ``var``,
+  ``function``). Indented prose stays, including a line that ends in a colon
+  or holds parentheses.
 
-Whole-utterance rejection is the caller's policy; this module only cleans
-and flags. Every pattern is a simple anchored expression with no nested
+Whole-utterance rejection is the caller's policy; this module only cleans and
+flags. Every pattern is a simple anchored expression with no nested
 quantifiers, so runtime stays linear in input size.
 """
 
@@ -31,15 +37,12 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field
 
-PRODUCER_VERSION = "1.0.0"
+PRODUCER_VERSION = "2.0.0"
 
 FLAG_CODE_FENCE = "code_fence"
 FLAG_INDENTED_CODE = "indented_code"
-FLAG_BLOCKQUOTE = "blockquote"
 FLAG_LOG_LINE = "log_line"
 FLAG_MARKUP_LINE = "markup_line"
-FLAG_SYMBOL_LINE = "symbol_line"
-FLAG_URL_LINE = "url_line"
 
 _FENCE_OPEN = re.compile(r"^ {0,3}(```|~~~)")
 _TRACEBACK = re.compile(r"^Traceback\b")
@@ -49,9 +52,10 @@ _TIME_PREFIX = re.compile(r"^\[?\d{1,2}:\d{2}:\d{2}")
 _DATETIME_PREFIX = re.compile(r"^\[?\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
 _SEVERITY_PREFIX = re.compile(r"^(?:ERROR|WARNING|WARN|INFO|DEBUG):")
 _JSON_KEY = re.compile(r'^"[^"\n]*"\s*:')
-_URL_TOKEN = re.compile(r"://|^www\.", re.IGNORECASE)
 
-_CODE_HINT_CHARS = frozenset("{}()[];=<>|`$")
+# Parentheses and brackets are ordinary in prose, so they are not code signals
+# here; only characters that prose almost never carries qualify.
+_CODE_HINT_CHARS = frozenset("{};=<>|`$")
 _CODE_KEYWORD_OPENERS = (
     "def ",
     "return ",
@@ -92,12 +96,7 @@ def _is_indented_code(line: str, stripped: str) -> bool:
         return False
     if any(ch in _CODE_HINT_CHARS for ch in stripped):
         return True
-    return stripped.endswith(":") or stripped.startswith(_CODE_KEYWORD_OPENERS)
-
-
-def _is_url_only(stripped: str) -> bool:
-    tokens = stripped.split()
-    return all(_URL_TOKEN.search(token) for token in tokens)
+    return stripped.startswith(_CODE_KEYWORD_OPENERS)
 
 
 def _is_markup_line(stripped: str) -> bool:
@@ -110,28 +109,15 @@ def _is_markup_line(stripped: str) -> bool:
     return False
 
 
-def _is_mostly_symbols(stripped: str) -> bool:
-    visible = [ch for ch in stripped if not ch.isspace()]
-    letter_count = sum(1 for ch in visible if ch.isalpha())
-    # Strictly more than 50% non-letters; an exact half stays.
-    return letter_count * 2 < len(visible)
-
-
 def _removal_flag(line: str, stripped: str) -> str | None:
     if not stripped:
         return None
-    if stripped.startswith(">"):
-        return FLAG_BLOCKQUOTE
     if _is_log_line(stripped):
         return FLAG_LOG_LINE
     if _is_indented_code(line, stripped):
         return FLAG_INDENTED_CODE
-    if _is_url_only(stripped):
-        return FLAG_URL_LINE
     if _is_markup_line(stripped):
         return FLAG_MARKUP_LINE
-    if _is_mostly_symbols(stripped):
-        return FLAG_SYMBOL_LINE
     return None
 
 
@@ -141,7 +127,7 @@ def _record(flags: list[str], flag: str) -> None:
 
 
 def strip_non_authored(text: str) -> AuthorshipResult:
-    """Remove non-authored lines from ``text``, keeping authored lines in order.
+    """Remove machinery lines from ``text``, keeping everything arguable.
 
     ``cleaned_text`` joins kept lines with ``\\n``; line terminators are
     normalized and excluded from ``removed_char_count``, which counts only

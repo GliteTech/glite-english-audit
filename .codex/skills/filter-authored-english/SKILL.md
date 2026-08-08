@@ -1,8 +1,6 @@
 ---
 name: "filter-authored-english"
-description: "Stage 3: run deterministic normalization (authorship strip, language
-quarantine, word counts, dedup) over candidate utterances and produce the eligible
-English corpus manifest. Use after stage-2 extraction is promoted."
+description: "Judge, utterance by utterance, which spans of a stage-3 candidate batch the learner actually wrote, and record verbatim retained spans plus stable exclusion reason codes as a decisions JSONL file. Use during stage 3 of an audit run, after the pre-filter emits candidate batches and before the eligible-English corpus is assembled."
 ---
 
 # filter-authored-english wrapper

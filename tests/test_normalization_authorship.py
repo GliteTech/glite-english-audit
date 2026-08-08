@@ -1,15 +1,18 @@
-"""Line-level removal of non-authored material (specification, 4.5)."""
+"""The pre-filter removes machinery only, and keeps everything arguable.
+
+Stage 3 now asks a model which spans the learner wrote; this module runs
+before that call and exists to keep it affordable. Every expectation below is
+written from that intent: conclusive machinery goes, and anything a reader
+could argue about survives into the candidate the model judges.
+"""
 
 import time
 
 from glite_english_audit.normalization.authorship import (
-    FLAG_BLOCKQUOTE,
     FLAG_CODE_FENCE,
     FLAG_INDENTED_CODE,
     FLAG_LOG_LINE,
     FLAG_MARKUP_LINE,
-    FLAG_SYMBOL_LINE,
-    FLAG_URL_LINE,
     PRODUCER_VERSION,
     strip_non_authored,
 )
@@ -51,13 +54,6 @@ def test_unclosed_fence_removed_to_end() -> None:
     assert FLAG_CODE_FENCE in result.removed_flags
 
 
-def test_blockquote_lines_removed() -> None:
-    text = "You wrote earlier:\n> the build is broken\nand I agree with that."
-    result = strip_non_authored(text)
-    assert result.cleaned_text == "You wrote earlier:\nand I agree with that."
-    assert result.removed_flags == [FLAG_BLOCKQUOTE]
-
-
 def test_traceback_and_file_lines_removed() -> None:
     text = (
         "here is the error I got\n"
@@ -84,6 +80,18 @@ def test_stack_frame_timestamp_and_severity_lines_removed() -> None:
     assert result.removed_flags == [FLAG_LOG_LINE]
 
 
+def test_exception_message_inside_a_trace_is_kept_for_the_model() -> None:
+    # The trace frames are machinery, but the closing message is readable
+    # English whose authorship only the model can settle.
+    text = (
+        "Traceback (most recent call last):\n"
+        '  File "app.py", line 12, in main\n'
+        "ConnectionError: cannot connect to the database"
+    )
+    result = strip_non_authored(text)
+    assert result.cleaned_text == "ConnectionError: cannot connect to the database"
+
+
 def test_prose_starting_with_at_kept() -> None:
     text = "at some point we should refactor this module"
     result = strip_non_authored(text)
@@ -104,6 +112,15 @@ def test_indented_code_removed_indented_prose_kept() -> None:
     assert result.removed_flags == [FLAG_INDENTED_CODE]
 
 
+def test_indented_prose_with_parentheses_or_a_trailing_colon_kept() -> None:
+    # Both used to count as code signals. Neither is conclusive: prose carries
+    # parentheses and lead-in colons all the time.
+    text = "here is what I mean:\n    my two points (both small) are:\n    and this is the second"
+    result = strip_non_authored(text)
+    assert result.cleaned_text == text
+    assert result.removed_flags == []
+
+
 def test_json_and_xml_lines_removed() -> None:
     text = (
         "the config looks like\n"
@@ -118,24 +135,36 @@ def test_json_and_xml_lines_removed() -> None:
     assert result.removed_flags == [FLAG_MARKUP_LINE]
 
 
-def test_url_only_line_removed_url_in_sentence_kept() -> None:
+def test_quoted_lines_kept_for_the_model() -> None:
+    # A quoted line is someone else's English or the learner's own recap; the
+    # difference is a judgment, so the candidate keeps it.
+    text = "You wrote earlier:\n> the build is broken\nand I agree with that."
+    result = strip_non_authored(text)
+    assert result.cleaned_text == text
+    assert result.removed_flags == []
+
+
+def test_url_only_line_kept() -> None:
+    # The tokenizer already scores a bare URL as zero words, so removing the
+    # line buys nothing and hides context from the model.
     text = "the docs at https://example.com/setup explain it\nhttps://example.com/other"
     result = strip_non_authored(text)
-    assert result.cleaned_text == "the docs at https://example.com/setup explain it"
-    assert result.removed_flags == [FLAG_URL_LINE]
+    assert result.cleaned_text == text
+    assert result.removed_flags == []
 
 
-def test_mostly_symbol_line_removed() -> None:
+def test_symbol_heavy_line_kept() -> None:
+    # Being more than half non-letters is suspicious, never conclusive.
     text = "section one\n=====================\nsection two"
     result = strip_non_authored(text)
-    assert result.cleaned_text == "section one\nsection two"
-    assert result.removed_flags == [FLAG_SYMBOL_LINE]
+    assert result.cleaned_text == text
+    assert result.removed_flags == []
 
 
-def test_half_letters_line_kept() -> None:
-    # Exactly half of the visible characters are letters: kept.
-    result = strip_non_authored("ab !?")
-    assert result.cleaned_text == "ab !?"
+def test_short_lines_kept() -> None:
+    text = "ok!\nk!!\nyes, do that\nno"
+    result = strip_non_authored(text)
+    assert result.cleaned_text == text
     assert result.removed_flags == []
 
 
@@ -146,20 +175,20 @@ def test_blank_lines_kept() -> None:
 
 
 def test_order_preserved_and_flags_first_hit_order() -> None:
-    text = "> quoted\none\nERROR: boom\ntwo\n> quoted again\nthree"
+    text = '"key": "value",\none\nERROR: boom\ntwo\n{\nthree'
     result = strip_non_authored(text)
     assert result.cleaned_text == "one\ntwo\nthree"
-    assert result.removed_flags == [FLAG_BLOCKQUOTE, FLAG_LOG_LINE]
+    assert result.removed_flags == [FLAG_MARKUP_LINE, FLAG_LOG_LINE]
 
 
 def test_removed_char_count_excludes_line_terminators() -> None:
-    text = "keep me\n> drop me\nkeep me too"
+    text = "keep me\nERROR: drop me\nkeep me too"
     result = strip_non_authored(text)
-    assert result.removed_char_count == len("> drop me")
+    assert result.removed_char_count == len("ERROR: drop me")
 
 
 def test_deterministic() -> None:
-    text = "prose\n```\ncode\n```\n> quote\nmore prose"
+    text = "prose\n```\ncode\n```\nERROR: boom\nmore prose"
     assert strip_non_authored(text) == strip_non_authored(text)
 
 
@@ -178,5 +207,5 @@ def test_long_input_runs_fast() -> None:
     elapsed = time.monotonic() - start
     assert elapsed < 5.0
     lines = result.cleaned_text.splitlines()
-    assert len(lines) == 20_000
-    assert all(line.startswith("this is an ordinary") for line in lines)
+    assert len(lines) == 40_000
+    assert all(line.startswith(("this is an ordinary", "> quoted")) for line in lines)

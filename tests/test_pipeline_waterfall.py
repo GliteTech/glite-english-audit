@@ -35,7 +35,15 @@ from glite_english_audit.discovery import registry
 from glite_english_audit.discovery.inventory import PrivateInventory, summarize
 from glite_english_audit.normalization.filter_corpus import filter_corpus
 from glite_english_audit.paths import stage_dir
-from glite_english_audit.pipeline import batches, build_review, collect, promote_records, start_run
+from glite_english_audit.pipeline import (
+    apply_authorship,
+    authorship_batches,
+    batches,
+    build_review,
+    collect,
+    promote_records,
+    start_run,
+)
 from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.verification.deterministic import (
     verify_package_against_review,
@@ -53,6 +61,37 @@ def only_claude_code() -> None:
     """Register a single adapter so the run is independent of the registry."""
     if "claude_code" not in registry.adapter_ids():
         registry.register_adapter("claude_code", claude_code_adapter)
+
+
+def _stand_in_decision(candidate: dict[str, str]) -> dict[str, object]:
+    """A deterministic authorship judgment, standing in for the model.
+
+    The rules are arbitrary but fixed, so the run is reproducible: material
+    about the deploy script is treated as pasted, a candidate carrying markup
+    keeps only what follows it, and everything else is the learner's own.
+    """
+    text = candidate["text"]
+    if "deploy script" in text:
+        return {
+            "utterance_id": candidate["utterance_id"],
+            "decision": "exclude",
+            "retained_spans": [],
+            "reason": "AUTHORSHIP_PASTED_MATERIAL",
+        }
+    tail = text[text.rindex(">") + 1 :].strip() if ">" in text else ""
+    if tail:
+        return {
+            "utterance_id": candidate["utterance_id"],
+            "decision": "partial",
+            "retained_spans": [tail],
+            "reason": "AUTHORSHIP_AGENT_MACHINERY",
+        }
+    return {
+        "utterance_id": candidate["utterance_id"],
+        "decision": "retain",
+        "retained_spans": [text],
+        "reason": None,
+    }
 
 
 def _repo_with_ignored_temp(tmp_path: Path) -> Path:
@@ -129,9 +168,47 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     leftover = [p for p in snapshots.rglob("*") if p.is_file()] if snapshots.exists() else []
     assert leftover == [], "snapshots must be removed once extraction is durable"
 
-    # Stage 3: filter and verify the eligible corpus.
+    # Stage 3, fallback path: the pre-filter alone builds a verifiable corpus.
     corpus_manifest = filter_corpus(run_id, runs_root=runs_root)
     assert corpus_manifest.english_word_count > 0
+    assert verify_corpus(run_id, runs_root=runs_root) == []
+
+    # Stage 3, model path: candidate batches, a deterministic stand-in for the
+    # authorship judgment, then the verifier that counts what it kept.
+    candidate_index = authorship_batches.prepare_authorship_batches(
+        run_id, batch_size=5, runs_root=runs_root
+    )
+    assert candidate_index.candidate_count > 0
+    candidate_dir = authorship_batches.batch_dir(run_id, runs_root=runs_root)
+    decisions_dir = authorship_batches.decisions_dir(run_id, runs_root=runs_root)
+    planned = {"retain": 0, "partial": 0, "exclude": 0}
+    for candidate_path in sorted(candidate_dir.glob("batch-*.jsonl")):
+        decisions = [
+            _stand_in_decision(json.loads(line))
+            for line in candidate_path.read_text(encoding="utf-8").splitlines()
+        ]
+        for decision in decisions:
+            planned[str(decision["decision"])] += 1
+        name = candidate_path.name.replace("batch-", "decisions-")
+        (decisions_dir / name).write_text(
+            "\n".join(json.dumps(decision, ensure_ascii=False) for decision in decisions) + "\n",
+            encoding="utf-8",
+        )
+    applied = apply_authorship.apply_authorship(run_id, runs_root=runs_root)
+    assert applied.diagnostics == []
+    assert applied.quarantined_decisions == 0
+    assert applied.missing_decisions == 0
+    assert (applied.retained, applied.partial, applied.excluded) == (
+        planned["retain"],
+        planned["partial"],
+        planned["exclude"],
+    )
+    assert applied.excluded >= 1
+    assert applied.partial >= 1
+    # The model dropped material the pre-filter had to keep, so the
+    # analyzed-word denominator is strictly smaller than what it was offered.
+    assert 0 < applied.words_after < applied.words_before
+    corpus_manifest = applied.manifest
     assert verify_corpus(run_id, runs_root=runs_root) == []
 
     # Stage 4 input: deterministic batches.

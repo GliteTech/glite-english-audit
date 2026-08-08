@@ -19,6 +19,7 @@ stable diagnostic codes. This document states the conventions and lists the curr
 | `SOURCE_` | Source discovery, accessibility, snapshot safety |
 | `STATE_` | Run state machine, checkpoints, resume |
 | `SKILL_` | Canonical skill files and generated wrappers |
+| `AUTHORSHIP_` | Stage-3 authorship decisions checked against their candidate text |
 
 - Each code has a fixed severity: `error` blocks promotion of the artifact, `warning` is
   surfaced and recorded but does not block by itself, `info` is informational.
@@ -50,6 +51,10 @@ Generated from the registry; a sync test fails when this table and the registry 
 | Code | Severity | Description |
 |---|---|---|
 | `ARITHMETIC_INVARIANT_VIOLATION` | error | Counts fail a required arithmetic identity, such as shared plus withheld. |
+| `AUTHORSHIP_DUPLICATE_DECISION` | error | More than one authorship decision covers the same candidate utterance. |
+| `AUTHORSHIP_SPAN_NOT_VERBATIM` | error | A retained span is not an exact substring of its candidate's text. |
+| `AUTHORSHIP_SPAN_ORDER_INVALID` | error | Retained spans overlap or do not follow their order in the candidate text. |
+| `AUTHORSHIP_UNKNOWN_UTTERANCE` | error | A decision names an utterance that is not a candidate of this run. |
 | `CARDINALITY_MISMATCH` | error | Line, record, or reference counts disagree with the declared cardinality. |
 | `FINDING_CORRECTION_UNSUPPORTED` | error | A correction or explanation does not fix, or misdescribes, the problem. |
 | `FINDING_EVIDENCE_MISMATCH` | error | A finding's original text does not appear in the cited utterance. |

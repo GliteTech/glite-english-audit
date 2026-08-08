@@ -350,6 +350,27 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
             "what is stored differ."
         ),
     ),
+    # Stage-3 authorship decisions checked against their candidate text.
+    DiagnosticDefinition(
+        code="AUTHORSHIP_UNKNOWN_UTTERANCE",
+        severity=Severity.ERROR,
+        description="A decision names an utterance that is not a candidate of this run.",
+    ),
+    DiagnosticDefinition(
+        code="AUTHORSHIP_DUPLICATE_DECISION",
+        severity=Severity.ERROR,
+        description="More than one authorship decision covers the same candidate utterance.",
+    ),
+    DiagnosticDefinition(
+        code="AUTHORSHIP_SPAN_NOT_VERBATIM",
+        severity=Severity.ERROR,
+        description="A retained span is not an exact substring of its candidate's text.",
+    ),
+    DiagnosticDefinition(
+        code="AUTHORSHIP_SPAN_ORDER_INVALID",
+        severity=Severity.ERROR,
+        description="Retained spans overlap or do not follow their order in the candidate text.",
+    ),
 )
 
 DIAGNOSTIC_DEFINITIONS: dict[str, DiagnosticDefinition] = {

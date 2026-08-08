@@ -1,12 +1,24 @@
-"""CLI: stage 3 — filter candidate utterances into the eligible corpus.
+"""CLI: stage 3 fallback — build the eligible corpus from the pre-filter alone.
 
 Run: ``uv run python -m glite_english_audit.normalization.filter_corpus
 --run-id <run-id>`` (tests pass ``--runs-root``).
 
-Reads the stage-2 candidate JSONL, applies authorship stripping, conservative
+This is the pre-filter-only route, used when no model judgment is available —
+in tests, and when an audit has to produce a corpus without spending a model
+call. The normal stage-3 path is
+:mod:`glite_english_audit.pipeline.apply_authorship`, where the
+``filter-authored-english`` skill decides which spans the learner wrote and
+the deterministic verifier counts what it kept. Here nothing judges
+authorship: the pre-filter removes only machinery
+(:mod:`glite_english_audit.normalization.authorship`), so pasted material it
+cannot recognize survives into the analyzed-word denominator and depresses
+every rate the report shows.
+
+Reads the stage-2 candidate JSONL, applies the pre-filter, conservative
 English classification, and cross-source dedup, counts words with the
 versioned tokenizer, and writes the stage-3 corpus JSONL plus its
-:class:`EligibleCorpusManifest`. Prints only aggregate numbers.
+:class:`EligibleCorpusManifest` — the same artifacts, in the same shape, as
+the model path. Prints only aggregate numbers.
 """
 
 import argparse
