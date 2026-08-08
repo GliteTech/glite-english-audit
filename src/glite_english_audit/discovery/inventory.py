@@ -17,11 +17,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from glite_english_audit.artifacts.enums import StageId
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.models import InstanceInventorySummary, SourceInstanceRecord
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
 from glite_english_audit.discovery.registry import create_all_adapters
-from glite_english_audit.paths import detect_os_environment
+from glite_english_audit.paths import detect_os_environment, stage_dir
 
 
 class PrivateInventory(BaseModel):
@@ -66,12 +67,22 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Prints agent-safe summaries as JSON."""
     parser = argparse.ArgumentParser(description="Local source inventory (aggregate-only output)")
     parser.add_argument(
+        "--run-id",
+        default=None,
+        help="run whose stage-0 directory receives the full private records",
+    )
+    parser.add_argument(
         "--run-dir",
         type=Path,
         default=None,
-        help="private run directory; when given, full private records are stored there",
+        help="explicit private directory override for the full records (tests)",
     )
+    parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
+    if arguments.run_dir is None and arguments.run_id is not None:
+        arguments.run_dir = stage_dir(
+            arguments.run_id, StageId.SOURCE_INVENTORY, root=arguments.runs_root
+        )
 
     # Registration stays out of module import time so tests control the registry.
     from glite_english_audit import adapters

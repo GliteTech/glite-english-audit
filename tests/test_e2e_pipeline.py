@@ -7,10 +7,10 @@ record creation, privacy scanning, review, and package materialization. No
 model and no network are involved anywhere.
 """
 
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from glite_english_audit.adapters.claude_code import create_adapter
 from glite_english_audit.artifacts.enums import (
     ExampleType,
     Modality,
@@ -24,19 +24,19 @@ from glite_english_audit.artifacts.models import (
     EvidenceSpan,
     FindingsArtifactMeta,
     ModalityCounts,
+    NormalizedUtterance,
     PrivateMistake,
     ReviewedRecord,
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
 )
-from glite_english_audit.adapters.claude_code import create_adapter
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.normalization.authorship import strip_non_authored
 from glite_english_audit.normalization.dedup import dedupe
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import count_words
-from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.submission.capability import detect_capability
+from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.verification.deterministic import (
     verify_package_against_review,
     verify_submission_package,
@@ -81,12 +81,12 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
     outcome = adapter.discover(context)
     found = [r for r in outcome.records if r.candidate_messages > 0]
     assert found, "fixture must yield at least one instance with candidates"
-    utterances = []
-    for record in found:
-        snapshot_dir = tmp_path / "snapshots" / record.instance_key[:12]
+    utterances: list[NormalizedUtterance] = []
+    for instance in found:
+        snapshot_dir = tmp_path / "snapshots" / instance.instance_key[:12]
         snapshot_dir.mkdir(parents=True)
-        adapter.snapshot(record, outcome.instance_paths[record.instance_key], snapshot_dir)
-        utterances.extend(adapter.extract(record, snapshot_dir))
+        adapter.snapshot(instance, outcome.instance_paths[instance.instance_key], snapshot_dir)
+        utterances.extend(adapter.extract(instance, snapshot_dir))
     assert utterances
 
     # Stage 3: authorship, language, dedup, counting.
@@ -162,7 +162,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
     assert target.text[mistake.evidence_span.start : mistake.evidence_span.end] == original
 
     # Stage 6-7: safe record passes the deterministic privacy scanner.
-    record = SafeMistakeRecord(
+    safe_record = SafeMistakeRecord(
         mistake="Used 'very' to modify the verb 'like' directly.",
         rule="In English, 'very' cannot modify a verb; use 'really' or 'very much'.",
         example="I very like this plan.",
@@ -170,7 +170,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
         source_type="claude_code",
         modality=Modality.WRITTEN,
     )
-    assert scan_safe_record(record, item_ref=mistake.mistake_id) == []
+    assert scan_safe_record(safe_record, item_ref=mistake.mistake_id) == []
 
     # Stage 8: review, materialization, and the full deterministic gate.
     counts = AuditCounts(
@@ -197,7 +197,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
         records=[
             ReviewedRecord(
                 mistake_id=mistake.mistake_id,
-                record=record,
+                record=safe_record,
                 included=True,
                 privacy_creator_version="1.0.0",
                 privacy_verifier_version="1.0.0",

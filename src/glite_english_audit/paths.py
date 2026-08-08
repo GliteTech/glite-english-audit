@@ -10,7 +10,7 @@ import os
 import platform
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import OsEnvironment
+from glite_english_audit.artifacts.enums import OsEnvironment, StageId
 
 APP_DIR_NAME_MACOS = "Glite English Audit"
 APP_DIR_NAME_WINDOWS = "Glite English Audit"
@@ -65,6 +65,26 @@ def runs_root(environment: OsEnvironment | None = None) -> Path:
 def run_dir(run_id: str, environment: OsEnvironment | None = None) -> Path:
     """Private state directory for one run."""
     return runs_root(environment) / run_id
+
+
+def stage_dir(
+    run_id: str,
+    stage: StageId,
+    environment: OsEnvironment | None = None,
+    *,
+    root: Path | None = None,
+) -> Path:
+    """Directory holding one stage's current artifacts inside a run.
+
+    ``root`` overrides the runs root for tests.
+    """
+    base = root / run_id if root is not None else run_dir(run_id, environment)
+    return base / "stages" / str(int(stage))
+
+
+def endpoint_config_dir(environment: OsEnvironment | None = None) -> Path:
+    """Directory holding operator-provided endpoint configuration."""
+    return runtime_root(environment) / "config"
 
 
 def calibration_history_path(environment: OsEnvironment | None = None) -> Path:
