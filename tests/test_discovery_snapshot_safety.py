@@ -1,0 +1,157 @@
+"""Snapshot safety gates and manifest-bounded cleanup against a real Git repo."""
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
+from glite_english_audit.artifacts.hashing import sha256_hex
+from glite_english_audit.artifacts.models import SnapshotFileEntry, SnapshotManifest
+from glite_english_audit.discovery.snapshot_safety import (
+    SnapshotSafetyError,
+    cleanup_snapshot,
+    ensure_safe_snapshot_dir,
+)
+
+_RUN_ID = "run-" + "0" * 32
+
+
+def _git_repo(path: Path, *, gitignore: str = "temp/\n") -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "--quiet", str(path)], check=True)
+    (path / ".gitignore").write_text(gitignore, encoding="utf-8")
+    subprocess.run(["git", "-C", str(path), "add", ".gitignore"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=Synthetic Tester",
+            "-c",
+            "user.email=tester@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "add gitignore",
+        ],
+        check=True,
+    )
+    return path
+
+
+def _manifest(entries: list[SnapshotFileEntry]) -> SnapshotManifest:
+    return SnapshotManifest(
+        envelope=ArtifactEnvelope(
+            schema_name="snapshot_manifest",
+            schema_version=1,
+            artifact_id="art-" + "11" * 16,
+            run_id=_RUN_ID,
+            stage_id=StageId.SOURCE_SNAPSHOTS,
+            producer_name="test-factory",
+            producer_version="1.0.0",
+            created_at=utc_now(),
+        ),
+        adapter_id="claude_code",
+        instance_key="instance-1",
+        snapshot_relative_dir=f"temp/runtime/{_RUN_ID}/snapshots",
+        files=entries,
+    )
+
+
+def _entry(relative_path: str, content: bytes = b"synthetic") -> SnapshotFileEntry:
+    return SnapshotFileEntry(
+        relative_path=relative_path,
+        size_bytes=len(content),
+        sha256=sha256_hex(content),
+    )
+
+
+def test_ensure_safe_snapshot_dir_succeeds(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    target = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    assert target.is_dir()
+    assert target == repo.resolve() / "temp" / "runtime" / _RUN_ID / "snapshots"
+
+
+def test_ensure_safe_snapshot_dir_fails_when_not_ignored(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout", gitignore="docs/\n")
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_NOT_IGNORED"
+    assert not (repo / "temp" / "runtime" / _RUN_ID / "snapshots").exists()
+
+
+def test_ensure_safe_snapshot_dir_fails_under_synced_root(tmp_path: Path) -> None:
+    repo = tmp_path / "Dropbox" / "checkout"
+    repo.mkdir(parents=True)
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_SYNCED_ROOT"
+    assert not (repo / "temp" / "runtime").exists()
+
+
+def test_cleanup_deletes_exactly_manifest_files(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    (base / "a.txt").write_bytes(b"synthetic")
+    (base / "sub").mkdir()
+    (base / "sub" / "b.txt").write_bytes(b"synthetic")
+    (base / "keep.txt").write_bytes(b"undeclared")
+
+    manifest = _manifest([_entry("a.txt"), _entry("sub/b.txt")])
+    deleted = cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+
+    assert {path.name for path in deleted} == {"a.txt", "b.txt"}
+    assert not (base / "a.txt").exists()
+    assert not (base / "sub").exists()  # emptied directory removed
+    assert (base / "keep.txt").exists()  # undeclared file untouched
+
+
+def test_cleanup_tolerates_already_missing_files(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    manifest = _manifest([_entry("never-written.txt")])
+    assert cleanup_snapshot(manifest, _RUN_ID, repo=repo) == []
+
+
+def test_cleanup_refuses_parent_escape(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    outside = base.parent / "outside.txt"
+    outside.write_bytes(b"private")
+
+    # The model itself rejects '..'; cleanup must still refuse one smuggled in.
+    escape = SnapshotFileEntry.model_construct(
+        relative_path="../outside.txt",
+        size_bytes=7,
+        sha256="0" * 64,
+    )
+    manifest = _manifest([escape])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert outside.exists()
+
+
+def test_cleanup_refuses_symlink_out_of_snapshot(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "checkout")
+    base = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    target = tmp_path / "private-target.txt"
+    target.write_bytes(b"private")
+    (base / "link.txt").symlink_to(target)
+
+    manifest = _manifest([_entry("link.txt")])
+    with pytest.raises(SnapshotSafetyError) as excinfo:
+        cleanup_snapshot(manifest, _RUN_ID, repo=repo)
+    assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+    assert target.exists()
+
+
+def test_snapshot_entry_model_rejects_unbounded_paths() -> None:
+    with pytest.raises(ValueError, match="relative"):
+        _entry("../escape.txt")
+    with pytest.raises(ValueError, match="relative"):
+        _entry("/absolute.txt")

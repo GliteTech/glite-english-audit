@@ -136,6 +136,20 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         severity=Severity.ERROR,
         description="A rule sentence depends on hidden context, such as 'in this case' or 'here'.",
     ),
+    DiagnosticDefinition(
+        code="PRIVACY_NAME_PRESENT",
+        severity=Severity.ERROR,
+        description=(
+            "A person, company, product, project, or place name appears in checked content."
+        ),
+    ),
+    DiagnosticDefinition(
+        code="PRIVACY_REIDENTIFICATION_RISK",
+        severity=Severity.ERROR,
+        description=(
+            "A combination of individually harmless facts could identify a person or company."
+        ),
+    ),
     # Submission allowlist.
     DiagnosticDefinition(
         code="SUBMISSION_FORBIDDEN_FIELD",
@@ -195,6 +209,38 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
             "The snapshot target sits in a cloud-synced or network root, so it was refused."
         ),
     ),
+    # Stage-4 semantic finding verification.
+    DiagnosticDefinition(
+        code="FINDING_NATIVE_PLAUSIBLE",
+        severity=Severity.ERROR,
+        description=(
+            "A retained finding is plausible native informal English and must be dropped."
+        ),
+    ),
+    DiagnosticDefinition(
+        code="FINDING_EXCLUDED_CATEGORY",
+        severity=Severity.ERROR,
+        description=(
+            "A finding targets an excluded category: slip, shorthand, style, or copied text."
+        ),
+    ),
+    DiagnosticDefinition(
+        code="FINDING_EVIDENCE_MISMATCH",
+        severity=Severity.ERROR,
+        description="A finding's original text does not appear in the cited utterance.",
+    ),
+    DiagnosticDefinition(
+        code="FINDING_CORRECTION_UNSUPPORTED",
+        severity=Severity.ERROR,
+        description="A correction or explanation does not fix, or misdescribes, the problem.",
+    ),
+    DiagnosticDefinition(
+        code="FINDING_MISSED_HIGH_CONFIDENCE",
+        severity=Severity.WARNING,
+        description=(
+            "The unit contains a clear high-confidence mistake the producer did not report."
+        ),
+    ),
     # Run state, checkpoints, and resume.
     DiagnosticDefinition(
         code="STATE_INVALID_TRANSITION",
@@ -215,6 +261,18 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         code="STATE_EXPIRED_INPUT",
         severity=Severity.WARNING,
         description="A private input required for resume passed the 30-day retention limit.",
+    ),
+    DiagnosticDefinition(
+        code="STATE_UNSAFE_CLEANUP_PATH",
+        severity=Severity.ERROR,
+        description="A retention cleanup target failed path-safety checks, so cleanup stopped.",
+    ),
+    DiagnosticDefinition(
+        code="SOURCE_WSL_HOST_STORE_HINT",
+        severity=Severity.INFO,
+        description=(
+            "A Windows-host data store was seen from WSL; run the audit from native Windows."
+        ),
     ),
     # Skill verifier.
     DiagnosticDefinition(
