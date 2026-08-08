@@ -37,7 +37,7 @@ from glite_english_audit.artifacts.manifest import (
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.paths import run_dir, stage_dir
+from glite_english_audit.paths import pending_inventory_dir, run_dir, stage_dir
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
@@ -153,7 +153,12 @@ def start_run(
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="Create an audit run and freeze its selection")
-    parser.add_argument("--inventory-dir", type=Path, required=True)
+    parser.add_argument(
+        "--inventory-dir",
+        type=Path,
+        default=None,
+        help="defaults to the inventory discovery left pending",
+    )
     parser.add_argument("--runtime", default="claude_code", choices=[r.value for r in AgentRuntime])
     parser.add_argument("--os-environment", default="macos")
     parser.add_argument("--period", default="last-30-days", choices=sorted(PERIOD_PRESETS))
@@ -169,7 +174,11 @@ def main(argv: list[str] | None = None) -> int:
         instance_keys=arguments.instance_key,
         processing_profile=arguments.profile,
         runs_root=arguments.runs_root,
-        inventory_dir=arguments.inventory_dir,
+        inventory_dir=(
+            arguments.inventory_dir
+            if arguments.inventory_dir is not None
+            else pending_inventory_dir()
+        ),
     )
     selection = manifest.selection
     assert selection is not None

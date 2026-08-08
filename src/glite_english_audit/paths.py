@@ -119,6 +119,16 @@ def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
     return run_dir(run_id, repo=repo) / "snapshots"
 
 
+def pending_inventory_dir(*, repo: Path | None = None) -> Path:
+    """Where discovery leaves its inventory before a run exists.
+
+    Discovery runs first: the user has to see what was found before choosing
+    sources, and only then is a run created. So stage 0 has nowhere run-scoped
+    to write, and its output waits here until ``start_run`` adopts it.
+    """
+    return runtime_root(repo=repo) / "inventory"
+
+
 def endpoint_config_dir(*, repo: Path | None = None) -> Path:
     """Directory holding operator-provided endpoint configuration."""
     return runtime_root(repo=repo) / "config"

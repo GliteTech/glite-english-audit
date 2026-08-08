@@ -22,7 +22,11 @@ from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.models import InstanceInventorySummary, SourceInstanceRecord
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
 from glite_english_audit.discovery.registry import create_all_adapters
-from glite_english_audit.paths import detect_os_environment, stage_dir
+from glite_english_audit.paths import (
+    detect_os_environment,
+    pending_inventory_dir,
+    stage_dir,
+)
 
 
 class PrivateInventory(BaseModel):
@@ -79,10 +83,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
-    if arguments.run_dir is None and arguments.run_id is not None:
-        arguments.run_dir = stage_dir(
-            arguments.run_id, StageId.SOURCE_INVENTORY, root=arguments.runs_root
-        )
+    if arguments.run_dir is None:
+        if arguments.run_id is not None:
+            arguments.run_dir = stage_dir(
+                arguments.run_id, StageId.SOURCE_INVENTORY, root=arguments.runs_root
+            )
+        else:
+            # No run exists yet at stage 0, so the inventory waits in the
+            # pending location until start_run adopts it.
+            arguments.run_dir = pending_inventory_dir()
 
     # Registration stays out of module import time so tests control the registry.
     from glite_english_audit import adapters

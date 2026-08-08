@@ -134,9 +134,9 @@ runtime; naming both is confusing and wrong.
      during setup; reuse the promoted artifact). It writes the private inventory the
      next command reads.
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
-     --inventory-dir <stage-0-dir> --period <preset> --profile <profile>`. It prints
-     the `<run-id>` and freezes the record cutoff. Add one `--instance-key` per
-     instance the user kept when they unchecked any.
+     --period <preset> --profile <profile>`. It adopts the inventory discovery left
+     pending, prints the `<run-id>`, and freezes the record cutoff. Add one
+     `--instance-key` per instance the user kept when they unchecked any.
    - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
      --run-id <run-id>`. It snapshots each selected instance under the safety gates,
      extracts candidates from the snapshot only, removes each snapshot as soon as its

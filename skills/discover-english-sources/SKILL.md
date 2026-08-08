@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -46,9 +46,14 @@ agent sees only the derived `InstanceInventorySummary`.
 ## Steps
 
 1. Run the discovery inventory command:
-   `uv run python -m glite_english_audit.discovery.inventory --run-id <run-id>`.
+   `uv run python -m glite_english_audit.discovery.inventory`.
    It runs `discover()` for every registered adapter and writes the private stage-0
    artifact. Its stdout is the agent-facing summary JSON described in Output Format.
+   Pass no run identifier: discovery comes before the run exists, because the user
+   chooses sources from this output and `pipeline.start_run` creates the run from
+   that choice. The private artifact waits in the pending inventory location until
+   `start_run` adopts it. On a large history this takes a few minutes; say so before
+   starting rather than leaving the user with a silent terminal.
 2. Read the summary JSON. Do not open the private artifact or any source path.
 3. Present one table row per instance: opaque label, stability, date range, and
    candidate counts. Label every count "candidate". Counts become "eligible" only
@@ -118,8 +123,8 @@ same module.
 Input: discovery runs during setup on a machine with Claude Code history in two
 projects and no Codex history.
 
-Command: `uv run python -m glite_english_audit.discovery.inventory --run-id
-run-0f3a...`. Exact agent-facing output (condensed to one instance):
+Command: `uv run python -m glite_english_audit.discovery.inventory`. Exact
+agent-facing output (condensed to one instance):
 
 ```json
 [
