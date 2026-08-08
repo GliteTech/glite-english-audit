@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 5
+**Version**: 6
 
 ## Goal
 
@@ -69,41 +69,48 @@ agent sees only the derived `InstanceInventorySummary`.
    `start_run` adopts it. On a large history this takes a few minutes; say so before
    starting rather than leaving the user with a silent terminal.
 3. Read the summary JSON. Do not open the private artifact or any source path.
-4. Answer the only question the user has: should they go ahead, and on what?
-   Write five or six lines of plain prose. Not a table — a table is for data a
-   user compares row by row, and here they cannot act on a single row of it.
+4. Report what was found as a list, then judge it in prose. A list is faster to
+   scan than a sentence containing the same facts; prose is better for the
+   recommendation, which is an argument rather than data. Lead with the point,
+   keep sentences short, and give each source one line.
 
-   Say which applications hold their English and which will be analyzed; give the
-   combined size once, rounded, as words; say plainly whether that is a lot; and
-   ask what they want to do. Nothing else belongs in this message.
+   Never write "adapter", "instance", "stability", "beta", "candidate count", or
+   a diagnostic code at the user. Those are this project's internal words. Say
+   what they mean instead: an adapter is an app, an instance is a project, and a
+   beta source is one this project has not yet tested against a real
+   installation of that app — which is why it is off unless they ask.
 
    Do:
    ```text
-   Found English you wrote in five apps here.
+   Found English you wrote in five apps.
 
-   Will analyze: Codex, Claude Code, OpenCode — about 2.8 million words.
-   Skipped for now: Cursor and Wispr Flow. Both are still experimental, so I
-   leave them off unless you ask.
+   Ready to analyze — about 2.8 million words, from late September to yesterday:
+   - Codex — 2.7M words
+   - Claude Code — 121,000 words, past five weeks
+   - OpenCode — 110 words
 
-   2.8 million words is a lot — analyzing all of it would take hours. Most
-   people start with the last month.
+   Off unless you want them:
+   - Cursor — 1.8M words. Reading it is new and only tested on this Mac.
+   - Wispr Flow — 158 words, your only dictation. Not yet tested on Windows.
 
-   Shall I go ahead with everything, or pick a shorter period first?
+   2.8 million words would take hours. Most people start with the last month.
    ```
+   Don't: the same facts run together in a paragraph, or the words "adapter",
+   "beta", and "candidate" left undefined for the reader to decode.
 
-   Don't: a thirty-row table of instance labels, per-instance date ranges,
-   stability values, diagnostic codes, artifact permissions, or a note that every
-   row parsed. That is the audit trail, not the answer.
+5. Ask with the runtime's structured choice interface when it has one, so the
+   user clicks instead of typing. In Claude Code use `AskUserQuestion`: one
+   multi-select question for which apps to include, pre-selected as the default
+   rule dictates, and one single-select for the period. Keep each option label
+   under about a dozen characters and put the numbers in its description. Where
+   the runtime offers no such interface, ask the same questions in text.
 
-5. Hold the detail until asked. A source may hold dozens of instances, one per
-   project, and their opaque labels exist so the user CAN exclude one — not so
-   they must read them all. Offer once, in the closing question, and print the
-   per-instance breakdown only if they take you up on it.
+   Ask about apps and period as separate questions. Never bundle sources,
+   period, profile, and cost into one.
 
-6. Say what was not found only if it is short and useful — one line naming the
-   applications, no diagnostic codes. Report an inaccessible or unsupported source
-   separately and plainly, because that one is actionable: it means English exists
-   here that the audit cannot read.
+6. Say what was not found in one line naming the apps, with no diagnostic codes.
+   Report an app whose data could not be read separately and plainly: that one
+   is actionable, because English exists on this machine the audit cannot see.
 
 7. Hand the summary to the orchestration (`skills/run-english-audit/SKILL.md`) for
    the selection questions.

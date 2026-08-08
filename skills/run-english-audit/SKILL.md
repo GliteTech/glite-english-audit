@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 3
+**Version**: 4
 
 ## Goal
 
@@ -117,8 +117,20 @@ runtime; naming both is confusing and wrong.
       (highest measured eligible models regardless of cost). Both may resolve to the
       same models. Record the resolved models in the manifest.
    4. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
-   Do: ask "Which period should I audit?" with the estimate table, then ask about the
-   profile separately.
+   Use the runtime's structured choice interface for every one of these
+   questions when it has one, so the user clicks rather than types. In Claude
+   Code that is `AskUserQuestion`: multi-select for which apps to include,
+   pre-selected to the default rule; single-select for the period, with each
+   preset's words and estimated time in its description; single-select for the
+   profile. Where no such interface exists, ask the same questions in text.
+
+   Write for someone who has never read this repository. "Adapter", "instance",
+   "stability", "beta", "candidate count", and diagnostic codes are internal
+   words: say app, project, and "not yet tested against a real installation"
+   instead. List facts; save prose for the recommendation.
+
+   Do: ask "Which period should I audit?" with the estimates on each option, then
+   ask about the profile separately.
    Don't: combine sources, period, profile, budget, and consent into one question.
 7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
