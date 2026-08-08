@@ -69,15 +69,23 @@ def test_committed_profile_loads_and_covers_all_cells() -> None:
     assert profile.schema_version == PROFILE_SCHEMA_VERSION
     cells = {(entry.step, entry.runtime) for entry in profile.entries}
     assert cells == {(step, runtime) for step in EXPECTED_STEPS for runtime in EXPECTED_RUNTIMES}
-    assert all(entry.model == "uncalibrated-default" for entry in profile.entries)
-    assert all(entry.effort == "medium" for entry in profile.entries)
 
 
-def test_committed_profile_entries_are_low_confidence() -> None:
+def test_committed_profile_calibration_state() -> None:
+    # Claude Code cells were measured on real owner data (2026-08-08);
+    # Codex cells stay uncalibrated until a calibration run under Codex.
     profile = load_token_usage_profile()
-    assert all(entry.messages_measured == 0 for entry in profile.entries)
-    assert all(entry.is_uncalibrated for entry in profile.entries)
-    assert profile.low_confidence_entries() == profile.entries
+    for entry in profile.entries:
+        if entry.runtime == "claude-code":
+            assert entry.model == "claude-fable-5"
+            assert entry.messages_measured > 0
+            assert not entry.is_uncalibrated
+            assert entry.p90_total_tokens_per_message >= entry.p50_total_tokens_per_message
+        else:
+            assert entry.model == "uncalibrated-default"
+            assert entry.messages_measured == 0
+            assert entry.is_uncalibrated
+    assert [e for e in profile.low_confidence_entries() if e.runtime == "codex"]
 
 
 def test_default_profile_path_points_into_calibration_dir() -> None:
