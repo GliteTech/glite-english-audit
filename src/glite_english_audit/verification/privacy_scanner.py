@@ -44,12 +44,17 @@ _IDENTIFIER = re.compile(
     re.IGNORECASE,
 )
 _CODE = re.compile(
-    r"[{};]"
+    # A single semicolon is ordinary English punctuation; braces, operators,
+    # fences, keywords, call shapes, and statement-final semicolons are code.
+    r"[{}]"
+    r"|;\s*$"
     r"|=>|==|!=|::|\+=|->"
     r"|```"
     r"|\b(?:def|class|import|function|return|const|var|let)\s"
     r"|\b\w+_\w+\("
     r"|\b\w+\.\w+\("
+    r"|\)\s*;",
+    re.MULTILINE,
 )
 _NUMBER = re.compile(
     r"\d{4,}"  # any long digit run, including years
