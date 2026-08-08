@@ -4,6 +4,7 @@ Adapter ID: `cursor`
 Status: reviewed source specification (spec section 4.2 research gate)
 Stability: **beta** (spec sections 1.4 and 4.7; never auto-selected, user must opt in)
 Research log: `temp/findings/cursor-source-research.md` (evidence IDs E1–E10 cited below)
+Rawness evidence: `temp/findings/cursor-rawness-evidence.md` (evidence ID **E11**, section 5)
 Tested application version: Cursor 3.14.7, macOS (direct structural observation of the real
 local store, authorized by the project owner; labeled reverse engineering)
 Access date for all cited evidence: 2026-08-08
@@ -13,6 +14,15 @@ community maintainers have repeatedly been broken by silent format changes. The 
 therefore supports exactly one structurally verified storage generation, feature-detects it per
 record, and reports every other generation as "detected, unsupported schema" that is
 inventoried but contributes no analyzable text (spec 4.7).
+
+**State-of-knowledge change (2026-08-08).** Spec 4.7 requires Cursor rawness to be treated as
+`unknown` "unless a tested variant proves otherwise". That condition is now satisfied for one
+variant, and only for that variant: on the tested G4 / macOS store, the stored user text is a
+faithful serialization of the composer editor state, not a cleaned or model-processed form
+(E11, section 5). This specification therefore moves from *inventory-only for every Cursor
+variant* to *per-bubble reconciliation for the proven variant, inventory-only and fail-closed
+for everything else*. Stability remains **beta**: beta means the adapter is never selected by
+default and the user must opt in explicitly (spec 1.4).
 
 ## 1. Platform status and storage locations
 

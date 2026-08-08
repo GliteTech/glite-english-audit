@@ -55,8 +55,9 @@ upload on the Glite website.
    `uv run python -m glite_english_audit.review_server --run-id <run-id>`. It builds
    the review data from the approved records plus counts, runs the content-free
    capability check, and prints the local URL with the token.
-3. Tell the user: "Your review page is ready: http://127.0.0.1:<port>/?token=<token>.
-   Open it in your browser. Nothing is sent until you confirm there." Explain the
+3. Tell the user: "Your review page is ready: <address>. Open it in your browser.
+   Nothing is sent until you confirm there." Copy `<address>` exactly as the command
+   printed it; the address carries a per-run token and no other form works. Explain the
    page in two or three sentences: every record is shown exactly as it would be
    sent, selected by default; excluding a record removes its details from the
    submission but still adds one to the anonymous withheld count; two separate
@@ -146,7 +147,7 @@ privacy).
 Intermediate decision: the capability check finds no endpoint configuration file, so
 the page is download-only and the Send action is omitted.
 
-The server prints `http://127.0.0.1:8391/?token=t-FAKEEXAMPLE0000`. The user opens
+The server prints `http://127.0.0.1:8391/t/FAKEEXAMPLETOKEN0000/`. The user opens
 it, excludes 3 records, and downloads the package. The two send confirmations stay
 unchecked; in download-only mode they are collected later, on the Glite website,
 before a manual upload is accepted. The reviewed artifact records 84 included, 3

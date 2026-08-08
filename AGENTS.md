@@ -6,9 +6,11 @@ how you change the repository itself, not how the audit skills run. CLAUDE.md po
 ## Project purpose
 
 Glite English Audit finds high-confidence non-native English mistakes in English a learner has
-naturally written or dictated while using their computer, then identifies recurring patterns among
-them. The learner gets a diagnostic report and may anonymously contribute privacy-safe mistake
-records to Glite.
+naturally written or dictated while using their computer. This repository holds the local side:
+discovery, extraction, verification, the local review page, and a schema-valid submission package.
+The learner may then contribute that package anonymously to Glite, which returns the report. No
+module here calls an inference API; semantic judgments run through the active Codex or Claude Code
+runtime and the skills in `skills/`.
 
 ## Critical rules
 
@@ -41,27 +43,41 @@ uv run python -m glite_english_audit.verification.verify_skills
 uv run python -m glite_english_audit.artifacts.schema_export --check
 ```
 
+`uv run pytest -m "not slow"` deselects the scale test (`tests/test_scale_pipeline.py`) during quick
+iterations. The gate above still runs it. `.pre-commit-config.yaml` runs the same checks except the
+schema-export check; run that one yourself before commit.
+
 ## Layout
 
 ```text
 skills/                       # canonical agent skills (SKILL.md per skill)
 .claude/skills/, .codex/skills/  # generated wrappers — do not edit
 src/glite_english_audit/
-├── artifacts/                # Pydantic models, envelope, hashing, io, schema export
+├── __init__.py               # CLIENT_VERSION
+├── paths.py                  # every filesystem location and OS detection
+├── consent.py                # CONSENT_POLICY_VERSION
+├── artifacts/                # Pydantic models, envelope, hashing, io, manifest,
+│                             # submission contract, schema export
 ├── diagnostics/              # stable diagnostic code registry
-├── state/                    # run and stage state machine
-├── discovery/                # adapter protocol, registry, snapshot safety, inventory
-├── adapters/                 # one package per source (claude_code, codex, ...)
-├── normalization/            # tokenizer, language spans, authorship filter, dedup
-├── verification/             # deterministic verifiers, privacy scanner, verify_skills,
-│                             # generate_wrappers
+├── state/                    # run/stage state machine, run store, event log
+├── discovery/                # adapter protocol, registry, snapshot safety,
+│                             # scan exclusions, inventory CLI
+├── adapters/                 # one package per source: aider, claude_code, cline,
+│                             # codex, cursor, gemini_cli, opencode, roo_code,
+│                             # wispr_flow (registered in adapters/__init__.py)
+├── normalization/            # tokenizer, language spans, authorship filter, dedup,
+│                             # stage-3 filter_corpus CLI
+├── verification/             # deterministic verifiers, corpus/skill verifiers,
+│                             # privacy scanner, fixture policy, generate_wrappers
 ├── progress/                 # progress model and rendering
 ├── estimation/               # token/time/cost estimation
-├── review_server/            # loopback final-review page server
+├── review_server/            # loopback final-review page server and its CLI
 └── submission/               # package materializer, capability check, client
 schemas/                      # generated JSON Schemas — regenerate, never handwrite
-specifications/               # committed specs, incl. agent_skills_specification.md
+specifications/               # committed specs: agent_skills_specification.md,
+                              # compatibility_matrix.md, sources/<adapter_id>.md, ...
 styleguide/                   # python, agent-instruction, and prompting style guides
+calibration/                  # committed default token-usage profile (numbers only)
 fixtures/                     # synthetic fixtures: fixtures/<adapter_id>/<variant>/
 tests/                        # pytest; files test_<area>_<topic>.py; use tmp_path
 temp/                         # private, ignored working area (research findings, drafts)
