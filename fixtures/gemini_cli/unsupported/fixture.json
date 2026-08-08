@@ -1,0 +1,7 @@
+{
+  "adapter_id": "gemini_cli",
+  "kind": "unsupported",
+  "description": "One instance where every chat file fails the schema gate: a JSONL file of unknown line shapes, a JSON file without a messages array, and a checkpoint-style history file inside chats/.",
+  "synthetic": true,
+  "storage_variant": "unsupported"
+}

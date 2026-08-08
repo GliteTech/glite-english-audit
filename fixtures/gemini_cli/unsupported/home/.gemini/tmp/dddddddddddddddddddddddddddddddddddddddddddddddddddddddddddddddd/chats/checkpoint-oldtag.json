@@ -1,0 +1,7 @@
+{
+  "history": [
+    {"role": "user", "parts": [{"text": "FAKE synthetic checkpoint history that must never be extracted."}]},
+    {"role": "model", "parts": [{"text": "FAKE synthetic model turn."}]}
+  ],
+  "authType": "oauth-FAKE"
+}

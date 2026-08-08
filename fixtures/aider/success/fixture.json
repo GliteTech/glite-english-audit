@@ -1,0 +1,7 @@
+{
+  "adapter_id": "aider",
+  "kind": "success",
+  "description": "Two project instances (input-history primary with a channel-priority chat transcript, CRLF chat-markdown-only), an env-relocatable custom-named history, denylisted config/secret files, and pruned decoy directories.",
+  "synthetic": true,
+  "storage_variant": "input-history-v1"
+}

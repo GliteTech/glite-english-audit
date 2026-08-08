@@ -1,0 +1,52 @@
+{
+  "sessionId": "bbbb2222-2222-4222-8222-222222222222",
+  "projectHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "startTime": "2026-07-05T14:00:00Z",
+  "lastUpdated": "2026-07-05T14:30:00Z",
+  "messages": [
+    {
+      "id": "n01",
+      "timestamp": "2026-07-05T14:01:00Z",
+      "type": "user",
+      "content": "Yesterday I have wrote a long letter to my colleague about the deploy process."
+    },
+    {
+      "id": "n02",
+      "timestamp": "2026-07-05T14:02:00Z",
+      "type": "gemini",
+      "content": "FAKE synthetic model reply.",
+      "thoughts": [
+        {
+          "subject": "FAKE",
+          "description": "FAKE synthetic thought that must never be extracted.",
+          "timestamp": "2026-07-05T14:02:00Z"
+        }
+      ]
+    },
+    {
+      "id": "n03",
+      "timestamp": "2026-07-05T14:05:00Z",
+      "type": "user",
+      "content": [
+        "Please review @draft.md and correct all mistakes what you find.",
+        "--- Content from referenced files ---",
+        "FAKE synthetic referenced file body that must never be extracted.",
+        "--- End of section ---"
+      ]
+    },
+    {
+      "id": "n04",
+      "timestamp": "2026-07-05T14:08:00Z",
+      "type": "user",
+      "content": {
+        "text": "What is the more better way to say this phrase in formal email?"
+      }
+    },
+    {
+      "id": "n05",
+      "timestamp": "2026-07-05T14:09:00Z",
+      "type": "user",
+      "content": "Also I wanted to ask about the report what I attached.\n--- Content from referenced files: report.txt ---\nFAKE synthetic embedded expansion that must never be extracted."
+    }
+  ]
+}

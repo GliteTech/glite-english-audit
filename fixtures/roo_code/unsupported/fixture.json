@@ -1,0 +1,7 @@
+{
+ "adapter_id": "roo_code",
+ "kind": "unsupported",
+ "description": "User-role text with no recognized carrier convention plus an AI-SDK-shaped file: both fail closed as unsupported schema.",
+ "synthetic": true,
+ "storage_variant": "unknown"
+}

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "aider",
+  "kind": "unsupported",
+  "description": "An input history with the right name but no entry lines fails closed; a second instance with the same broken input history falls back to its valid chat transcript.",
+  "synthetic": true,
+  "storage_variant": "mixed"
+}

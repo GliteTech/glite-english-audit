@@ -1,0 +1,7 @@
+{
+  "adapter_id": "gemini_cli",
+  "kind": "migration",
+  "description": "A legacy monolithic JSON session and its JSONL rewrite sharing one sessionId with overlapping messages; the JSONL copy is canonical and the JSON copy is dropped without duplicate utterances.",
+  "synthetic": true,
+  "storage_variant": "mixed"
+}

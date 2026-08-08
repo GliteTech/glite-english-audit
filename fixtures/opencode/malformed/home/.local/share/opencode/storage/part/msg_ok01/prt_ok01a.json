@@ -1,0 +1,7 @@
+{
+  "id": "prt_ok01a",
+  "messageID": "msg_ok01",
+  "sessionID": "ses_ok01",
+  "text": "The deploy failed again, can you look what is the reason?",
+  "type": "text"
+}

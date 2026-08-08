@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "agent": "subagent",
+  "sessionId": "sub-fake-0009",
+  "messages": [
+    {
+      "id": "msg-9001",
+      "role": "user",
+      "ts": 1751360900000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">FAKE synthetic subagent instruction, never extracted</user_input>"
+        }
+      ]
+    }
+  ]
+}

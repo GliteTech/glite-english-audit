@@ -1,0 +1,42 @@
+[
+ {
+  "role": "user",
+  "ts": 1769000000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nNow I understand the problem more better, thank you for the patience.\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1769000060000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_FAKE08",
+    "name": "new_task",
+    "input": {
+     "mode": "code",
+     "message": "Refactor the FAKE config loader and report back."
+    }
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1769000120000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE08",
+    "content": "{\"status\": \"approved\", \"feedback\": \"Good, and please write the summary with simple words.\"}"
+   }
+  ]
+ }
+]

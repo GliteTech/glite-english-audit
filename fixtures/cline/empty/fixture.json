@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cline",
+  "kind": "empty",
+  "description": "Installed stores with an empty tasks directory and an empty sessions directory: found-empty, never not-found.",
+  "synthetic": true,
+  "storage_variant": "family-a-code+family-b-data"
+}

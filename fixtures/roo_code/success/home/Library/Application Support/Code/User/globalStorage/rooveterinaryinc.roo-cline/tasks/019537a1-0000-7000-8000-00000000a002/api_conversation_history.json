@@ -1,0 +1,43 @@
+[
+ {
+  "role": "user",
+  "ts": 1772442000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nCan you help me to write more better commit messages?\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1772442060000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772442120000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE03",
+    "content": "{\"status\": \"guidance\", \"feedback\": \"Please explain shorter, I did not received so much time today.\"}"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772442180000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nPlease check the <placeholder> tag handling too.\n</user_message>"
+   }
+  ]
+ }
+]

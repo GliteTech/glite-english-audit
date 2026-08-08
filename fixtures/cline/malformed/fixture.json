@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cline",
+  "kind": "malformed",
+  "description": "One healthy task beside truncated, non-array, and non-UTF-8 API files and a G3 version-2 payload: per-unit failures, instance survives.",
+  "synthetic": true,
+  "storage_variant": "family-b-data"
+}

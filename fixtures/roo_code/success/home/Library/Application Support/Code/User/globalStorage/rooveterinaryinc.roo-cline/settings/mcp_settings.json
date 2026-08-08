@@ -1,0 +1,10 @@
+{
+ "mcpServers": {
+  "fake-server": {
+   "command": "FAKE",
+   "env": {
+    "FAKE_API_TOKEN": "sk-FAKEFAKEFAKE0000"
+   }
+  }
+ }
+}

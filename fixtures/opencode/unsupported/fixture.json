@@ -1,0 +1,7 @@
+{
+  "adapter_id": "opencode",
+  "description": "A database missing the part table, a database whose v1 tables are empty while the event-sourced v2 layer holds sessions, and an unknown single-level JSON layout: every store is detected but fails closed as unsupported schema.",
+  "kind": "unsupported",
+  "storage_variant": "sqlite+json-j2",
+  "synthetic": true
+}

@@ -1,0 +1,15 @@
+{
+  "id": "msg_j102",
+  "parts": [
+    {
+      "id": "prt_j102a",
+      "text": "Please make the error message more informative for the user.",
+      "type": "text"
+    }
+  ],
+  "role": "user",
+  "sessionID": "ses_j101",
+  "time": {
+    "created": 1746100920000
+  }
+}

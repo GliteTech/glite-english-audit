@@ -1,0 +1,115 @@
+[
+ {
+  "role": "user",
+  "ts": 1772359200000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nPlease explain me how this parser works, I am not sure I understand it.\n</user_message>"
+   },
+   {
+    "type": "text",
+    "text": "<environment_details>\n# FAKE synthetic context\nFAKE-visible-file.md\n</environment_details>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1772359500000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_FAKE01",
+    "name": "attempt_completion",
+    "input": {
+     "result": "FAKE synthetic result"
+    }
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772359800000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE01",
+    "content": "{\"status\": \"approved\", \"feedback\": \"I very like this plan, please continue with it.\"}"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772360100000,
+  "condenseParent": "c-0001",
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nHow I can make the error message more clear for users?\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772360400000,
+  "isSummary": true,
+  "condenseId": "c-0001",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic condensation summary of the whole conversation."
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1772360700000,
+  "type": "reasoning",
+  "encrypted_content": "FAKE-ENCRYPTED-PLACEHOLDER-0000",
+  "content": []
+ },
+ {
+  "role": "user",
+  "ts": 1772361000000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE02",
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"status\": \"denied\", \"feedback\": \"I am agree with the first part, but do not touch the config file.\"}"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772361300000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nPlease also look at 'src/config.ts' (see below for file content) and tell me what is wrong.\n</user_message>"
+   },
+   {
+    "type": "text",
+    "text": "<file_content path=\"src/config.ts\">\nFAKE synthetic file body\n</file_content>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772361600000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nSince many years I want to improve my English writing, please check also the readme wording.\n</user_message>"
+   }
+  ]
+ }
+]

@@ -1,0 +1,5 @@
+{"sessionId": "3333cccc-cccc-4ccc-8ccc-cccccccccccc", "projectHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "startTime": "2026-05-03T08:00:00Z"}
+%%%% FAKE broken line one
+%%%% FAKE broken line two
+%%%% FAKE broken line three
+{"id": "x01", "timestamp": "2026-05-03T08:05:00Z", "type": "user", "content": "FAKE synthetic text from the over-threshold file that must never be extracted."}

@@ -1,0 +1,2 @@
+SYNTHETIC sentinel. A real installation would hold an automated SQLite backup here.
+The adapter must never open backup generations. SENTINEL-BACKUP-DB

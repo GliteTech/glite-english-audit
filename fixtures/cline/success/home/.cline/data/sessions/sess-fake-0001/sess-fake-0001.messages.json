@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "updated_at": "2025-07-01T09:10:00Z",
+  "agent": "lead",
+  "sessionId": "sess-fake-0001",
+  "messages": [
+    {
+      "id": "msg-0001",
+      "role": "user",
+      "ts": 1751360400000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<mode_notice>FAKE synthetic mode notice</mode_notice><user_input mode=\"act\">\nHow I can make this migration more safe?\n</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0002",
+      "role": "assistant",
+      "ts": 1751360460000,
+      "content": [
+        {
+          "type": "text",
+          "text": "FAKE synthetic assistant reply."
+        }
+      ],
+      "modelInfo": {
+        "provider": "FAKE-provider",
+        "model": "FAKE-model"
+      },
+      "metrics": {
+        "input_tokens": 10,
+        "output_tokens": 20
+      }
+    },
+    {
+      "id": "msg-0003",
+      "role": "user",
+      "ts": 1751360520000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_command slash=\"deploy\">production now</user_command>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0004",
+      "role": "user",
+      "ts": 1751360580000,
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_FAKE05",
+          "content": "FAKE synthetic tool output"
+        }
+      ]
+    },
+    {
+      "id": "msg-0005",
+      "role": "user",
+      "ts": 1751360640000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"plan\">I am agree with your suggestion, let's proceed.</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0006",
+      "role": "user",
+      "ts": 1751360700000,
+      "content": [
+        {
+          "type": "text",
+          "text": "Also please explain me why the cache is not worked."
+        }
+      ]
+    },
+    {
+      "id": "msg-0007",
+      "role": "user",
+      "ts": 1751360760000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">System-delivered teammate async run updates:\nFAKE synthetic teammate update</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0008",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">Undated but real question, how you would name this function?</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0009",
+      "role": "user",
+      "ts": 1751360820000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">I am agree with your suggestion, let's proceed.</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "msg-0010",
+      "role": "user",
+      "ts": 1751360880000,
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_FAKE06",
+          "content": "FAKE synthetic tool output"
+        },
+        {
+          "type": "text",
+          "text": "FAKE synthetic mixed prose"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+ "id": "019537cd-aaaa-7bbb-8ccc-000000000012",
+ "number": 4,
+ "ts": 1769000180000,
+ "task": "FAKE synthetic snippet",
+ "workspace": "/home/FAKE-tester/FAKE-project",
+ "mode": "code",
+ "status": "completed",
+ "parentTaskId": "019537cc-9999-7aaa-8bbb-000000000011",
+ "rootTaskId": "019537cc-9999-7aaa-8bbb-000000000011"
+}

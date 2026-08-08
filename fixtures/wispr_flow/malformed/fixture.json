@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "malformed",
+  "description": "Non-SQLite bytes at the flow.sqlite path: the magic-header preflight must fail closed as unsupported schema without opening anything else.",
+  "synthetic": true,
+  "storage_variant": "not-sqlite"
+}

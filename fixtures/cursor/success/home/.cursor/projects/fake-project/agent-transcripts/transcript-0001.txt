@@ -1,0 +1,1 @@
+<user_query>FAKE synthetic transcript</user_query>

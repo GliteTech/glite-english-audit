@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cline",
+  "kind": "migration",
+  "description": "G1 Claude-Dev-era task directories using the legacy claude_messages.json UI name, including a new_task parent whose spawned task must be excluded.",
+  "synthetic": true,
+  "storage_variant": "family-a-code-g1"
+}

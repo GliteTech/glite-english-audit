@@ -1,0 +1,3 @@
+# Synthetic fixture: the adapter must never open this file.
+openai-api-key: sk-FAKEFAKEFAKE0000
+input-history-file: .aider.input.history

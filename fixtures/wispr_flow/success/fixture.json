@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "success",
+  "description": "Current-generation macOS store: ten dictation candidates with status, archive, conversation, and timestamp variety; sentinel values in every never-ingest column and table; denylisted config, Electron storage, backup database, and log files that must never be opened.",
+  "synthetic": true,
+  "storage_variant": "history-current-full"
+}

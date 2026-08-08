@@ -1,0 +1,20 @@
+[
+ {
+  "ts": 1772359200000,
+  "type": "say",
+  "say": "text",
+  "text": "Please explain me how this parser works, I am not sure I understand it."
+ },
+ {
+  "ts": 1772359800000,
+  "type": "say",
+  "say": "user_feedback",
+  "text": "I very like this plan, please continue with it."
+ },
+ {
+  "ts": 1772361000000,
+  "type": "say",
+  "say": "user_feedback",
+  "text": "I am agree with the first part, but do not touch the config file."
+ }
+]

@@ -1,0 +1,22 @@
+[
+ {
+  "role": "user",
+  "ts": 1769000300000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nRefactor the FAKE config loader and report back.\n</task>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1769000360000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic subtask reply."
+   }
+  ]
+ }
+]

@@ -1,0 +1,7 @@
+{
+ "adapter_id": "roo_code",
+ "kind": "malformed",
+ "description": "Truncated JSON, a non-array top level, an over-threshold unrecognized-element task, and an unreadable history_item.json next to one healthy task.",
+ "synthetic": true,
+ "storage_variant": "g3-user-message"
+}

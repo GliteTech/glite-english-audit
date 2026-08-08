@@ -1,0 +1,7 @@
+{
+  "adapter_id": "aider",
+  "kind": "malformed",
+  "description": "Binary garbage over the replacement threshold, a truncated final entry block without a newline, and a chat transcript whose user lines sit inside an unbalanced fence.",
+  "synthetic": true,
+  "storage_variant": "mixed"
+}

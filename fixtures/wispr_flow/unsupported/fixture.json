@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "unsupported",
+  "description": "Plausible-but-unknown generation: History exists but the required asrText column is renamed, so the fingerprint gate must report unsupported schema and extract nothing.",
+  "synthetic": true,
+  "storage_variant": "history-renamed-asr"
+}

@@ -1,0 +1,7 @@
+{
+ "adapter_id": "roo_code",
+ "kind": "empty",
+ "description": "Installed stores without extractable content: an empty history array, a task directory without the history file, and a root without a tasks directory.",
+ "synthetic": true,
+ "storage_variant": "empty"
+}

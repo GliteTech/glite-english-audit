@@ -1,0 +1,15 @@
+[
+  {
+    "role": "user",
+    "content": "<task>\nThis sentence is fine, please check my grammar here.\n</task>"
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic reply."
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cursor",
+  "kind": "malformed",
+  "description": "Truncated and non-object bubble rows below the 10% threshold, one composer over the missing-bubble threshold, and one truncated composer row.",
+  "synthetic": true,
+  "storage_variant": "g4-degraded-store"
+}

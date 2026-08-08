@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cursor",
+  "kind": "migration",
+  "description": "Legacy generations only: a G3 composer with an embedded conversationMap plus workspace G1 aichat and G2 inline-composer keys; inventoried, no text.",
+  "synthetic": true,
+  "storage_variant": "g1-g2-g3-legacy"
+}

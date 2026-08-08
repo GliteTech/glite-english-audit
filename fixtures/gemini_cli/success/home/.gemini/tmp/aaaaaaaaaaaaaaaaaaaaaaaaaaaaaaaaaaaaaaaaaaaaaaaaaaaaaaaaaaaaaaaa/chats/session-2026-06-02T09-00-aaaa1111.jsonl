@@ -1,0 +1,21 @@
+{"sessionId": "aaaa1111-1111-4111-8111-111111111111", "projectHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "startTime": "2026-06-02T09:00:00Z", "lastUpdated": "2026-06-02T09:30:00Z", "kind": "main"}
+{"id": "m01", "timestamp": "2026-06-02T09:01:00Z", "type": "user", "content": "I very like this plan, can we start from the small part first?"}
+{"id": "g01", "timestamp": "2026-06-02T09:02:00Z", "type": "gemini", "content": [{"text": "FAKE synthetic model reply."}], "thoughts": [{"subject": "FAKE plan", "description": "FAKE synthetic thought that must never be extracted.", "timestamp": "2026-06-02T09:02:00Z"}], "toolCalls": [{"name": "read_file", "args": {"path": "notes.txt"}, "status": "success"}], "tokens": {"input": 100, "output": 40}, "model": "gemini-FAKE-pro"}
+{"id": "m02", "timestamp": "2026-06-02T09:03:00Z", "type": "user", "content": ["Please explain me this error message.", "I am not understand what it means."]}
+{"id": "m03", "timestamp": "2026-06-02T09:05:00Z", "type": "user", "content": [{"text": "Look at @notes.txt and tell me what you think about my writing."}, {"text": "--- Content from referenced files ---"}, {"text": "FAKE synthetic referenced file body that must never be extracted."}], "displayContent": "Look at @notes.txt and tell me what you think about my writing."}
+{"id": "i01", "timestamp": "2026-06-02T09:06:00Z", "type": "info", "content": "FAKE synthetic info notice that must never be extracted."}
+{"id": "e01", "timestamp": "2026-06-02T09:06:30Z", "type": "error", "content": "FAKE synthetic error notice that must never be extracted."}
+{"id": "w01", "timestamp": "2026-06-02T09:07:00Z", "type": "warning", "content": "FAKE synthetic warning notice that must never be extracted."}
+{"id": "m04", "timestamp": "2026-06-02T09:08:00Z", "type": "user", "content": "/memory show"}
+{"id": "m05", "timestamp": "2026-06-02T09:10:00Z", "type": "user", "content": "Since many years I dream to speak English more fluently."}
+{"id": "m06", "timestamp": "2026-06-02T09:11:00Z", "type": "user", "content": "!ls -la"}
+{"id": "m07", "timestamp": "2026-06-02T09:12:00Z", "type": "user", "content": "<session_context>FAKE synthetic environment context that must never be extracted.</session_context>"}
+{"id": "m08", "timestamp": "2026-06-02T09:13:00Z", "type": "user", "content": "This is the Gemini CLI. We are setting up the context for our chat. FAKE synthetic continuation that must never be extracted."}
+{"id": "m09", "timestamp": "2026-06-02T09:14:00Z", "type": "user", "content": [{"functionResponse": {"id": "call-1", "name": "read_file", "response": {"output": "FAKE synthetic tool output that must never be extracted."}}}]}
+{"id": "m10", "timestamp": "2026-06-02T09:15:00Z", "type": "user", "content": {"text": "This code works good, but I want make it more faster."}}
+{"$set": {"summary": "FAKE synthetic session summary that must never be extracted."}}
+{"id": "m11", "timestamp": "2026-06-02T09:17:00Z", "type": "user", "content": "<memory_hint>FAKE synthetic hint</memory_hint> Also please check the grammar in my commit message."}
+{"$rewindTo": "m09"}
+{"id": "m05", "timestamp": "2026-06-02T09:20:00Z", "type": "user", "content": "Since many years I dream to speak English more fluent."}
+{"id": "m12", "timestamp": "2026-06-02T09:25:00Z", "type": "user", "content": [{"text": "Here is the screenshot, why the button looks so strange?"}, {"inlineData": {"mimeType": "image/png", "data": "FAKEIMAGEDATA0000"}}]}
+{"id": "m13", "timestamp": "2026-06-02T09:30:00Z", "type": "user", "content": [{"thought": true, "text": "FAKE synthetic thought part that must never be extracted."}, {"text": "And how I should name this variable better?"}]}

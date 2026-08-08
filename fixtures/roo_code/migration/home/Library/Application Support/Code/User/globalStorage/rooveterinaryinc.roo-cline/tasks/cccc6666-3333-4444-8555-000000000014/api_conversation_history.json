@@ -1,0 +1,30 @@
+[
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nStart the FAKE cleanup task, I will give more details later.\n</task>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1769100200000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nI returned back to this task, let's finish it today.\n</user_message>"
+   }
+  ]
+ }
+]

@@ -1,0 +1,77 @@
+[
+ "FAKE stray string element one",
+ "FAKE stray string element two",
+ {
+  "role": "user",
+  "ts": 1772500000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nThis sentence must never appear in the output.\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 1"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "Plain FAKE user line without wrappers."
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 2"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 3"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 4"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 5"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE reply 6"
+   }
+  ]
+ }
+]

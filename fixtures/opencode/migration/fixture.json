@@ -1,0 +1,7 @@
+{
+  "adapter_id": "opencode",
+  "description": "All three storage generations under one root with preserved record IDs: SQLite wins ties, a partially migrated message falls back to its J2 copy with a mismatch flag, and J1-only records keep their slug-project instances.",
+  "kind": "migration",
+  "storage_variant": "sqlite+json-j2+json-j1",
+  "synthetic": true
+}

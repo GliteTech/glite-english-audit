@@ -1,0 +1,7 @@
+{
+  "adapter_id": "aider",
+  "kind": "empty",
+  "description": "A zero-byte input history and a banner-only chat transcript: both found, zero candidates.",
+  "synthetic": true,
+  "storage_variant": "mixed"
+}

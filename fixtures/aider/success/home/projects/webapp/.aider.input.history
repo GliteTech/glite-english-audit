@@ -1,0 +1,29 @@
++I did not received any error yet, the page is just empty.
+
+# 2025-06-02 09:15:04.123456
++Please explain me how the auth flow works, I am not sure I understand it.
+
+# 2025-06-02 09:18:30
++/add app/auth.py
+
+# 2025-06-02 09:20:11.500000
++I very like this plan, let's do it this way.
++Please also update the readme file after.
+
+# 2025-06-02 09:25:00
++/ask how do I make this test more stable?
+
+# 2025-06-02 09:30:45.654321
++!ls -la
+
+# 2025-06-02 09:33:12
++/run pytest -q
+
+# 2025-06-02 09:40:00.111111
++What we should check first when the deploy fails?
++
++Maybe the config file is wrong since many years?
+
+# 2025-06-02 09:42:00
++{
++print("close the brace block")

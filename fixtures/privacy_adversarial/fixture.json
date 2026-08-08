@@ -1,0 +1,7 @@
+{
+  "adapter_id": "privacy_adversarial",
+  "kind": "unit",
+  "description": "Adversarial privacy cases for the deterministic scanner and the semantic confidentiality verifier.",
+  "synthetic": true,
+  "storage_variant": null
+}

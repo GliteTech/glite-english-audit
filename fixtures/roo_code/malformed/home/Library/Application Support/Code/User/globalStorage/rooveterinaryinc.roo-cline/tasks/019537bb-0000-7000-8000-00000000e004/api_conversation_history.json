@@ -1,0 +1,33 @@
+[
+ {
+  "role": "user",
+  "ts": 1772550000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nAfter the crash I lost my notes, can we restore them somehow?\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1772550060000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772550120000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE06",
+    "content": "{\"status\": \"approved\", \"feedback\": \"Looks well for me, thank you for the fast help.\"}"
+   }
+  ]
+ }
+]

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "gemini_cli",
+  "kind": "malformed",
+  "description": "One instance with a truncated live-append JSONL tail, a mid-file garbage line below the 10% threshold, a JSONL file over the malformed threshold, and an unparsable monolithic JSON file.",
+  "synthetic": true,
+  "storage_variant": "jsonl-v1"
+}

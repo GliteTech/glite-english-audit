@@ -1,0 +1,32 @@
+[
+ {
+  "role": "user",
+  "ts": 1777622400000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nMy English is not so good, please correct me when I write something wrong.\n</user_message>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1777622460000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1777622520000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nHow looks the final report? I want to see it before we send.\n</user_message>"
+   }
+  ]
+ }
+]

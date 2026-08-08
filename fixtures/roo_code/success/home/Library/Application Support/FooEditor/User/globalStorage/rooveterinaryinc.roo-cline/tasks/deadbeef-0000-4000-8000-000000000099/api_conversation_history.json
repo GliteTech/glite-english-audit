@@ -1,0 +1,12 @@
+[
+ {
+  "role": "user",
+  "ts": 1772359200000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<user_message>\nDECOY text that must never be extracted.\n</user_message>"
+   }
+  ]
+ }
+]

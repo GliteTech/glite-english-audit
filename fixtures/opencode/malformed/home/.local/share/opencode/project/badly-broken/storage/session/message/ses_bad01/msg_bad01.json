@@ -1,0 +1,15 @@
+{
+  "id": "msg_bad01",
+  "parts": [
+    {
+      "id": "prt_bad01a",
+      "text": "This message should not appear because the store is unsupported.",
+      "type": "text"
+    }
+  ],
+  "role": "user",
+  "sessionID": "ses_bad01",
+  "time": {
+    "created": 1747000060000
+  }
+}

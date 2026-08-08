@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cline",
+  "kind": "unsupported",
+  "description": "A UI-only task directory and an API file dominated by unrecognized user-record shapes: every unit fails closed, instance unsupported.",
+  "synthetic": true,
+  "storage_variant": "family-b-data"
+}

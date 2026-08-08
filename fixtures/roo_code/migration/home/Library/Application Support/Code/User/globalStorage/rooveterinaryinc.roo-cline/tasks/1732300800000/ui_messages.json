@@ -1,0 +1,14 @@
+[
+ {
+  "ts": 1732300800000,
+  "type": "say",
+  "say": "text",
+  "text": "Please help me to translate this old build script, it use very strange syntax."
+ },
+ {
+  "ts": 1732300860000,
+  "type": "say",
+  "say": "user_feedback",
+  "text": "Do not open this file, it have nothing interesting inside."
+ }
+]

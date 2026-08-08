@@ -1,0 +1,38 @@
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<task>\nLong time ago I started this refactor and never finished it.\n</task>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic reply."
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_FAKE10",
+        "name": "new_task",
+        "input": {
+          "context": "Spawned subtask: FAKE synthetic model-composed context."
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE10",
+        "content": "The user provided feedback:\n<feedback>\nPlease explain me what you did in the subtask.\n</feedback>"
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "opencode",
+  "description": "An installed root with an empty storage directory and a zero-row database: found, zero candidates, no errors.",
+  "kind": "empty",
+  "storage_variant": "sqlite",
+  "synthetic": true
+}

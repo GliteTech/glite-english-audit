@@ -1,0 +1,7 @@
+{
+  "adapter_id": "aider",
+  "kind": "migration",
+  "description": "Earliest-generation (2023, pre-0.35) files: second-precision timestamps, identical format, input history still the only channel.",
+  "synthetic": true,
+  "storage_variant": "input-history-v1"
+}

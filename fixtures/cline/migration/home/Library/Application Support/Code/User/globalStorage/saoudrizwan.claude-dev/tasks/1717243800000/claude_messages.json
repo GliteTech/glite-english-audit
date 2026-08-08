@@ -1,0 +1,14 @@
+[
+  {
+    "ts": 1717243800000,
+    "type": "say",
+    "say": "task",
+    "text": "Long time ago I started this refactor and never finished it."
+  },
+  {
+    "ts": 1717243980000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "Please explain me what you did in the subtask."
+  }
+]

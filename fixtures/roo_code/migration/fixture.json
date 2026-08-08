@@ -1,0 +1,7 @@
+{
+ "adapter_id": "roo_code",
+ "kind": "migration",
+ "description": "One store mixing G1 XML, G2 native-JSON, and G3 unified tasks, a task that mixes G1 and G3 records, and delegated subtasks excluded by metadata and by new_task argument match.",
+ "synthetic": true,
+ "storage_variant": "mixed-generations"
+}

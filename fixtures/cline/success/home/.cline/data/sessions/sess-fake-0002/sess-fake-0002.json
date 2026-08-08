@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "session_id": "sess-fake-0002",
+  "source": "subagent",
+  "pid": 4243,
+  "started_at": "2025-07-02T09:00:00Z",
+  "status": "completed",
+  "interactive": true
+}

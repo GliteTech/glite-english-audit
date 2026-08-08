@@ -1,0 +1,50 @@
+[
+  {
+    "ts": 1748772000000,
+    "type": "say",
+    "say": "task",
+    "text": "Please help me to set up the deploy pipeline, I am not understand the current config."
+  },
+  {
+    "ts": 1748772060000,
+    "type": "say",
+    "say": "text",
+    "text": "FAKE synthetic reply."
+  },
+  {
+    "ts": 1748772120000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "Yes, we should to keep the old script for now."
+  },
+  {
+    "ts": 1748772180000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "I very like this plan, please continue in same way."
+  },
+  {
+    "ts": 1748772240000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "I returned back to this task, let's finish it today."
+  },
+  {
+    "ts": 1748772300000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "Do it more careful please."
+  },
+  {
+    "ts": 1748772360000,
+    "type": "say",
+    "say": "user_feedback",
+    "text": "note Also the tests is failing on my machine."
+  },
+  {
+    "ts": 1748772420000,
+    "type": "ask",
+    "ask": "followup",
+    "text": "FAKE question"
+  }
+]

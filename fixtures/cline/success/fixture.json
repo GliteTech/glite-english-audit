@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cline",
+  "kind": "success",
+  "description": "Family A VS Code G2 task store plus family B G3 SDK sessions, with wrapper records, mention markers, subagent/teammate/non-interactive sessions, and denylisted secret files that must never be opened.",
+  "synthetic": true,
+  "storage_variant": "family-a-code+family-b-data"
+}

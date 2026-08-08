@@ -1,0 +1,30 @@
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<task>\nSpawned subtask: FAKE synthetic model-composed context.\n</task>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic reply."
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE11",
+        "content": "<answer>\nI checked it already, all works good now.\n</answer>"
+      }
+    ]
+  }
+]

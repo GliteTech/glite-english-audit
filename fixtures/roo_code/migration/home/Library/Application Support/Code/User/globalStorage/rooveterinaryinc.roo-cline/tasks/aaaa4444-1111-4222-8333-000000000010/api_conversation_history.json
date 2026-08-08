@@ -1,0 +1,42 @@
+[
+ {
+  "role": "user",
+  "ts": 1767000000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nCheck please the login form, users report it behaves strange on mobile.\n</task>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1767000100000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_FAKE07",
+    "name": "write_to_file",
+    "input": {
+     "path": "FAKE.css",
+     "content": "FAKE"
+    }
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1767000200000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE07",
+    "content": "{\"status\": \"denied\", \"feedback\": \"Wait, we not need this change in the same file.\"}"
+   }
+  ]
+ }
+]

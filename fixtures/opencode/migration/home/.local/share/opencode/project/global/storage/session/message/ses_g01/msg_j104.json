@@ -1,0 +1,15 @@
+{
+  "id": "msg_j104",
+  "parts": [
+    {
+      "id": "prt_j104a",
+      "text": "Can you explain what mean this warning about the deprecated api?",
+      "type": "text"
+    }
+  ],
+  "role": "user",
+  "sessionID": "ses_g01",
+  "time": {
+    "created": 1748779260000
+  }
+}

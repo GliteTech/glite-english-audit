@@ -1,0 +1,120 @@
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<task>\nPlease help me to set up the deploy pipeline, I am not understand the current config.\n</task>"
+      },
+      {
+        "type": "text",
+        "text": "<environment_details>\nFAKE synthetic environment listing\n</environment_details>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic assistant reply."
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_FAKE01",
+        "name": "ask_followup_question",
+        "input": {
+          "question": "FAKE synthetic question?"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE01",
+        "content": "<answer>\nYes, we should to keep the old script for now.\n</answer>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic plan."
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_FAKE02",
+        "name": "attempt_completion",
+        "input": {
+          "result": "FAKE synthetic result."
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE02",
+        "content": [
+          {
+            "type": "text",
+            "text": "The user has provided feedback:\n<feedback>\nI very like this plan, please continue in same way.\n</feedback>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "[TASK RESUMPTION] This task was interrupted. FAKE synthetic scaffold prose.\n\nNew message to respond to with plan_mode_respond tool:\n<user_message>\nI returned back to this task, let's finish it today.\n</user_message>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic continuation."
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE03",
+        "content": "The user provided feedback:\n<feedback>\nDo it more careful please.<explicit_instructions type=\"condense_response\">FAKE synthetic slash expansion</explicit_instructions>\n</feedback>"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<feedback>\n<future-tag>note</future-tag> Also the tests is failing on my machine.\n</feedback>"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<feedback>\nFAKE unclosed feedback block"
+      }
+    ]
+  }
+]

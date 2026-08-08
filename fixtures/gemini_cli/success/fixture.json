@@ -1,0 +1,7 @@
+{
+  "adapter_id": "gemini_cli",
+  "kind": "success",
+  "description": "Two instances (hash-named and slug-named project directories) covering both session generations: a JSONL session with displayContent, notices, $set, $rewindTo, tool-response and media parts, a subagent-kind session, a subagent subtree, a monolithic JSON session with at-command expansion markers, plus denylisted root and instance files that must never be opened.",
+  "synthetic": true,
+  "storage_variant": "mixed"
+}

@@ -47,8 +47,12 @@ risk but the adapter still feature-detects rather than trusting version numbers.
 At startup Aider resolves the git root by searching parent directories of the cwd. Defaults:
 
 ```python
-default_input_history_file = os.path.join(git_root, ".aider.input.history") if git_root else ".aider.input.history"
-default_chat_history_file  = os.path.join(git_root, ".aider.chat.history.md") if git_root else ".aider.chat.history.md"
+default_input_history_file = (
+    os.path.join(git_root, ".aider.input.history") if git_root else ".aider.input.history"
+)
+default_chat_history_file = (
+    os.path.join(git_root, ".aider.chat.history.md") if git_root else ".aider.chat.history.md"
+)
 ```
 
 - Inside a git repo: both files sit at the repository working-tree root.

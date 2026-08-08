@@ -1,0 +1,15 @@
+{
+  "id": "msg_m01",
+  "parts": [
+    {
+      "id": "prt_m01a",
+      "text": "I have doubt about how to name this function, can you propose something?",
+      "type": "text"
+    }
+  ],
+  "role": "user",
+  "sessionID": "ses_m01",
+  "time": {
+    "created": 1767268860000
+  }
+}

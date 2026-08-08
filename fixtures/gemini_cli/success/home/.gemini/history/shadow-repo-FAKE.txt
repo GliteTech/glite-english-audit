@@ -1,0 +1,1 @@
+FAKE synthetic shadow-repository content that must never be opened.

@@ -1,0 +1,7 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC fixture. Denylisted: the adapter must never open this file.",
+  "user": {"email": "fake-user@example.invalid"},
+  "accessToken": "sk-FAKEFAKEFAKE0000",
+  "sentinel": "SENTINEL-CONFIG-NEVER-OPEN"
+}

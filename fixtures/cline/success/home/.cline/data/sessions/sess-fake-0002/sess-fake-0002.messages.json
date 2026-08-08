@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "agent": "subagent",
+  "sessionId": "sess-fake-0002",
+  "taskType": "FAKE-subtask",
+  "messages": [
+    {
+      "id": "msg-8001",
+      "role": "user",
+      "ts": 1751446800000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">FAKE synthetic orchestrator prompt, never extracted</user_input>"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "prt_m02a",
+  "messageID": "msg_m02",
+  "sessionID": "ses_m01",
+  "text": "This code work good on my machine but fails on the server, why so?",
+  "type": "text"
+}

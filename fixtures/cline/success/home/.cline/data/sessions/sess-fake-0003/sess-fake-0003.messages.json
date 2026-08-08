@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "agent": "lead",
+  "sessionId": "sess-fake-0003",
+  "messages": [
+    {
+      "id": "msg-7001",
+      "role": "user",
+      "ts": 1751533200000,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"yolo\">FAKE synthetic automation prompt, never extracted</user_input>"
+        }
+      ]
+    }
+  ]
+}

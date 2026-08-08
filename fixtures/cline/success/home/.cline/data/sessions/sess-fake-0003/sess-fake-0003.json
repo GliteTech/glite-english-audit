@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "session_id": "sess-fake-0003",
+  "source": "cron",
+  "pid": 4244,
+  "started_at": "2025-07-03T09:00:00Z",
+  "status": "completed",
+  "interactive": false
+}

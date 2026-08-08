@@ -1,0 +1,26 @@
+{
+  "sessionId": "77770000-0000-4000-8000-000000000000",
+  "projectHash": "9999999999999999999999999999999999999999999999999999999999999999",
+  "startTime": "2026-03-10T09:00:00Z",
+  "lastUpdated": "2026-03-10T09:10:00Z",
+  "messages": [
+    {
+      "id": "mg01",
+      "timestamp": "2026-03-10T09:01:00Z",
+      "type": "user",
+      "content": "I started to write the migration plan, please tell me if the order makes sense."
+    },
+    {
+      "id": "mg02",
+      "timestamp": "2026-03-10T09:02:00Z",
+      "type": "gemini",
+      "content": "FAKE synthetic model reply."
+    },
+    {
+      "id": "mg03",
+      "timestamp": "2026-03-10T09:05:00Z",
+      "type": "user",
+      "content": "The second step feels more risky, we should to test it separately."
+    }
+  ]
+}

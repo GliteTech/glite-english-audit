@@ -1,0 +1,34 @@
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<task>\nThe file 'src/app.py' (see below for file content) has a bug I cannot found.\n</task>"
+      },
+      {
+        "type": "text",
+        "text": "<file_content path=\"src/app.py\">\nFAKE synthetic file body\n</file_content>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "FAKE synthetic reply."
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_FAKE04",
+        "content": "<answer>\nSince many years I prefer the simple solutions.\n</answer>"
+      }
+    ]
+  }
+]

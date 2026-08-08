@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cursor",
+  "kind": "empty",
+  "description": "Global store with the expected tables and zero composer rows.",
+  "synthetic": true,
+  "storage_variant": "g4-empty-store"
+}

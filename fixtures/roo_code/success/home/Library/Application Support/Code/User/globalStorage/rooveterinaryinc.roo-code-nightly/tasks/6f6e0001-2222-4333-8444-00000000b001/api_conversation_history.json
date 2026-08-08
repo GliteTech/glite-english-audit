@@ -1,0 +1,70 @@
+[
+ {
+  "role": "user",
+  "ts": 1775041200000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nToday I written a small script for backup, please review it.\n</task>\n\n<environment_details>\n# FAKE synthetic context\nFAKE-visible-file.md\n</environment_details>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1775041320000,
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_FAKE04",
+    "name": "write_to_file",
+    "input": {
+     "path": "FAKE.txt",
+     "content": "FAKE"
+    }
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1775041440000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE04",
+    "content": "{\"status\": \"denied\", \"feedback\": \"It sounds not natural for me, let's rename the function.\"}"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1775041560000,
+  "content": [
+   {
+    "type": "tool_result",
+    "tool_use_id": "toolu_FAKE05",
+    "content": "{\"status\": \"approved\"}"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "ts": 1775041680000,
+  "type": "reasoning",
+  "encrypted_content": "FAKE-ENCRYPTED-PLACEHOLDER-0001",
+  "content": []
+ },
+ {
+  "role": "user",
+  "ts": 1775041800000,
+  "content": [
+   {
+    "type": "text",
+    "text": "<answer>\nYes, I prefer the second variant because it is more simple.\n</answer>"
+   }
+  ]
+ }
+]

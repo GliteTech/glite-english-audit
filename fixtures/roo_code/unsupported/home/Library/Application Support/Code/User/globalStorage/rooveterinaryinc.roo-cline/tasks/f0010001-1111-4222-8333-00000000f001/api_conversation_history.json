@@ -1,0 +1,26 @@
+[
+ {
+  "role": "user",
+  "ts": 1772600000000,
+  "content": [
+   {
+    "type": "text",
+    "text": "Plain FAKE text without any recognized wrapper convention."
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic assistant reply."
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "ts": 1772600120000,
+  "content": "Another plain FAKE user line with no wrapper at all."
+ }
+]

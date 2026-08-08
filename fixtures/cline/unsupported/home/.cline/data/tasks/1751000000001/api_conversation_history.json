@@ -1,0 +1,14 @@
+[
+  {
+    "role": "user",
+    "content": 42
+  },
+  {
+    "role": "user",
+    "content": true
+  },
+  {
+    "role": "assistant",
+    "content": "FAKE synthetic reply."
+  }
+]

@@ -1,0 +1,2 @@
+{"sessionId": "eeee6666-6666-4666-8666-666666666666", "projectHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "startTime": "2026-06-02T09:40:00Z", "kind": "subagent"}
+{"id": "sa1", "timestamp": "2026-06-02T09:41:00Z", "type": "user", "content": "FAKE synthetic subagent-tree prompt that must never be opened or extracted."}

@@ -1,0 +1,5 @@
+{"sessionId": "1111aaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "projectHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "startTime": "2026-05-01T10:00:00Z"}
+{"id": "q01", "timestamp": "2026-05-01T10:01:00Z", "type": "user", "content": "The tests are failing since yesterday and I not sure why."}
+{"id": "gq1", "timestamp": "2026-05-01T10:02:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+{"id": "q02", "timestamp": "2026-05-01T10:03:00Z", "type": "user", "content": "Can you look on the second test? It seems flaky for me."}
+{"id": "q03", "timestamp": "2026-05-01T10:05:00Z", "type": "user", "content": "This line was cut in the mid

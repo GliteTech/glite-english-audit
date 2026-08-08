@@ -1,0 +1,14 @@
+[
+ {
+  "type": "message",
+  "message": {
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "FAKE AI-SDK-shaped payload"
+    }
+   ]
+  }
+ }
+]

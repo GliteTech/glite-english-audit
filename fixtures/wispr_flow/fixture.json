@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "unit",
+  "description": "Adapter fixture root: build_fixtures.py regenerates the committed synthetic flow.sqlite stores for every variant below.",
+  "synthetic": true,
+  "storage_variant": "builder"
+}

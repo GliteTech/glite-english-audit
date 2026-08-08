@@ -1,0 +1,4 @@
+{"sessionId": "dddd4444-4444-4444-8444-444444444444", "projectHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "startTime": "2026-07-06T10:00:00Z", "lastUpdated": "2026-07-06T10:10:00Z"}
+{"id": "p01", "timestamp": "2026-07-06T10:01:00Z", "type": "user", "content": "I am agree with your suggestion, let us continue with the second option."}
+{"id": "g11", "timestamp": "2026-07-06T10:02:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+{"id": "p02", "timestamp": "2026-07-06T10:05:00Z", "type": "user", "content": "We should to check the config file, maybe the problem hides there."}

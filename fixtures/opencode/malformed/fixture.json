@@ -1,0 +1,7 @@
+{
+  "adapter_id": "opencode",
+  "description": "Truncated JSON files below the threshold in the J2 store, above it in the J1 store, and a database row with unparsable message data: bad records are counted, healthy stores survive.",
+  "kind": "malformed",
+  "storage_variant": "sqlite+json-j2+json-j1",
+  "synthetic": true
+}

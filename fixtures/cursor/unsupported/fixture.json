@@ -1,0 +1,7 @@
+{
+  "adapter_id": "cursor",
+  "kind": "unsupported",
+  "description": "Unknown composer revision (_v 1) and bubbles with future _v 99 dominating the store; the instance fails closed as unsupported schema.",
+  "synthetic": true,
+  "storage_variant": "unknown-future-versions"
+}

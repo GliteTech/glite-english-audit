@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "migration",
+  "description": "Older 2024-generation store: required History columns plus only app and status, early migrations only, no post-2025 tables. Optional columns are feature-detected and extraction still succeeds.",
+  "synthetic": true,
+  "storage_variant": "history-2024-minimal"
+}

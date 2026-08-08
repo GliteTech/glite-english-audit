@@ -1,0 +1,60 @@
+[
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nPlease help me to translate this old build script, it use very strange syntax.\n</task>\n\n<file_content path=\"FAKE-build.sh\">\nFAKE synthetic injected file body\n</file_content>\n\n<environment_details>\n# FAKE synthetic context\nFAKE-visible-file.md\n</environment_details>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "FAKE synthetic reply with an XML tool call <read_file><path>FAKE-build.sh</path></read_file>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "[read_file for 'FAKE-build.sh'] Result:\nThe user denied this operation and provided the following feedback:\n<feedback>\nDo not open this file, it have nothing interesting inside.\n</feedback>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": "FAKE follow-up question <ask_followup_question><question>FAKE?</question></ask_followup_question>"
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "<answer>\nFor the first question my answer is yes, we can try it tomorrow.\n</answer>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "[TASK RESUMPTION] This task was interrupted FAKE minutes ago. It may or may not be complete, so please reassess.\n\nNew instructions for task continuation:\n<user_message>\nLet's continue, I founded one more place where the script fails.\n</user_message>\n\n<environment_details>\n# FAKE synthetic context\nFAKE-visible-file.md\n</environment_details>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "The user provided feedback:\n<feedback>\nThis wrapper never closes so the whole block is excluded"
+   }
+  ]
+ }
+]

@@ -1,0 +1,7 @@
+{
+  "adapter_id": "gemini_cli",
+  "kind": "empty",
+  "description": "Installed store with no analyzable sessions: a tmp directory without chats/, an instance with an empty chats/ directory, and an instance whose only session file is zero bytes.",
+  "synthetic": true,
+  "storage_variant": "empty"
+}

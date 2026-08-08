@@ -1,0 +1,19 @@
+{
+  "id": "msg_j101",
+  "metadata": {
+    "agent": "default",
+    "note": "J1a shape"
+  },
+  "parts": [
+    {
+      "id": "prt_j101a",
+      "text": "Why this build is failing since yesterday? I not changed anything.",
+      "type": "text"
+    }
+  ],
+  "role": "user",
+  "sessionID": "ses_j101",
+  "time": {
+    "created": 1746100860000
+  }
+}

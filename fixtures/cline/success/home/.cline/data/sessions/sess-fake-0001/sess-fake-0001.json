@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "session_id": "sess-fake-0001",
+  "source": "cli",
+  "pid": 4242,
+  "started_at": "2025-07-01T09:00:00Z",
+  "status": "completed",
+  "interactive": true,
+  "provider": "FAKE-provider",
+  "model": "FAKE-model",
+  "cwd": "/home/fakeuser/FAKE",
+  "workspace_root": "/home/fakeuser/FAKE",
+  "prompt": "FAKE duplicate prompt, never extracted",
+  "messages_path": "sess-fake-0001.messages.json"
+}

@@ -1,0 +1,8 @@
+[
+  {
+    "ts": 1751000000000,
+    "type": "say",
+    "say": "task",
+    "text": "FAKE synthetic ui-only task"
+  }
+]

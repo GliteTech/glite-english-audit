@@ -1,0 +1,7 @@
+{
+  "adapter_id": "wispr_flow",
+  "kind": "empty",
+  "description": "Valid current-generation store whose History rows all have NULL or empty asrText, as a retention policy would leave it: found with zero candidates, never an error.",
+  "synthetic": true,
+  "storage_variant": "history-current-empty"
+}

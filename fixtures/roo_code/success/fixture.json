@@ -1,0 +1,7 @@
+{
+ "adapter_id": "roo_code",
+ "kind": "success",
+ "description": "Three VS Code-variant globalStorage instances (stable, nightly, VSCodium) with G2 and G3 tasks, a condense summary, reasoning records, and denylisted settings, checkpoints, and editor databases that must never be opened.",
+ "synthetic": true,
+ "storage_variant": "g3-user-message"
+}

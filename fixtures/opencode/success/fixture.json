@@ -1,0 +1,7 @@
+{
+  "adapter_id": "opencode",
+  "description": "Two SQLite projects with learner-English prompts, synthetic and ignored parts, a subagent child session, an archived session, an overlapping channel database, fake credential tables, and denylisted root files that must never be opened.",
+  "kind": "success",
+  "storage_variant": "sqlite",
+  "synthetic": true
+}

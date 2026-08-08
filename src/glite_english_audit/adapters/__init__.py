@@ -13,8 +13,15 @@ from glite_english_audit.discovery.base import SourceAdapter
 from glite_english_audit.discovery.registry import adapter_ids, register_adapter
 
 _ADAPTER_MODULES = (
+    "glite_english_audit.adapters.aider",
     "glite_english_audit.adapters.claude_code",
+    "glite_english_audit.adapters.cline",
     "glite_english_audit.adapters.codex",
+    "glite_english_audit.adapters.cursor",
+    "glite_english_audit.adapters.gemini_cli",
+    "glite_english_audit.adapters.opencode",
+    "glite_english_audit.adapters.roo_code",
+    "glite_english_audit.adapters.wispr_flow",
 )
 
 

@@ -1,0 +1,3 @@
+{"event": "turn_started", "payload": {"note": "FAKE synthetic unknown line shape."}}
+{"event": "turn_completed", "payload": {"note": "FAKE synthetic unknown line shape."}}
+{"snapshot": ["FAKE synthetic unknown line shape."]}

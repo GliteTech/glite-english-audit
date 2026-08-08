@@ -1,0 +1,12 @@
+{"sessionId": "2222bbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "projectHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "startTime": "2026-05-02T09:00:00Z"}
+{"id": "r01", "timestamp": "2026-05-02T09:01:00Z", "type": "user", "content": "Why the button is not clickable on the mobile version?"}
+{"id": "gr1", "timestamp": "2026-05-02T09:02:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+{"id": "r02", "timestamp": "2026-05-02T09:03:00Z", "type": "user", "content": "I tried to reproduce the bug but it happens only sometimes."}
+{"id": "gr2", "timestamp": "2026-05-02T09:04:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+this line is not json at all {{{
+{"id": "r03", "timestamp": "2026-05-02T09:05:00Z", "type": "user", "content": "Maybe we should to add more logging here."}
+{"id": "gr3", "timestamp": "2026-05-02T09:06:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+{"id": "r04", "timestamp": "2026-05-02T09:07:00Z", "type": "user", "content": "The error disappears when I restart the server, it is very strange."}
+{"id": "gr4", "timestamp": "2026-05-02T09:08:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
+{"id": "r05", "timestamp": "2026-05-02T09:09:00Z", "type": "user", "content": "How to explain this behavior to my manager in simple words?"}
+{"id": "gr5", "timestamp": "2026-05-02T09:10:00Z", "type": "gemini", "content": "FAKE synthetic model reply."}
