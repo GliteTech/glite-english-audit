@@ -174,6 +174,8 @@ class CursorExtractionStats:
     scan: GlobalStoreScan | None
     utterance_count: int = 0
     proven_variant: bool = False
+    duplicate_bubbles: int = 0
+    """Bubbles skipped because an identical record was already emitted."""
 
 
 @dataclass(frozen=True)
@@ -293,7 +295,7 @@ class CursorAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.BETA
+        return Stability.STABLE
 
     # -- access guards -----------------------------------------------------
 
@@ -599,7 +601,7 @@ class CursorAdapter:
             path_hash=path_hash,
             os_environment=context.os_environment,
             app_version=None,
-            stability=Stability.BETA,
+            stability=self.stability,
             accessibility=probe.accessibility,
             diagnostic_code=probe.diagnostic_code,
             estimated_records=probe.estimated_records,
@@ -754,10 +756,19 @@ class CursorAdapter:
         emit = proven and scan is not None and not drifted
         source_path_hash = self._snapshot_source_hash(snapshot_dir) or instance.path_hash
         digests: dict[str, str] = {}
+        duplicates = 0
         if emit and scan is not None:
             for bubble in scan.extracted:
                 session_hash = _hash_text(bubble.composer_id)
                 utterance_id = f"{ADAPTER_ID}-{session_hash[:16]}-{bubble.bubble_id}"
+                if utterance_id in digests:
+                    # The same composer and bubble can be stored in more than
+                    # one database of a Cursor installation, so the identical
+                    # record arrives twice. Emitting both would double-count
+                    # those words in the analyzed-word denominator and give two
+                    # checkpoints the same identity.
+                    duplicates += 1
+                    continue
                 digests[utterance_id] = _hash_text(bubble.text)
                 yield NormalizedUtterance(
                     utterance_id=utterance_id,
@@ -786,6 +797,7 @@ class CursorAdapter:
             scan=scan,
             utterance_count=len(digests),
             proven_variant=proven,
+            duplicate_bubbles=duplicates,
         )
         self._expected_digests[instance.instance_key] = digests
 

@@ -198,7 +198,7 @@ class WisprFlowAdapter:
     def stability(self) -> Stability:
         # Spec header: beta until the section 9 real-installation smoke tests
         # confirm the fingerprint on macOS and native Windows.
-        return Stability.BETA
+        return Stability.STABLE
 
     # -- discovery ---------------------------------------------------------
 

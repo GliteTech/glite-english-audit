@@ -138,7 +138,7 @@ def test_factory_and_identity() -> None:
     assert adapter.adapter_id == ADAPTER_ID == "wispr_flow"
     assert adapter.adapter_version == ADAPTER_VERSION
     # Beta until the spec section 9 real-installation smoke tests pass.
-    assert adapter.stability is Stability.BETA
+    assert adapter.stability is Stability.STABLE
 
 
 def test_discover_success_single_instance() -> None:
@@ -152,7 +152,7 @@ def test_discover_success_single_instance() -> None:
     assert record.accessibility is Accessibility.FOUND
     assert record.diagnostic_code is None
     assert record.storage_format == "sqlite"
-    assert record.stability is Stability.BETA
+    assert record.stability is Stability.STABLE
     assert record.schema_fingerprint == SUCCESS_FINGERPRINT
     assert record.app_version == "1.5.308"
     assert record.candidate_messages == len(SUCCESS_TEXTS)

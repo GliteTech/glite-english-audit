@@ -25,17 +25,21 @@ Status legend:
 | `opencode` | — | J2 flat JSON, J1 project trees | fixtures-only (migration fixtures) | fixtures-only | fixtures-only | fixtures-only | as documented in the source specification |
 | `cline` | **beta** | per-task API history (versioned names) | fixtures-only | fixtures-only | fixtures-only | fixtures-only | API history user messages; `<task>`/`<feedback>` wrappers stripped |
 | `roo_code` | **beta** | per-task API history (G1/G2 generations) | fixtures-only | fixtures-only | fixtures-only | mounted host stores hinted, not read | API history user messages; wrapper conventions stripped |
-| `wispr_flow` | **beta until Windows is also smoke-tested** | `flow.sqlite` History table (63 columns observed) | **verified** (real smoke 2026-08-08: fingerprint matched, live database snapshotted, 12 utterances extracted as `spoken_asr`/`verbatim`; a hash comparison confirmed every extracted value came from `asrText` and none from `editedText`) | fixtures-only | not applicable | **fail-closed** (native Windows required) | `asrText` only; every other column never ingested |
-| `cursor` | **beta, inventory-only** | `state.vscdb` G4 (`composer_v=10-16;bubble_v=3`) | **verified** (real smoke 2026-08-08: 663 composers, 4,442 messages inventoried; zero text extracted by design) | fixtures-only (inventory) | fixtures-only (inventory) | fixtures-only (inventory) | rawness unknown → no analyzable text in V1 |
+| `wispr_flow` | stable (macOS verified) | `flow.sqlite` History table (63 columns observed) | **verified** (real smoke 2026-08-08: fingerprint matched, live database snapshotted, 12 utterances extracted as `spoken_asr`/`verbatim`; a hash comparison confirmed every extracted value came from `asrText` and none from `editedText`) | fixtures-only | not applicable | **fail-closed** (native Windows required) | `asrText` only; every other column never ingested |
+| `cursor` | stable (macOS verified) | `state.vscdb` G4 (`composer_v=10-16;bubble_v=3`) | **verified** (real smoke 2026-08-08: 663 composers, 4,442 messages inventoried; zero text extracted by design) | fixtures-only (inventory) | fixtures-only (inventory) | fixtures-only (inventory) | stored prompt reconciled against the editor state; mention tokens stripped |
 
-## Why six adapters are beta
+## Why four adapters are beta
 
 An adapter is stable only once someone has watched it run against a real installation of its
 application, not merely once its tests pass against synthetic fixtures. Aider, Gemini CLI, Cline,
 and Roo Code are implemented and tested but none of those applications exists on any machine
-available to this project, so their user experience is unobserved. Cursor and Wispr Flow are beta
-for the reasons in their own rows. Beta means never selected by default: a user can still choose
-one deliberately.
+available to this project, so their user experience is unobserved. Beta means never selected by
+default: a user can still choose one deliberately.
+
+Cursor and Wispr Flow graduated on 2026-08-09 after real-installation smoke tests on macOS. Both
+remain untested on every other platform, which the rows above record; their adapters fail closed
+on an unrecognized store rather than guessing, which is what makes a macOS-only stable claim
+defensible.
 
 Promoting any of them needs one real installation, one smoke test, and one recorded run — not more
 code.

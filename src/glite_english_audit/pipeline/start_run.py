@@ -61,6 +61,59 @@ def resolve_period(preset: str, now: datetime) -> PeriodSelection:
     return PeriodSelection(preset=preset, start=start, end=now)
 
 
+def _matches_source(record: object, name: str) -> bool:
+    """True when ``name`` names this record's application.
+
+    Accepts either the stable public ID (``claude_code``) or the human name the
+    user actually saw, which is the opaque label with its number removed
+    (``Claude Code 4`` -> ``Claude Code``).
+    """
+    wanted = name.strip().casefold()
+    adapter_id = getattr(record, "adapter_id", "")
+    label = getattr(record, "opaque_label", "")
+    human = label.rsplit(" ", 1)[0] if label else ""
+    return wanted in {adapter_id.casefold(), human.casefold(), label.casefold()}
+
+
+def resolve_selection(
+    inventory: PrivateInventory,
+    *,
+    include_sources: list[str] | None = None,
+    exclude_sources: list[str] | None = None,
+    exclude_labels: list[str] | None = None,
+) -> list[str]:
+    """Turn the user's spoken choice into instance keys.
+
+    The agent only ever sees opaque labels and application names — instance
+    keys stay in the private inventory — so the choice arrives in those terms
+    and is resolved here, locally (specification, 2.4).
+
+    Start from the default selection, add whole applications the user asked
+    for, then remove whatever they excluded.
+    """
+    selected = set(default_selection(inventory))
+    for name in include_sources or []:
+        selected.update(
+            record.instance_key
+            for record in inventory.records
+            if _matches_source(record, name)
+            and record.accessibility is Accessibility.FOUND
+            and record.candidate_messages > 0
+        )
+    for name in exclude_sources or []:
+        selected.difference_update(
+            record.instance_key for record in inventory.records if _matches_source(record, name)
+        )
+    wanted_labels = {label.strip().casefold() for label in exclude_labels or []}
+    if wanted_labels:
+        selected.difference_update(
+            record.instance_key
+            for record in inventory.records
+            if record.opaque_label.casefold() in wanted_labels
+        )
+    return sorted(selected)
+
+
 def default_selection(inventory: PrivateInventory) -> list[str]:
     """Stable, found instances with a supported schema, per specification 2.4.
 
@@ -85,6 +138,9 @@ def start_run(
     processing_profile: str,
     runs_root: Path | None,
     inventory_dir: Path,
+    include_sources: list[str] | None = None,
+    exclude_sources: list[str] | None = None,
+    exclude_labels: list[str] | None = None,
     now: datetime | None = None,
 ) -> RunManifest:
     """Create the run directory, manifest, and frozen selection."""
@@ -92,7 +148,16 @@ def start_run(
 
     moment = now if now is not None else utc_now()
     inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
-    selected = instance_keys if instance_keys else default_selection(inventory)
+    selected = (
+        instance_keys
+        if instance_keys
+        else resolve_selection(
+            inventory,
+            include_sources=include_sources,
+            exclude_sources=exclude_sources,
+            exclude_labels=exclude_labels,
+        )
+    )
     if not selected:
         msg = "no eligible source instance was selected; nothing to audit"
         raise ValueError(msg)
@@ -163,7 +228,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--os-environment", default="macos")
     parser.add_argument("--period", default="last-30-days", choices=sorted(PERIOD_PRESETS))
     parser.add_argument("--profile", default="recommended")
-    parser.add_argument("--instance-key", action="append", default=None)
+    parser.add_argument(
+        "--instance-key",
+        action="append",
+        default=None,
+        help="exact instance key; normally the label options below are used instead",
+    )
+    parser.add_argument(
+        "--include-source",
+        action="append",
+        default=None,
+        metavar="APP",
+        help="add every found instance of this app, by public ID or the name shown "
+        "to the user (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude-source",
+        action="append",
+        default=None,
+        metavar="APP",
+        help="drop every instance of this app (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude-label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help='drop one instance by the label the user saw, such as "Claude Code 4" (repeatable)',
+    )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
 
@@ -172,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
         os_environment_value=arguments.os_environment,
         preset=arguments.period,
         instance_keys=arguments.instance_key,
+        include_sources=arguments.include_source,
+        exclude_sources=arguments.exclude_source,
+        exclude_labels=arguments.exclude_label,
         processing_profile=arguments.profile,
         runs_root=arguments.runs_root,
         inventory_dir=(

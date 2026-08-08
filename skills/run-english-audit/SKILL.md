@@ -164,8 +164,12 @@ runtime; naming both is confusing and wrong.
      next command reads.
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
      --period <preset> --profile <profile>`. It adopts the inventory discovery left
-     pending, prints the `<run-id>`, and freezes the record cutoff. Add one
-     `--instance-key` per instance the user kept when they unchecked any.
+     pending, prints the `<run-id>`, and freezes the record cutoff. Pass the user's
+     choice in the words they used, since instance keys are private and you never
+     see them: `--exclude-source "Cursor"` drops a whole app, `--include-source
+     "Wispr Flow"` adds one that is off by default, and `--exclude-label "Claude
+     Code 4"` drops a single project by the label shown to the user. Each is
+     repeatable, and the command resolves labels to real paths locally.
    - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
      --run-id <run-id>`. It snapshots each selected instance under the safety gates,
      extracts candidates from the snapshot only, removes each snapshot as soon as its
