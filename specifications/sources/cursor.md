@@ -2,7 +2,9 @@
 
 Adapter ID: `cursor`
 Status: reviewed source specification (spec section 4.2 research gate)
-Stability: **beta** (spec sections 1.4 and 4.7; never auto-selected, user must opt in)
+Stability: **stable on macOS G4** (spec sections 1.4 and 4.7 shipped it beta pending proof of raw
+provenance; E11 measured 81.2% verbatim-equivalent bubbles on a real store and the owner graduated
+it). Every other platform and generation stays inventory-only and extracts nothing.
 Research log: `temp/findings/cursor-source-research.md` (evidence IDs E1–E10 cited below)
 Rawness evidence: `temp/findings/cursor-rawness-evidence.md` (evidence ID **E11**, section 5)
 Tested application version: Cursor 3.14.7, macOS (direct structural observation of the real
@@ -21,7 +23,8 @@ variant, and only for that variant: on the tested G4 / macOS store, the stored u
 faithful serialization of the composer editor state, not a cleaned or model-processed form
 (E11, section 5). This specification therefore moves from *inventory-only for every Cursor
 variant* to *per-bubble reconciliation for the proven variant, inventory-only and fail-closed
-for everything else*. Stability remains **beta**: beta means the adapter is never selected by
+for everything else*. The proven variant is **stable** and selected by default; every unproven
+variant is inventory-only. Beta, where it still applies below, means the adapter is never selected by
 default and the user must opt in explicitly (spec 1.4).
 
 ## 1. Platform status and storage locations
@@ -30,7 +33,7 @@ Never infer one platform's behavior from another. Each row carries its own evide
 
 | Platform | Status | User-data root | Evidence |
 | --- | --- | --- | --- |
-| macOS | Supported (beta), tested; the only platform where text can be `verbatim` | `<home>/Library/Application Support/Cursor/User/` | E1 (strong), E11 (strong, rawness) |
+| macOS | Supported (stable on G4), tested; the only platform where text can be `verbatim` | `<home>/Library/Application Support/Cursor/User/` | E1 (strong), E11 (strong, rawness) |
 | Windows (native) | Claimed by community tools, untested; inventory only, all text `unknown`; extraction gated on a Windows fixture + smoke test **including its own rawness comparison** | `%APPDATA%\Cursor\User\` (roaming) | E3, E4 (moderate) |
 | Linux (native) | Claimed by community tools, untested; inventory only, all text `unknown`; extraction gated on a Linux smoke test **including its own rawness comparison** | `<home>/.config/Cursor/User/` | E2, E3, E4 (moderate) |
 | WSL | Not supported in V1; fails closed with a hint | Chat state is written client-side on the Windows host (`%APPDATA%\Cursor\...`), reachable from WSL only via `/mnt/<drive>/...` | E3 (moderate) |
@@ -325,7 +328,8 @@ prompt box.
 Therefore `modality` stays `written` under the project-spec 5.5 operational convention (coding-agent
 text not positively matched to a raw voice source is `written`). Some `written` Cursor text may
 in fact be machine-transcribed; this undisclosed contamination risk, together with the
-single-machine scope of E11, is why the adapter ships as beta and is never auto-selected.
+single-machine scope of E11, is why only the proven macOS G4 variant is auto-selected and every
+other variant extracts nothing.
 
 ### 5.8 Everything not proven
 

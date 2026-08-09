@@ -26,9 +26,9 @@ Status legend:
 | `cline` | **beta** | per-task API history (versioned names) | fixtures-only | fixtures-only | fixtures-only | fixtures-only | API history user messages; `<task>`/`<feedback>` wrappers stripped |
 | `roo_code` | **beta** | per-task API history (G1/G2 generations) | fixtures-only | fixtures-only | fixtures-only | mounted host stores hinted, not read | API history user messages; wrapper conventions stripped |
 | `wispr_flow` | stable (macOS verified) | `flow.sqlite` History table (63 columns observed) | **verified** (real smoke 2026-08-08: fingerprint matched, live database snapshotted, 12 utterances extracted as `spoken_asr`/`verbatim`; a hash comparison confirmed every extracted value came from `asrText` and none from `editedText`) | fixtures-only | not applicable | **fail-closed** (native Windows required) | `asrText` only; every other column never ingested |
-| `cursor` | **beta** | `state.vscdb` G4 (`composer_v=10-16;bubble_v=3`) | **verified** (real smoke 2026-08-08: 663 composers, 4,442 messages inventoried; zero text extracted by design) | fixtures-only (inventory) | fixtures-only (inventory) | fixtures-only (inventory) | stored prompt reconciled against the editor state; mention tokens stripped |
+| `cursor` | stable (macOS G4 verified) | `state.vscdb` G4 (`composer_v=10-16;bubble_v=3`) | **verified** (real smoke 2026-08-08: 663 composers, 4,442 messages inventoried; zero text extracted by design) | fixtures-only (inventory) | fixtures-only (inventory) | fixtures-only (inventory) | stored prompt reconciled against the editor state; mention tokens stripped |
 
-## Why five adapters are beta
+## Why four adapters are beta
 
 An adapter is stable only once someone has watched it run against a real installation of its
 application, not merely once its tests pass against synthetic fixtures. Aider, Gemini CLI, Cline,
@@ -36,10 +36,12 @@ and Roo Code are implemented and tested but none of those applications exists on
 available to this project, so their user experience is unobserved. Beta means never selected by
 default: a user can still choose one deliberately.
 
-Cursor is the fifth, and it is beta for a different reason. Its macOS smoke test on 2026-08-09
-inventoried a real store but extracted no text, so it did not test the one thing the project
-specification (1.4, 4.7) requires before promotion: proof that a variant stores the prompt raw.
-Only G4 on macOS carries that proof today.
+Cursor was the fifth until its provenance was measured. The specification (1.4, 4.7) requires
+proof that a variant stores the prompt raw before promotion; on the reference machine's real G4
+store, 81.2% of composer bubbles are verbatim-equivalent to what the user typed, and the
+remainder are marked as reconciled rather than silently treated as raw. The owner reviewed that
+measurement and graduated the adapter. Only G4 on macOS carries the proof: every other variant
+is still inventoried and extracts nothing.
 
 Wispr Flow graduated on 2026-08-09 after a real-installation smoke test on macOS. It remains
 untested on every other platform, which the rows above record; its adapter fails closed on an
@@ -55,8 +57,9 @@ one recorded run — not more code.
 - `wispr_flow` is claimed stable on the strength of its macOS smoke test alone. The native
   Windows smoke test its source specification requires is still outstanding, and until it runs
   no Windows release claim may rest on this adapter.
-- `cursor` stays beta until a tested variant beyond macOS G4 proves raw provenance. On every
-  unproven variant it inventories and extracts nothing.
+- `cursor` is claimed stable on macOS G4 alone, where its raw provenance was measured. Every
+  other variant and platform is inventory-only and extracts nothing, so no release claim beyond
+  macOS G4 may rest on this adapter.
 - Real-installation smoke tests for `aider`, `gemini_cli`, `cline`, and `roo_code` require
   machines with those applications installed; none is present on the reference machine.
 

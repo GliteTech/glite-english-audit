@@ -1,4 +1,4 @@
-"""Cursor IDE source adapter (beta).
+"""Cursor IDE source adapter.
 
 Source specification: ``specifications/sources/cursor.md``. Evidence E11 proved
 the tested macOS G4 variant stores prompts verbatim, so each user bubble is

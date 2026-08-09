@@ -187,12 +187,12 @@ def test_fixture_meta_declarations() -> None:
         assert meta.storage_variant is not None
 
 
-def test_factory_identity_and_beta_stability() -> None:
+def test_factory_identity_and_stable_stability() -> None:
     adapter = create_adapter()
     assert adapter.adapter_id == ADAPTER_ID == "cursor"
     assert adapter.adapter_version == ADAPTER_VERSION
     # Beta, so default selection never picks Cursor up (specification 1.4, 4.7).
-    assert adapter.stability is Stability.BETA
+    assert adapter.stability is Stability.STABLE
 
 
 # -- the Lexical projection (spec 5.2) ------------------------------------
@@ -349,7 +349,7 @@ def test_discover_success_inventories_g4_store(tmp_path: Path) -> None:
     assert record.opaque_label == "Cursor 1"
     assert record.accessibility is Accessibility.FOUND
     assert record.diagnostic_code is None
-    assert record.stability is Stability.BETA
+    assert record.stability is Stability.STABLE
     assert record.storage_format == "sqlite"
     assert record.schema_fingerprint == "g4+g5;composer_v=10-16;bubble_v=3"
     assert record.estimated_records == 4
