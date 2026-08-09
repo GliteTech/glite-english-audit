@@ -19,7 +19,7 @@ an independent semantic verifier.
 | 0 | `SOURCE_INVENTORY` | `SourceInventoryArtifact` (list of `SourceInstanceRecord`, private) | Adapter `discover()` via the `discover-english-sources` skill | Deterministic inventory verifier (schema, adapter IDs, aggregate-only agent output) |
 | 1 | `SOURCE_SNAPSHOTS` | One `SnapshotManifest` per selected instance describing a foreign read-only snapshot | Adapter `snapshot()` scripts | Deterministic snapshot verifier (path safety, file hashes, Git-ignore checks) |
 | 2 | `CANDIDATE_UTTERANCES` | JSONL of `NormalizedUtterance` plus `CandidateUtterancesManifest` | Adapter `extract()` scripts | Deterministic verifier plus adapter `verify()` structural checks |
-| 3 | `ELIGIBLE_ENGLISH` | Filtered JSONL corpus plus `EligibleCorpusManifest` | Normalization layer via the `filter-authored-english` skill | Deterministic verifier (tokenizer version, counts, dedup invariants) |
+| 3 | `ELIGIBLE_ENGLISH` | Authorship decisions JSONL, then the filtered corpus plus `EligibleCorpusManifest` | Pre-filter (`normalization/authorship.py`) narrows candidates; the `filter-authored-english` skill judges which spans the learner wrote; `pipeline/apply_authorship.py` builds the corpus | Span verifier (every retained span is a verbatim substring, in order, non-overlapping) plus the deterministic corpus verifier (tokenizer version, counts, dedup invariants) |
 | 4 | `PLAIN_FINDINGS` | Human-readable Markdown findings files, one per input unit, each with a `FindingsArtifactMeta` sidecar | `analyze-english-text` skill | Deterministic format verifier plus the independent `verify-english-findings` semantic verifier |
 | 5 | `PRIVATE_MISTAKES` | JSONL of `PrivateMistake` plus `PrivateMistakesManifest` | `create-mistakes-jsonl` skill | Deterministic verifier (spans, occurrence IDs, double-count detection) plus semantic verification |
 | 6 | `SAFE_RECORDS` | `SafeRecordCandidate` records wrapping `SafeMistakeRecord` | `create-private-safe-mistakes` skill (privacy-independent creator) | Deterministic privacy scanner |
@@ -143,6 +143,36 @@ Every findings file `<name>.md` has a sidecar `<name>.md.meta.json` validating a
 
 Invariants the deterministic verifier enforces: `no_mistakes_found` implies `finding_count == 0`;
 `finding_count` equals the number of blocks in the body; `body_sha256` matches the file bytes.
+
+## 4A. Stage 3: who decides which words are the learner's
+
+Authorship is a judgment, so a model makes it; counting is arithmetic, so code does. Splitting
+them this way keeps specification 5.6's requirement that the word count be deterministic while
+letting the harder question be answered by something that can read.
+
+The order is:
+
+1. `normalization/authorship.py` removes only unambiguous machinery and bulk — fenced code, stack
+   traces, log lines, structured payloads — so the project does not pay to send a five-thousand
+   word lint dump to a model. It is biased toward keeping: anything arguable survives for the
+   model to judge. It is not an authorship decision and must not be treated as one.
+2. `pipeline/authorship_batches.py` writes the survivors as numbered candidate batches.
+3. The `filter-authored-english` skill returns, for each utterance, a decision of `retain`,
+   `partial`, or `exclude` plus the spans the learner wrote, verbatim and in original order.
+4. `pipeline/apply_authorship.py` locates every returned span in the candidate text by a single
+   forward scan, which enforces verbatim wording, original order, and non-overlap together. A
+   span that is absent, reordered, or overlapping quarantines its decision rather than entering
+   the corpus, so a paraphrase or an invented sentence cannot reach the word denominator.
+   Surviving spans are joined, classified for language, deduplicated across sources, and counted
+   with the versioned tokenizer.
+
+`normalization/filter_corpus.py` remains as a fallback that applies the pre-filter alone, used in
+tests and where no model judgment is available. It is documented as such: pasted material the
+pre-filter cannot recognize survives into the denominator and depresses every reported rate.
+
+Measured on one real corpus, the pre-filter alone kept 93.4% of the words it was given while the
+model kept 52.8% — so the fallback path understates a learner's error rate by roughly a factor of
+1.8 on heavily pasted sources.
 
 ## 5. Replacement and invalidation
 
