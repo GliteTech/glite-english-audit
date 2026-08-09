@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 10
+**Version**: 11
 
 ## Goal
 
@@ -128,10 +128,10 @@ runtime; naming both is confusing and wrong.
       `specifications/token_estimation_profile.md`), passing the apps the user just
       chose with the same `--include-source`, `--exclude-source`, and
       `--exclude-label` arguments the run will use. Show its `table` and repeat its
-      `notes`: which counts are interpolated, which steps are not calibrated, and
-      that quota and price are unavailable. Warn when a preset is unlikely to fit the
-      remaining allowance. These are calibrated estimates, not guarantees, and a
-      range the command marks low confidence stays a range when you repeat it.
+      `notes`: which counts are interpolated and which steps are not calibrated.
+      Warn when a preset is unlikely to fit the remaining allowance. These are
+      calibrated estimates, not guarantees, and a range the command marks low
+      confidence stays a range when you repeat it.
    3. Processing profile. First find out whether there is a choice to offer:
 
       ```
@@ -150,8 +150,10 @@ runtime; naming both is confusing and wrong.
       wastes the user's attention and implies a control they do not have. Say
       which model will run the work and move on:
 
-      Do: "All four model steps run on Claude Fable 5, the only model measured
-      for this runtime, so there is nothing to choose between here."
+      Do: "Every step that reads your writing runs on Claude Fable 5, the only
+      model measured for this runtime, so there is nothing to choose between
+      here." Name the model, never the measured cells behind it: two of those
+      names belong to steps this pipeline no longer has.
       Don't: offering "Recommended" and "Maximum assurance" as alternatives when
       both resolve to the same model, with option text describing a cost tradeoff
       that does not exist in this run.
@@ -203,16 +205,49 @@ runtime; naming both is confusing and wrong.
    chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
    Read the row whose `preset` is the chosen period and quote its `words`,
    `utterances`, `tokens.p50_tokens`, `tokens.p90_tokens`, and `minutes` range
-   unchanged, with its `confidence`. Preflight numbers that disagree with the
-   numbers the period question showed mean one of the two was invented.
+   unchanged, with its `confidence`. Quoting the command both times is what makes
+   the two agree: a number that moved because the window slid between the two runs
+   is not worth a sentence, and any larger disagreement means one of the two was
+   invented.
 
-   Show: selected sources and period; estimated messages and English
-   words; processing profile and planned model roles; expected token range with a
-   conservative upper bound; expected API cost range when API billing is detected;
-   current subscription-limit percentages and reset times when available; estimated
-   duration; and whether paid overage might be used. State plainly when the command
-   reports quota and price unavailable rather than leaving those lines blank. Fix
-   the autonomous policies now:
+   Show, in this order: the sources and period selected; estimated messages and
+   English words; the model that will read the writing; expected tokens with a
+   conservative upper bound and the estimated duration; how much of the
+   subscription allowance is used and when it resets, whenever the run can read
+   them; what stays unknown about money, and whether paid overage is on; and that
+   a throttled provider ends in a checkpoint rather than a hang. When API billing
+   is detected, show the expected cost range and take a spend ceiling instead.
+
+   Do:
+   ```text
+   - Sources: Codex and Cursor. Period: last 7 days.
+   - Estimated volume: 145 messages, 58,205 English words.
+   - Reading your writing: Claude Fable 5.
+   - Expected use: 14.7M tokens, 27.2M as the conservative upper bound; 0.4–1.8 hours.
+   - Your allowance: 12% of the weekly limit used, resets Friday 15:00 (read 20
+     minutes ago).
+   - Money: no price is available, so I cannot show what this costs. Paid overage
+     is off and I will not turn it on.
+   - If your provider throttles I wait, and if the wait runs long I save a
+     checkpoint and stop with a run you can resume.
+   ```
+   Don't: naming the four measured cells behind that model. Don't: "58,232 a
+   minute ago — the window slid", which is the product narrating its own
+   arithmetic at someone deciding whether to spend two hours. Don't: the
+   parallelism note from the command's `notes` — the user does not choose how many
+   sessions run at once. Don't: the retry delay, the cumulative wait limit and the
+   difference between them, which are the policy below and not the user's decision.
+
+   The allowance figure carries its age and is never presented as a live reading:
+   it comes from a cache some other process refreshed, and a percentage without an
+   age implies a check nobody made. When it cannot be read at all — another
+   runtime, a machine that has never cached one — say nothing about headroom
+   rather than announcing its absence. Money is the part that is genuinely
+   unknown, and one sentence covers it; a missing price, a missing percentage, a
+   missing reset time and a missing spend cap are one absence billed four times.
+   Say paid overage is off because it was read as off, and say it is on when it
+   is: an allowance that bills money once it runs out changes what a two-hour run
+   risks. Fix the autonomous policies now:
    - API billing: the user confirms a planned-spend ceiling. Before dispatching the
      next round of per-file agents, compare the conservative projected final cost
      against the ceiling; checkpoint instead of starting work that would exceed it.
@@ -226,7 +261,13 @@ runtime; naming both is confusing and wrong.
    If the preflight already predicts the period will not fit, let the user pick a
    smaller period now or accept that the run may checkpoint for later resumption.
 9. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
-   confirm the preflight. This is the final question before processing.
+   confirm the preflight. Say it is the last question before processing: that
+   sentence earns its place, because it tells the user the run is about to go
+   quiet and they can walk away.
+
+   Don't: "After it, the next thing you decide is on the review page." A promise
+   about a screen they cannot reach yet is the forward-promise pattern this round
+   already deleted once.
 
    When they confirm, record it:
    `uv run python -m glite_english_audit.pipeline.record_consent
@@ -387,6 +428,33 @@ runtime; naming both is confusing and wrong.
     counts, collected totals, and remaining token and time ranges. If a provider call
     delayed an update, say the run was waiting for a provider response. No raw
     message content appears in progress updates.
+
+    The block already carries the step number, the step title and every count, so
+    a line typed around it is a second copy of something the user just read.
+    Between steps, write a line only when the run learned something they do not
+    already know:
+
+    - A selected source that came back with nothing gets its own sentence, first.
+      The user chose that app and the audit will not cover it — the one line in
+      the run that contradicts what they asked for, and the one they can act on
+      by picking a different period or checking the app.
+    - A count is said once, where it first exists, and again only where it changed
+      by enough to matter.
+    - A step that changed nothing says nothing. "No duplicates found" is the
+      absence of news.
+    - The machinery stays out: how many agents run per session, what runs in
+      parallel, which driver writes what. The user asked for an audit, not a work
+      schedule.
+
+    Do:
+    ```text
+    Cursor has nothing in the last 7 days, so this audit covers Codex only.
+    Collected 280 messages from 14 sessions.
+    ```
+    Don't: 280 messages in three consecutive lines; a step announcing that it
+    found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
+    names step 1; "Dispatching one agent per session"; and the Cursor sentence —
+    the only line the user can act on — parenthesized in the middle of another.
 12. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
     any session interrupted before promotion — `--prepare` marks a session
@@ -509,9 +577,8 @@ Custom dates                       Calculated after dates are entered
 ```
 
 The notes under it are repeated in the conversation: the counts are interpolated
-from each source's date range, two model steps have fewer than ten measured
-samples, and quota and price are unavailable, so no percentage of a subscription
-limit is shown.
+from each source's date range, and two model steps have fewer than ten measured
+samples.
 
 The user picks Last 30 days and the Recommended profile, confirms provider transfer
 ("Send the selected text to your current AI provider through Claude Code?"), and
