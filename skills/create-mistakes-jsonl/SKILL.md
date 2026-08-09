@@ -53,6 +53,10 @@ Mistake counting is occurrence-based and atomic:
   problem at a different point in the corpus. Each gets its own record and occurrence ID.
 * A phrase containing two independent English errors produces two records.
 * Two alternative corrections or explanations of one underlying error remain one record.
+* **Independent errors occupy different characters.** Two records for one utterance may sit side
+  by side, but their evidence spans may never overlap. If the two spans you would write share a
+  single character, you have one occurrence described two ways, not two occurrences. This is the
+  operational test for the rule above, and the one the deterministic verifier applies.
 * Duplicates across sources were removed before analysis; do not re-deduplicate here.
 
 Do — split: "Yesterday I have finished the report and send it to the team." produces two
@@ -66,6 +70,16 @@ and "I like this plan very much." are valid corrections; pick one natural correc
 Don't — emit two records, one per alternative correction.
 Why: there is one underlying error; alternatives are presentations, not occurrences. Splitting
 double-counts.
+
+Do — keep one record for "make the report updated every week", spanning the whole causative
+construction.
+Don't — emit one record spanning "make the report updated every week" and a second spanning
+"the report" inside it.
+Why: the second span lies inside the first, so the same characters are counted twice. A finding
+whose explanation names two problems is still one occurrence when one rewrite fixes both. This
+is the split that actually happened on a real run: a verified finding named two problems, the
+producer wrote a wide record and a narrow one nested inside it, and the reported total was two
+too high.
 
 Do — locate the span so that `text[start:end]` equals `original_text` character for character,
 using half-open zero-based character offsets into the utterance's `text`.
@@ -112,7 +126,8 @@ note instead of guessing.
    newline. Validate every line against `PrivateMistake` before writing.
 7. Write the `PrivateMistakesManifest` with the envelope, `mistake_count`, the JSONL relative
    path, and the SHA-256 hex digest of the JSONL bytes.
-8. Self-check: every `text[start:end]` equals `original_text`; every occurrence ID is unique;
+8. Self-check: every `text[start:end]` equals `original_text`; no two spans for one utterance
+   overlap; every occurrence ID is unique;
    `mistake_count` equals the line count; every `finding_artifact_id` is a current stage-4
    artifact ID.
 9. Hand back counts and IDs: records written, the file you wrote, and any finding you dropped
@@ -182,8 +197,11 @@ with the artifact ID and session hash copied from the inputs):
 ~~~
 
 Verification: the deterministic verifier validates the line against `PrivateMistake`, recomputes
-`text[0:37]` against `original_text`, checks occurrence-ID uniqueness, and matches the manifest
-count and digest. All pass.
+`text[0:37]` against `original_text`, checks occurrence-ID uniqueness, checks that no two spans
+for one utterance overlap, and matches the manifest count and digest. Run it yourself before
+handing back:
+`uv run python -m glite_english_audit.verification.verify_mistakes --run-id <run-id>`.
+It exits non-zero and names the records that failed.
 
 Repair behavior: had the span been written as `{"start": 0, "end": 36}`, `text[0:36]` would
 drop the final period and mismatch `original_text`, and the verifier would reject the record
@@ -196,7 +214,11 @@ manifest digest, and resubmit.
 * The JSONL file exists, every line validates as `PrivateMistake`, and the manifest validates
   as `PrivateMistakesManifest` with matching count and digest.
 * Every record's `text[start:end]` equals its `original_text`.
-* Occurrence IDs are unique, and the split/merge decisions follow the Counting Rules.
+* Occurrence IDs are unique, no two spans for one utterance overlap, and the split/merge
+  decisions follow the Counting Rules.
+* `verify_mistakes` exits zero for this run. It is the same check, run by code rather than by
+  you, and it is what stands between a split that double-counts and a reported rate that is
+  quietly too high.
 * Every record's modality is `written` or `spoken_asr`, resolved by the provenance convention.
 * Records exist only for findings that passed both stage-4 verifiers.
 
