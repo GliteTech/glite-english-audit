@@ -310,14 +310,22 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
         session_hash=target.session_hash,
     )
     # A second verified occurrence, so every safe-record candidate below has a
-    # private mistake behind it and the count arithmetic can balance.
+    # private mistake behind it and the count arithmetic can balance. It cites a
+    # different utterance rather than copying this one's span: two records over
+    # the same characters is double counting, and the stage-5 verifier rejects
+    # it. The earlier version of this stand-in did exactly that, and also quoted
+    # text its own span did not contain.
+    other = next(u for u in corpus if u.utterance_id != target.utterance_id and len(u.text) > 12)
     second = mistake.model_copy(
         update={
             "mistake_id": "m-2",
             "occurrence_id": "m-2-o1",
-            "original_text": "depends from",
-            "correction": "depends on",
-            "explanation": "The verb 'depend' takes 'on', not 'from'.",
+            "utterance_id": other.utterance_id,
+            "session_hash": other.session_hash,
+            "evidence_span": EvidenceSpan(start=0, end=12),
+            "original_text": other.text[0:12],
+            "correction": "a natural rewriting",
+            "explanation": "A second occurrence, in a different message.",
         }
     )
     mistakes_path = mistakes_dir / "mistakes.jsonl"
@@ -577,3 +585,61 @@ def test_a_source_that_fails_verification_is_reported_once(
     entries = cast(list[dict[str, str]], collected["excluded_instances"])
     instances = [entry["instance"] for entry in entries]
     assert len(instances) == len(set(instances)), f"an instance was excluded twice: {instances}"
+
+
+def test_stage_eight_refuses_a_run_whose_mistakes_double_count(
+    tmp_path: Path, only_claude_code: None
+) -> None:
+    """verified_total_mistakes is len(mistakes).
+
+    A stage-5 record covering text another record already covers inflates the
+    learner's error rate, and nothing further down can tell. The orchestration
+    is told to run the verifier; running it inside build_review is what makes
+    the count true rather than merely checked by someone who might have skipped
+    a step.
+    """
+    runs_root = tmp_path / "runs"
+    repo = _repo_with_ignored_temp(tmp_path)
+    run_id = _seeded_run(tmp_path, runs_root)
+    collect.collect(run_id, runs_root=runs_root, repo=repo)
+    filter_corpus(run_id, runs_root=runs_root)
+
+    corpus = list(
+        read_jsonl_models(
+            stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / "corpus.jsonl",
+            NormalizedUtterance,
+        )
+    )
+    target = next(u for u in corpus if len(u.text) > 20)
+    wide = PrivateMistake(
+        mistake_id="m-1",
+        occurrence_id="m-1-o1",
+        finding_artifact_id=new_artifact_id(),
+        utterance_id=target.utterance_id,
+        evidence_span=EvidenceSpan(start=0, end=20),
+        original_text=target.text[0:20],
+        correction="a natural rewriting",
+        explanation="A construction that needs rewriting.",
+        modality=Modality.WRITTEN,
+        source_adapter="claude_code",
+        session_hash=target.session_hash,
+    )
+    nested = wide.model_copy(
+        update={
+            "mistake_id": "m-2",
+            "occurrence_id": "m-2-o1",
+            "evidence_span": EvidenceSpan(start=5, end=12),
+            "original_text": target.text[5:12],
+        }
+    )
+    mistakes_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root))
+    write_jsonl_models(mistakes_dir / "mistakes.jsonl", [wide, nested])
+    safe_dir = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root))
+    write_jsonl_models(safe_dir / "candidates.jsonl", [])
+    write_confidentiality_report(run_id, [], runs_root=runs_root)
+    for stage in (StageId.ELIGIBLE_ENGLISH, StageId.PLAIN_FINDINGS):
+        advance_to(run_id, stage, StageStatus.PROMOTED, runs_root=runs_root)
+    promote_records.promote(run_id, runs_root=runs_root)
+
+    with pytest.raises(ValueError, match="fail their own verifier"):
+        build_review.build_review(run_id, runs_root=runs_root)

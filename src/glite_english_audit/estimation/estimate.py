@@ -45,6 +45,7 @@ from glite_english_audit.artifacts.envelope import as_utc, utc_now
 from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
+from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimator import (
     AUTHORED_UTTERANCE_RETENTION,
     AUTHORED_WORD_RETENTION,
@@ -369,19 +370,6 @@ def saturated_presets(rows: Sequence[PresetRow]) -> tuple[str, ...]:
     )
 
 
-def _and_list(items: Sequence[str]) -> str:
-    """Join items the way English does, with "and" before the last one.
-
-    ``", ".join`` produces "A, B, C", which is a column of data rather than a
-    sentence. These lists are read inside sentences the user is shown.
-    """
-    if len(items) <= 1:
-        return "".join(items)
-    if len(items) == 2:
-        return f"{items[0]} and {items[1]}"
-    return f"{', '.join(items[:-1])}, and {items[-1]}"
-
-
 def build_notes(
     *,
     steps: RuntimeSteps,
@@ -402,7 +390,7 @@ def build_notes(
         verb = "matches" if len(saturated) == 1 else "match"
         rows = "row is" if len(saturated) == 1 else "rows are"
         notes.append(
-            f"{_and_list(saturated)} {verb} Everything because your history does not reach "
+            f"{and_list(saturated)} {verb} Everything because your history does not reach "
             f"back that far. The {rows} identical on purpose."
         )
     if undated_instances:
@@ -435,7 +423,7 @@ def build_notes(
     ]
     if uncalibrated:
         notes.append(
-            f"Never measured for {runtime}: {_and_list(uncalibrated)}. Those numbers are "
+            f"Never measured for {runtime}: {and_list(uncalibrated)}. Those numbers are "
             "extrapolated, not measured, so the range is widened and marked low confidence."
         )
     if low:
@@ -444,7 +432,7 @@ def build_notes(
         # list names.
         notes.append(
             f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} batches have been measured for "
-            f"{_and_list(low)}, so the total stays low confidence and its upper bound "
+            f"{and_list(low)}, so the total stays low confidence and its upper bound "
             "is widened."
         )
     notes.append(QUOTA_UNAVAILABLE_NOTE)

@@ -39,6 +39,7 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeRecordCandidate,
 )
+from glite_english_audit.english import plural
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import stage_dir
 from glite_english_audit.pipeline.record_stage import (
@@ -47,6 +48,7 @@ from glite_english_audit.pipeline.record_stage import (
     require_promoted_through,
 )
 from glite_english_audit.verification.confidentiality_report import load_report
+from glite_english_audit.verification.verify_mistakes import verify_mistakes
 
 CORPUS_NAME = "corpus.jsonl"
 CORPUS_MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -87,6 +89,22 @@ def build_review(
 
     mistakes_path = stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root) / MISTAKES_NAME
     mistakes = list(read_jsonl_models(mistakes_path, PrivateMistake))
+
+    # verified_total_mistakes is len(mistakes), so a stage-5 record that counts
+    # one mistake twice inflates the learner's error rate and nothing further
+    # down can tell. The orchestration is told to run this verifier; running it
+    # here as well is what makes the count true rather than merely checked by
+    # someone who might have skipped a step.
+    failures = verify_mistakes(mistakes, {u.utterance_id: u.text for u in corpus})
+    if failures:
+        codes = ", ".join(sorted({diagnostic.code for diagnostic in failures}))
+        msg = (
+            f"this run's mistake records fail their own verifier "
+            f"({len(failures)} {plural(len(failures), 'problem')}: {codes}), so its "
+            "counts would be wrong. Repair stage 5 and run "
+            "verification.verify_mistakes until it exits zero."
+        )
+        raise ValueError(msg)
 
     # The version stamped on every shared record must name the verifier that
     # actually cleared it. Taking it from the client meant the attestation was

@@ -9,6 +9,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from glite_english_audit.english import plural, singularize
+
 STEP_TOTAL = 8
 """User-visible steps in one audit (specification, 9.1)."""
 
@@ -95,28 +97,6 @@ def _count(value: int) -> str:
     return f"{value:,}"
 
 
-# Singular of each work-unit noun this product uses. A noun that is not listed
-# is left as it was: a wrong plural is bad English, but an invented singular
-# such as "entrie" is worse.
-_WORK_UNIT_SINGULARS = {"sessions": "session", "messages": "message"}
-
-
-def _unit(count: int, plural: str) -> str:
-    """The work-unit noun that agrees with ``count``."""
-    if count == 1:
-        return _WORK_UNIT_SINGULARS.get(plural, plural)
-    return plural
-
-
-def _plural(count: int, singular: str) -> str:
-    """``singular`` at a count of one, otherwise ``singular`` plus ``s``.
-
-    A count reaches the user inside a sentence, so the noun after it has to
-    agree: one message, not "1 messages".
-    """
-    return singular if count == 1 else f"{singular}s"
-
-
 def _tokens(value: int) -> str:
     """Scale a token count to a unit a reader can hold in their head.
 
@@ -149,7 +129,7 @@ def render_progress(state: ProgressState) -> str:
     for source in state.per_source:
         lines.append(
             f"{source.label}: {_count(source.done)} of {_count(source.total)} "
-            f"{_unit(source.total, state.work_unit)} processed — "
+            f"{singularize(source.total, state.work_unit)} processed — "
             f"{_percent(source.done, source.total)}%"
         )
     tokens = state.est_remaining_tokens
@@ -159,8 +139,8 @@ def render_progress(state: ProgressState) -> str:
         "",
         "Collected so far:",
         f"{_count(state.collected_messages)} eligible "
-        f"{_plural(state.collected_messages, 'message')}",
-        f"{_count(state.collected_words)} English {_plural(state.collected_words, 'word')}",
+        f"{plural(state.collected_messages, 'message')}",
+        f"{_count(state.collected_words)} English {plural(state.collected_words, 'word')}",
         "",
         f"Estimated remaining: {_tokens(tokens.low)}–{_tokens(tokens.high)} tokens",
         f"Estimated time: {minutes.low}–{minutes.high} minutes",

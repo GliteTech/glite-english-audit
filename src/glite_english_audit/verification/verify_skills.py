@@ -9,6 +9,7 @@ covers everything checkable without model judgment.
 import sys
 
 from glite_english_audit.diagnostics.codes import Severity
+from glite_english_audit.english import plural
 from glite_english_audit.paths import repo_root
 from glite_english_audit.verification.skills import verify_all_skills
 
@@ -21,7 +22,7 @@ def main() -> int:
         stream.write(f"{diagnostic.severity.value}: {diagnostic.code}: {diagnostic.message}\n")
     errors = [d for d in diagnostics if d.severity is Severity.ERROR]
     if errors:
-        noun = "error" if len(errors) == 1 else "errors"
+        noun = plural(len(errors), "error")
         sys.stderr.write(f"skill verification failed with {len(errors)} {noun}\n")
         return 1
     sys.stdout.write("skill verification passed\n")
