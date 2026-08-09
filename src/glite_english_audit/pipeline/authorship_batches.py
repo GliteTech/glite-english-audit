@@ -79,6 +79,16 @@ class Candidate(BaseModel):
     text: str
     source_adapter: str
     modality: Modality
+    content_flags: list[str] = Field(default_factory=list)
+    """What the adapter noticed about this text while reading it.
+
+    Every adapter produced these and nothing consumed them. They belong here
+    because they are exactly what this stage is deciding: ``possible_paste``
+    is an adapter saying "this looks like something the user pasted", which is
+    the question the authorship judge is answering. They are hints, not
+    verdicts — the judge reads the text and decides.
+
+    They carry no source content, only fixed vocabulary the adapters define."""
 
 
 def build_candidates(utterances: list[NormalizedUtterance]) -> list[Candidate]:
@@ -98,6 +108,7 @@ def build_candidates(utterances: list[NormalizedUtterance]) -> list[Candidate]:
                 text=text,
                 source_adapter=utterance.source_adapter,
                 modality=utterance.modality,
+                content_flags=sorted(utterance.content_flags),
             )
         )
     return candidates

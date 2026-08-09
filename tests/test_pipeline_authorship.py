@@ -191,7 +191,13 @@ def test_batches_carry_pre_filtered_candidates_in_the_skill_shape(tmp_path: Path
     files = sorted(batch_dir(_RUN, runs_root=tmp_path).glob("batch-*.jsonl"))
     assert [path.name for path in files] == ["batch-0000.jsonl", "batch-0001.jsonl"]
     rows = [json.loads(line) for line in files[0].read_text().splitlines()]
-    assert set(rows[0]) == {"utterance_id", "text", "source_adapter", "modality"}
+    assert set(rows[0]) == {
+        "utterance_id",
+        "text",
+        "source_adapter",
+        "modality",
+        "content_flags",
+    }
     assert rows[0]["modality"] == "written"
     assert (batch_dir(_RUN, runs_root=tmp_path) / INDEX_NAME).is_file()
 
@@ -494,3 +500,39 @@ def test_reordered_decisions_produce_identical_output(tmp_path: Path) -> None:
 
 def test_decisions_directory_name_is_stable(tmp_path: Path) -> None:
     assert decisions_dir(_RUN, runs_root=tmp_path).name == DECISIONS_DIR_NAME
+
+
+def test_adapter_flags_reach_the_authorship_judge(tmp_path: Path) -> None:
+    """Every adapter produced content flags and nothing consumed them.
+
+    `possible_paste` is an adapter saying "this looks like something the user
+    pasted", which is the exact question stage 3 answers. Withholding it from
+    the judge threw away the one piece of evidence the reader could not
+    recover from the text alone.
+    """
+    _seed(tmp_path)
+    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
+    flagged = _utterance(1, _PLAIN).model_copy(update={"content_flags": ["possible_paste"]})
+    write_jsonl_models(candidates_dir / "candidates.jsonl", [flagged, _utterance(2, _MIXED)])
+
+    prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path)
+    rows = [
+        json.loads(line)
+        for path in sorted(batch_dir(_RUN, runs_root=tmp_path).glob("batch-*.jsonl"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    by_id = {row["utterance_id"]: row for row in rows}
+    assert by_id["u-001"]["content_flags"] == ["possible_paste"]
+    assert by_id["u-002"]["content_flags"] == []
+
+
+def test_the_flags_carry_no_source_text(tmp_path: Path) -> None:
+    # They are a fixed vocabulary the adapters define. If a flag could carry
+    # free text, this projection would become a second channel for the user's
+    # own words into a model's context.
+    _seed(tmp_path)
+    prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path)
+    for path in sorted(batch_dir(_RUN, runs_root=tmp_path).glob("batch-*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            for flag in json.loads(line)["content_flags"]:
+                assert flag.replace("_", "").isalnum(), flag
