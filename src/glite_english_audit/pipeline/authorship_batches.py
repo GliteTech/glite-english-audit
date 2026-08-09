@@ -40,6 +40,9 @@ from glite_english_audit.paths import stage_dir
 CANDIDATES_NAME = "candidates.jsonl"
 BATCH_DIR_NAME = "candidate-batches"
 BATCH_GLOB = "batch-*.jsonl"
+REPAIR_NAME = "needs-repair.json"
+"""Where apply_authorship lists the utterances whose judgment failed."""
+
 INDEX_NAME = "candidate-batch-index.json"
 DECISIONS_DIR_NAME = "decisions"
 DEFAULT_BATCH_SIZE = 25
@@ -134,10 +137,42 @@ def decisions_dir(run_id: str, *, runs_root: Path | None = None) -> Path:
     return stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / DECISIONS_DIR_NAME
 
 
+def read_repair_list(run_id: str, *, runs_root: Path | None = None) -> list[str]:
+    """Utterance IDs whose judgment failed and needs asking again.
+
+    ``apply_authorship`` writes this list when a decision fails the span check.
+    Specification 6.4 allows a bounded repair, and until something read the
+    list there was no repair: a quarantined utterance was named in a file and
+    then lost, and its words left the denominator without explanation.
+    """
+    target = decisions_dir(run_id, runs_root=runs_root) / REPAIR_NAME
+    if not target.is_file():
+        return []
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    items = payload.get("needs_repair", []) if isinstance(payload, dict) else []
+    return [
+        item["utterance_id"]
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("utterance_id"), str)
+    ]
+
+
 def prepare_authorship_batches(
-    run_id: str, *, batch_size: int = DEFAULT_BATCH_SIZE, runs_root: Path | None = None
+    run_id: str,
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    runs_root: Path | None = None,
+    repair_only: bool = False,
 ) -> CandidateBatchIndex:
-    """Split this run's pre-filtered candidates into numbered batch files."""
+    """Split this run's pre-filtered candidates into numbered batch files.
+
+    With ``repair_only``, batch just the utterances whose judgment failed, so a
+    bounded second pass re-asks for exactly those instead of redoing the run or
+    accepting the loss.
+    """
     if batch_size < 1:
         msg = "batch size must be at least 1"
         raise ValueError(msg)
@@ -146,6 +181,12 @@ def prepare_authorship_batches(
     require_provider_transfer_consent(run_id, runs_root=runs_root)
     utterances = read_candidate_utterances(run_id, runs_root=runs_root)
     candidates = build_candidates(utterances)
+    if repair_only:
+        wanted = set(read_repair_list(run_id, runs_root=runs_root))
+        if not wanted:
+            msg = "nothing is listed for repair, so there is no repair batch to write"
+            raise ValueError(msg)
+        candidates = [c for c in candidates if c.utterance_id in wanted]
 
     out_dir = ensure_private_dir(batch_dir(run_id, runs_root=runs_root))
     # The skill writes its decisions here; creating the directory now is what
@@ -193,10 +234,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage 3: prepare authorship candidate batches")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--repair-only",
+        action="store_true",
+        help="batch only the utterances whose judgment failed, for a bounded second pass",
+    )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
     index_model = prepare_authorship_batches(
-        arguments.run_id, batch_size=arguments.batch_size, runs_root=arguments.runs_root
+        arguments.run_id,
+        batch_size=arguments.batch_size,
+        runs_root=arguments.runs_root,
+        repair_only=arguments.repair_only,
     )
     sys.stdout.write(
         json.dumps(

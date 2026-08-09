@@ -536,3 +536,42 @@ def test_the_flags_carry_no_source_text(tmp_path: Path) -> None:
         for line in path.read_text(encoding="utf-8").splitlines():
             for flag in json.loads(line)["content_flags"]:
                 assert flag.replace("_", "").isalnum(), flag
+
+
+def test_a_failed_judgment_can_be_asked_again(tmp_path: Path) -> None:
+    """Specification 6.4 allows a bounded repair, and there was none.
+
+    apply_authorship named the failed utterances in a file and nothing read it,
+    so a quarantined judgment was listed and then lost — its words left the
+    denominator with no way to get them back short of redoing the run.
+    """
+    _seed(tmp_path)
+    prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path)
+
+    # One decision claims a span the candidate does not contain, which is the
+    # failure the span verifier exists to catch.
+    rows = _all_retained(tmp_path)
+    rows[0] = {**rows[0], "retained_spans": ["a sentence the model invented"]}
+    _write_decisions(tmp_path, rows)
+    result = apply_authorship(_RUN, runs_root=tmp_path)
+    assert result.quarantined_decisions == 1
+
+    repair = prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path, repair_only=True)
+    assert repair.candidate_count == 1
+    batched = [
+        json.loads(line)["utterance_id"]
+        for path in sorted(batch_dir(_RUN, runs_root=tmp_path).glob("batch-*.jsonl"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert batched == ["u-001"]
+
+
+def test_a_repair_with_nothing_to_repair_is_refused(tmp_path: Path) -> None:
+    # Writing an empty batch would send the skill to read nothing and report a
+    # clean zero, which is the shape of failure this project keeps finding.
+    _seed(tmp_path)
+    prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path)
+    _write_decisions(tmp_path, _all_retained(tmp_path))
+    apply_authorship(_RUN, runs_root=tmp_path)
+    with pytest.raises(ValueError, match="nothing is listed for repair"):
+        prepare_authorship_batches(_RUN, batch_size=5, runs_root=tmp_path, repair_only=True)

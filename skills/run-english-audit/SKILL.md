@@ -251,6 +251,14 @@ runtime; naming both is confusing and wrong.
      --run-id <run-id>`, which checks every retained span against its candidate,
      quarantines the decisions that fail, and writes the stage-3 `corpus.jsonl` and
      its `EligibleCorpusManifest`.
+
+     When it exits non-zero, some judgments failed their span check and their
+     utterances are out of the corpus. Repair them once before moving on:
+     `uv run python -m glite_english_audit.pipeline.authorship_batches
+     --run-id <run-id> --repair-only` writes a batch of exactly those utterances,
+     the skill judges that batch, and apply_authorship runs again. One repair pass,
+     not a loop — if they fail twice, report the count and continue, because their
+     words are already excluded from the denominator and stage 8 reports how many.
      Do not skip the third command: it is what creates the corpus, so the stage-4
      command below has nothing to read without it. It exits non-zero when any
      decision was quarantined and lists those utterances in `needs-repair.json`;

@@ -47,6 +47,7 @@ from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import stage_dir
 from glite_english_audit.pipeline.authorship_batches import (
+    REPAIR_NAME,
     build_candidates,
     decisions_dir,
     read_candidate_utterances,
@@ -57,7 +58,6 @@ CORPUS_NAME = "corpus.jsonl"
 MANIFEST_NAME = "eligible-corpus-manifest.json"
 DECISIONS_GLOB = "decisions-*.jsonl"
 PRODUCER_NAME = "apply_authorship"
-REPAIR_NAME = "needs-repair.json"
 
 DecisionKind = Literal["retain", "partial", "exclude"]
 
