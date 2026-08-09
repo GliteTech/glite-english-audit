@@ -23,8 +23,9 @@ been tested, per adapter and per platform.
    AI provider for analysis. Glite never receives your raw text.
 4. Every finding is verified by an independent second pass, turned into a privacy-safe record, and
    checked again by an independent privacy audit.
-5. A local review page (loopback only) shows every record exactly as it would be sent. You can
-   exclude any record and download the exact submission JSON. When a compatible Glite endpoint is
+5. A local review page (loopback only) lists the privacy-safe example from every record. Each info
+   button shows the full record, and a closed disclosure holds the exact submission JSON. You can
+   exclude any record and download the resulting package. When a compatible Glite endpoint is
    configured, the page can also submit anonymously.
 
 ## Supported sources
@@ -99,11 +100,14 @@ versions require a new run. Unfinished runs keep their private artifacts for 30 
 checkpoint.
 
 **Review and submission.** The last stage starts a loopback review page and prints its address. The
-page shows every record exactly as it would be sent; you can include or exclude records, but not
-edit them. Excluding a record removes its details and still adds one to the anonymous withheld
-count. Two confirmations start unchecked: that you are at least 18, and that you accept permanent,
-irrevocable storage and the disclosed uses. Downloading the package is always available. The
-download is your only way to retrieve a report later, so keep it.
+page gives each record one compact row showing its privacy-safe submitted example; the example may
+be synthetic, and its info button reveals the complete record. You can include or exclude records,
+but not edit them. Excluding a record removes its details and still adds one to the anonymous
+withheld count. When direct sending is available, two confirmations start unchecked: that you are
+at least 18, and that you accept permanent, irrevocable storage and the disclosed uses. A
+download-only page omits those send-only confirmations because the Glite website collects them on
+upload. Downloading the package is always available. The download is your only way to retrieve a
+report later, so keep it.
 
 ## Trust boundaries
 
@@ -171,6 +175,10 @@ the token is part of the path, and any other path returns 404. Open it on the sa
 the server binds only to loopback. It stops after 30 minutes without a request; restart it with
 `uv run python -m glite_english_audit.review_server --run-id <run-id>`. If it prints "This run has
 nothing to review yet," the run has not reached the review stage.
+
+**A review checkbox will not stay changed.** A saved HTML copy cannot write decisions, and a live
+page loses that ability after its local server stops. Restart the command above and open the new
+`127.0.0.1` address it prints. Use that live page rather than opening the saved HTML file.
 
 **The page says direct sending is not available.** This is download-only mode, and it is the normal
 state today. It appears when no `submission-endpoint.json` is present in the runtime `config`

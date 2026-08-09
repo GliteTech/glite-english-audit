@@ -314,7 +314,7 @@ def test_record_checkboxes_are_checked_by_default() -> None:
 
 
 def test_confirmations_are_present_and_unchecked() -> None:
-    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    page = render_page(_state(), _direct(), _FAKE_TOKEN)
     adult = _input_tag(page, "adult-confirmed")
     storage = _input_tag(page, "storage-confirmed")
     assert " checked" not in adult
@@ -324,31 +324,37 @@ def test_confirmations_are_present_and_unchecked() -> None:
     assert "external AI processing" in page
 
 
+def test_download_only_page_omits_send_only_confirmations() -> None:
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    assert 'id="adult-confirmed"' not in page
+    assert 'id="storage-confirmed"' not in page
+    assert "Required confirmations" not in page
+
+
 def test_counts_summary_lines() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "Eligible English words analyzed" in page
+    assert "Words analyzed" in page
     assert "1100 of 1200" in page
-    assert "Eligible messages analyzed" in page
+    assert "Messages analyzed" in page
     assert "80 of 90" in page
     assert "Verified mistakes" in page
-    assert "Could not be made safe to share" in page
+    assert "Withheld for privacy" in page
 
 
 def test_exclusion_semantics_are_explained() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "still counts as one withheld mistake" in page
-    assert "you cannot edit them" in page
+    assert "anonymous withheld count will increase by one" in page
+    assert "complete record will be removed" in page
 
 
 def test_will_send_line_shows_included_count() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "Will send" in page
+    assert re.search(r'<span id="will-send-count">2</span> of 2 selected', page)
     assert 'id="will-send-count">2<' in page
 
 
 def test_record_count_and_its_noun_agree_in_the_plural() -> None:
     page = _page_direct()
-    assert '<span id="will-send-count">2</span> <span id="will-send-noun">mistakes</span>.' in page
     assert '<span id="send-count">2</span> <span id="send-noun">mistakes</span> anonymously' in page
 
 
@@ -357,9 +363,7 @@ def test_record_count_and_its_noun_agree_in_the_singular() -> None:
     state = _state()
     state.set_included("m-1", False)
     page = render_page(state, _direct(), _FAKE_TOKEN)
-    assert '<span id="will-send-count">1</span> <span id="will-send-noun">mistake</span>.' in page
     assert '<span id="send-count">1</span> <span id="send-noun">mistake</span> anonymously' in page
-    assert "mistakes</span>." not in page
     assert "mistakes</span> anonymously" not in page
 
 
@@ -367,7 +371,6 @@ def test_the_script_changes_the_noun_whenever_it_changes_the_count() -> None:
     """The server's agreement is worthless if a checkbox restores '1 mistakes'."""
     script = _script(_page_direct())
     assert 'count === 1 ? "mistake" : "mistakes"' in script
-    assert 'setNoun("will-send-noun", data.will_send)' in script
     assert 'setNoun("send-noun", data.will_send)' in script
 
 
@@ -381,12 +384,19 @@ def test_page_shows_package_bytes_matching_state() -> None:
     assert package.submission_id in page
 
 
+def test_exact_json_is_inside_a_closed_disclosure() -> None:
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    assert '<details><summary id="package-heading">View exact submission JSON</summary>' in page
+    assert "<details open>" not in page
+    assert page.index('id="download-link"') < page.index('id="package-heading"')
+
+
 def test_download_only_page_has_no_send_button_and_save_sentence() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
     assert re.search(r'<button[^>]*id="send-button"', page) is None
     assert "anonymously" not in page
-    assert "upload it later on the Glite website" in page
-    assert "Download the submission package" in page
+    assert "upload it on the Glite website" in page
+    assert "Download package" in page
 
 
 def test_direct_mode_send_button_blocked_and_labeled() -> None:
@@ -414,7 +424,7 @@ def test_zero_included_shows_empty_package_message() -> None:
     state.set_included("m-2", False)
     page = render_page(state, _download_only(), _FAKE_TOKEN)
     assert "there is no package to send" in page
-    assert "Download the submission package" in page
+    assert "Download package" in page
 
 
 def test_single_style_block_and_both_themes() -> None:
@@ -484,7 +494,7 @@ def test_description_lists_are_not_laid_out_directly_as_grids() -> None:
     style = _style(_page_direct())
     for selector in ("dl.summary", "dl.record-fields"):
         assert "display" not in _declarations(style, selector)
-    assert "display: flex" in _rule_body(style, "dl.summary .row")
+    assert "display: inline-flex" in _rule_body(style, "dl.summary .row")
     assert "display: grid" in _rule_body(style, "dl.record-fields .row")
 
 
@@ -497,26 +507,39 @@ def test_every_checkbox_has_a_unique_programmatic_label() -> None:
         assert 'type="checkbox"' in tag
         identifier = re.search(r'id="([^"]+)"', tag)
         assert identifier is not None, f"checkbox without an id: {tag}"
-        label = re.search(rf'<label for="{identifier.group(1)}">(.*?)</label>', page, re.DOTALL)
+        label = re.search(
+            rf'<label[^>]*for="{identifier.group(1)}"[^>]*>(.*?)</label>', page, re.DOTALL
+        )
         assert label is not None, f"no label bound to {identifier.group(1)!r}"
         assert label.group(1).strip(), "an empty label names nothing"
         labels.append(label.group(1))
     assert len(set(labels)) == len(labels), "two controls share the same label text"
 
 
-def test_record_checkbox_is_described_by_its_own_mistake_sentence() -> None:
+def test_record_checkbox_label_is_the_submitted_example() -> None:
     page = _page_direct()
-    for index, sentence in enumerate(
+    for index, example in enumerate(
         (
-            "Wrote &#x27;more easy&#x27; instead of &#x27;easier&#x27;.",
-            "Wrote &#x27;informations&#x27; instead of &#x27;information&#x27;.",
+            "This route is easier than the old one.",
+            "She gave me useful information about the city.",
         )
     ):
-        toggle = _input_tag(page, f"include-{index}")
-        assert f'aria-describedby="record-{index}-mistake"' in toggle
-        assert f'<dd id="record-{index}-mistake">{sentence}</dd>' in page
-    assert "Include mistake 1 of 2 in the submission" in page
-    assert "Include mistake 2 of 2 in the submission" in page
+        assert f'<label class="record-example" id="record-{index}-example"' in page
+        assert f"{example}</label>" in page
+        assert f"Include mistake {index + 1} of 2:" in page
+
+
+def test_info_disclosure_contains_all_record_fields() -> None:
+    page = _page_direct()
+    for index in range(2):
+        button = _tag(page, "button", f"record-{index}-info")
+        assert 'aria-expanded="false"' in button
+        assert f'aria-controls="record-{index}-details"' in button
+        panel = _tag(page, "div", f"record-{index}-details")
+        assert 'role="region"' in panel
+        assert " hidden" in panel
+    for term in ("Mistake", "Rule", "Example", "Example type", "Source", "Modality"):
+        assert f"<dt>{term}</dt>" in page
 
 
 def test_every_aria_and_label_reference_resolves() -> None:
@@ -539,7 +562,7 @@ def test_live_count_region_announces_the_whole_sentence() -> None:
     assert 'aria-atomic="true"' in region
     assert 'id="will-send-count"' in page
     # The atomic region is what makes a bare number meaningful when it changes.
-    assert re.search(r'id="will-send"[^>]*>Will send <span id="will-send-count">', page)
+    assert re.search(r'id="will-send"[^>]*><span id="will-send-count">2</span> of 2 selected', page)
 
 
 def test_status_region_stays_in_the_accessibility_tree() -> None:
@@ -558,11 +581,10 @@ def test_status_outcomes_are_worded_and_shaped_not_only_colored() -> None:
     assert '"Sent. Submission ID: "' in script
     assert '"Not sent. ' in script
     style = _style(page)
-    borders = {
-        name: _declarations(style, f".{name}")["border-left-style"]
-        for name in ("status-note", "status-ok", "status-fail")
-    }
-    assert len(set(borders.values())) == 3, f"status styles differ only by color: {borders}"
+    for name in ("status-note", "status-ok", "status-fail"):
+        declarations = _declarations(style, f".{name}")
+        assert "background" in declarations
+        assert "border-color" in declarations
 
 
 def test_send_button_blocked_state_is_exposed_without_relying_on_color() -> None:
@@ -596,7 +618,7 @@ def test_download_link_states_its_purpose_and_its_blocked_state() -> None:
     assert 'download="glite-submission-package.json"' in link
     assert 'aria-disabled="false"' in link
     assert 'aria-describedby="download-note"' in link
-    assert ">Download the submission package</a>" in page
+    assert ">Download package</a>" in page
 
     state = _confirmed_state()
     state.set_included("m-1", False)
@@ -621,6 +643,8 @@ def _focus_order(page: str) -> list[str]:
     names = {
         'class="skip-link"': "skip",
         'class="record-toggle"': "record",
+        'class="record-info"': "info",
+        'id="package-heading"': "package-toggle",
         'id="package-view"': "package",
         'id="adult-confirmed"': "adult",
         'id="storage-confirmed"': "storage",
@@ -628,7 +652,7 @@ def _focus_order(page: str) -> list[str]:
         'id="send-button"': "send",
     }
     body = page.split("<body", 1)[1].split("<script>", 1)[0]
-    pattern = re.compile(r'<(?:a|button|input)\b[^>]*>|<[a-z]+\b[^>]*\btabindex="0"[^>]*>')
+    pattern = re.compile(r'<(?:a|button|input|summary)\b[^>]*>|<[a-z]+\b[^>]*\btabindex="0"[^>]*>')
     order: list[str] = []
     for match in pattern.finditer(body):
         tag = match.group(0)
@@ -645,21 +669,25 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
     assert _focus_order(_page_direct()) == [
         "skip",
         "record",
+        "info",
         "record",
-        "package",
+        "info",
         "adult",
         "storage",
         "download",
         "send",
+        "package-toggle",
+        "package",
     ]
     assert _focus_order(render_page(_state(), _download_only(), _FAKE_TOKEN)) == [
         "skip",
         "record",
+        "info",
         "record",
-        "package",
-        "adult",
-        "storage",
+        "info",
         "download",
+        "package-toggle",
+        "package",
     ]
 
 
@@ -712,11 +740,16 @@ def test_reduced_motion_is_honored() -> None:
         assert declaration in block
 
 
-def test_nothing_is_revealed_or_explained_by_hover() -> None:
+def test_record_details_work_on_hover_focus_click_and_escape() -> None:
     page = _page_direct()
-    assert ":hover" not in _style(page)
-    assert "mouseover" not in _script(page)
-    assert "mouseenter" not in _script(page)
+    script = _script(page)
+    assert ".record-info:hover" in _style(page)
+    assert 'button.addEventListener("mouseenter"' in script
+    assert 'button.addEventListener("focus"' in script
+    assert 'button.addEventListener("click"' in script
+    assert 'event.key === "Escape"' in script
+    assert 'panel.addEventListener("mouseenter"' in script
+    assert 'document.addEventListener("pointerdown"' in script
     assert "title=" not in page
 
 
@@ -737,15 +770,16 @@ def test_narrow_width_never_scrolls_the_body_sideways() -> None:
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in page
     assert "box-sizing: border-box" in _rule_body(style, "*")
     body = _declarations(style, "body")
-    assert body["max-width"] == "46rem"
+    assert body["max-width"] == "52rem"
     assert "min-width" not in body
     # A fieldset defaults to min-content width, which is what forces a sideways
     # scroll on a phone when a long confirmation sentence is inside it.
     assert _declarations(style, "fieldset.confirmations")["min-width"] == "0"
     assert _declarations(style, "dl.record-fields dd")["overflow-wrap"] == "anywhere"
     assert _declarations(style, "dl.summary dd")["overflow-wrap"] == "anywhere"
-    assert "white-space: nowrap" not in style
-    start, end = _block_span(style, "@media (max-width: 30rem)")
+    visible_style = style.replace(_rule_body(style, ".visually-hidden"), "")
+    assert "white-space: nowrap" not in visible_style
+    start, end = _block_span(style, "@media (max-width: 40rem)")
     narrow = style[start:end]
     assert "grid-template-columns: 1fr" in narrow
     assert "width: 100%" in narrow
@@ -821,10 +855,19 @@ def test_verification_state_is_never_carried_by_color_alone() -> None:
 
 def test_a_decision_the_server_refused_is_undone_and_reported() -> None:
     script = _script(_page_direct())
-    assert "function revert(box)" in script
+    assert "function revert(box, error)" in script
     assert "box.checked = !box.checked" in script
-    assert '"Not saved. The change did not reach the local server."' in script
-    assert script.count("catch(function () { revert(box); })") == 2
+    assert '"Not saved. The local server refused this change."' in script
+    assert script.count("function (error) { revert(box, error); }") == 2
     # A refused decision must not reach applyCounts, or the announced count
     # becomes "undefined" for anyone listening to the live region.
-    assert 'if (!response.ok) { throw new Error("decision refused"); }' in script
+    assert 'if (!response.ok) { throw new Error("decision-refused"); }' in script
+
+
+def test_static_or_disconnected_page_becomes_read_only() -> None:
+    script = _script(_page_direct())
+    assert 'window.location.protocol === "file:"' in script
+    assert 'token === "STATIC-SNAPSHOT-NO-LIVE-TOKEN"' in script
+    assert "setDecisionControlsDisabled(true)" in script
+    assert "This saved copy is read-only" in script
+    assert "The local review server is no longer available" in script
