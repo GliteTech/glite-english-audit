@@ -125,6 +125,74 @@ Omit — "Discussed the requirements with team."
 Why: the dropped article before "team" could be a non-native pattern, but article dropping is
 also common in native note-style writing. The case is ambiguous, so it is omitted.
 
+### Five ways a careful reader still overreaches
+
+A measured run of this skill on real writing retained 62 findings, and independent verifiers
+rejected 10 of them. Every rejection fell into one of the patterns below, and none of them was
+caught by the native-plausibility question alone. Check each one before you retain.
+
+**A slip that lands on a real word is still a slip.** "hvae" is obviously a typo. "built" for
+"build" is not obviously anything — it reads as a tense error, so it gets explained as one. Ask
+whether the writer produces the correct form elsewhere in the batch. If they do, it is a slip.
+Adjacent typos are corroborating evidence: a sentence already containing one is a sentence typed
+fast.
+
+Don't — flag: "Let's think how to built a similar report" in a message that also says "just thin
+about it".
+Why: two substitutions in one sentence, and the same batch contains "Is it build correctly?" —
+the reverse swap. A writer who makes an error in both directions is slipping, not misapplying a
+rule they lack.
+
+**Prompt register is not broken English.** A one-line instruction typed at a coding agent is its
+own register, like a headline or a commit message. It drops articles, auxiliaries, and subjects
+by convention, and native speakers write it the same way. Judge such lines against how people
+actually type instructions, not against edited prose.
+
+Don't — flag: "how to check it?"
+Why: bare "how to X?" questions are native in exactly this register — one-line prompts, Slack
+messages, and question titles. A more polished form exists, which is not the test.
+
+Don't — flag: "which folders took all free space?"
+Why: bare "all free space" is normal technical register, and "took" without "up" is a preference.
+The same batch shows the writer using articles correctly in longer sentences, so this is register,
+not grammar.
+
+**A preposition you would have chosen differently is not an error.** English licenses more
+preposition pairings than any style guide admits. Flag a preposition only when the pairing is
+unattested, not when another one is more idiomatic.
+
+Don't — flag: "there are problems about matching categories"
+Why: "problems about" meaning "problems concerning" is real native usage. Correcting it to
+"problems with" asserts a rule that does not exist.
+
+Don't — flag: "give me instructions how to run it"
+Why: dropping "on" before a "how to" complement after nouns like instructions, directions, or
+idea is attested in native informal writing, and it is exactly the kind of function word lost in
+fast typing.
+
+**Judge only what the utterance contains.** You see one message, not the conversation around it.
+If your explanation needs a fact the text does not carry — what was happening at the time, what
+was said before, what the writer meant — you are analyzing something you cannot see.
+
+Don't — flag: "why do you wait for anything?" as a missing present progressive.
+Why: nothing in the utterance establishes an action in progress. Read from the evidence alone,
+this is the ordinary rhetorical or habitual simple present, and the negative-polarity "anything"
+favors that reading.
+
+**Never invent a rule to justify a hunch.** The Why line teaches. A learner reading a fabricated
+rule will apply it, and a false rule does more damage than a missed mistake. If you cannot state
+the rule plainly and know it to be true, you do not have a finding.
+
+Don't — flag: "that source isn't added yet" with "a state not yet reached takes the present
+perfect".
+Why: that rule is false. The stative passive is ordinary native English, and the correction fixes
+nothing. When the explanation has to be invented, the finding was a feeling.
+
+Don't — flag: "Make a full review of the changes" as a collocation error on the ground that
+"review" does not collocate with "make".
+Why: it does, in institutional and formal usage. An absolute claim about a collocation needs to
+be true absolutely.
+
 ### Dictated text has a stricter bar
 
 When an utterance came from speech recognition, the text is a machine's transcript of audio, not
