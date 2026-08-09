@@ -57,7 +57,7 @@ agent sees only the derived `InstanceInventorySummary`.
    Do:
    ```text
    I'll look for apps on this computer that hold English you wrote or dictated —
-   Claude Code, Codex, Cursor and others.
+   Claude Code, Codex, Cursor, and others.
 
    - Runs entirely on your machine
    - Nothing goes to a model or over the network

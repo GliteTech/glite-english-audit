@@ -29,6 +29,7 @@ from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.estimation.estimate import (
     CUSTOM_ROW_LABEL,
     EstimateReport,
+    _and_list,
     build_notes,
     build_report,
     select_runtime_steps,
@@ -215,7 +216,7 @@ def test_a_partly_calibrated_runtime_is_low_confidence(tmp_path: Path) -> None:
     # safe-record batches, which is under the 10-batch minimum of 13.7.
     report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
     assert all(row.confidence is EstimateConfidence.LOW for row in report.presets)
-    assert any("measured batches" in note for note in report.notes)
+    assert any("batches have been measured" in note for note in report.notes)
 
 
 def test_an_uncalibrated_runtime_says_so_instead_of_showing_a_bare_number(
@@ -328,3 +329,61 @@ def test_the_saturation_note_agrees_in_number() -> None:
         saturated=["Last 3 months", "Last year"],
     )
     assert any("Last year match Everything" in note and "The rows are" in note for note in two)
+    assert any("Last 3 months and Last year match Everything" in note for note in two)
+
+    three = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=0,
+        concurrent_batches=1,
+        saturated=["Last 30 days", "Last 3 months", "Last year"],
+    )
+    assert any(
+        "Last 30 days, Last 3 months, and Last year match Everything" in note for note in three
+    )
+
+
+def test_lists_inside_a_note_are_joined_as_english_not_as_a_column() -> None:
+    """A comma-joined list reads as data. Inside a sentence it needs "and"."""
+    assert _and_list([]) == ""
+    assert _and_list(["A"]) == "A"
+    assert _and_list(["A", "B"]) == "A and B"
+    assert _and_list(["A", "B", "C"]) == "A, B, and C"
+
+
+def test_the_low_confidence_note_is_a_sentence_with_a_verb() -> None:
+    """It read "Fewer than 10 measured batches for X, so ..." — a fragment."""
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    notes = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=0,
+        concurrent_batches=1,
+    )
+    low = [note for note in notes if note.startswith("Fewer than")]
+    assert low, f"no low-confidence note among {notes}"
+    assert "batches have been measured for" in low[0]
+    assert ", and " in low[0]
+
+
+def test_the_undated_source_note_agrees_in_number() -> None:
+    """The same trap one line down: the count decides noun, verb, and pronoun."""
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    one = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=1,
+        concurrent_batches=1,
+    )
+    assert any("1 source reports no dates" in note and "it counts in full" in note for note in one)
+    assert not any("1 sources" in note for note in one)
+
+    several = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=3,
+        concurrent_batches=1,
+    )
+    assert any(
+        "3 sources report no dates" in note and "they count in full" in note for note in several
+    )

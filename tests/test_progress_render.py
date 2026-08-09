@@ -91,6 +91,51 @@ def test_render_zero_totals_render_zero_percent() -> None:
     assert "This step: 0% · Overall: 23%" in render_progress(state)
 
 
+def test_collected_totals_take_plural_nouns_above_one() -> None:
+    rendered = render_progress(_state(collected_messages=2, collected_words=2))
+    assert "2 eligible messages" in rendered
+    assert "2 English words" in rendered
+
+
+def test_collected_totals_take_singular_nouns_at_one() -> None:
+    """A count of one decides the noun after it: one message, not "1 messages"."""
+    rendered = render_progress(_state(collected_messages=1, collected_words=1))
+    assert "1 eligible message\n" in rendered
+    assert "1 English word\n" in rendered
+    assert "messages" not in rendered
+    assert "English words" not in rendered
+
+
+def test_zero_collected_totals_stay_plural() -> None:
+    rendered = render_progress(_state(collected_messages=0, collected_words=0))
+    assert "0 eligible messages" in rendered
+    assert "0 English words" in rendered
+
+
+def test_a_source_with_one_work_unit_reads_in_the_singular() -> None:
+    """A total of one takes a singular noun: 0 of 1 session, not 0 of 1 sessions."""
+    rendered = render_progress(_state(per_source=[SourceProgress(label="Codex", done=0, total=1)]))
+    assert "Codex: 0 of 1 session processed — 0%" in rendered
+
+
+def test_a_source_measured_in_messages_is_singular_at_one_too() -> None:
+    rendered = render_progress(
+        _state(
+            work_unit="messages",
+            per_source=[SourceProgress(label="Codex", done=1, total=1)],
+        )
+    )
+    assert "Codex: 1 of 1 message processed — 100%" in rendered
+
+
+def test_an_unknown_work_unit_is_never_bent_into_a_nonword() -> None:
+    """An invented singular would be worse English than a wrong plural."""
+    rendered = render_progress(
+        _state(work_unit="entries", per_source=[SourceProgress(label="Codex", done=0, total=1)])
+    )
+    assert "Codex: 0 of 1 entries processed — 0%" in rendered
+
+
 def test_state_rejects_done_beyond_total() -> None:
     with pytest.raises(ValueError, match="exceeds total"):
         SourceProgress(label="Codex", done=5, total=4)

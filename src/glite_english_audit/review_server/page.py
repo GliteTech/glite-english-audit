@@ -20,7 +20,7 @@ from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
 
-__all__ = ["CONSENT_POLICY_VERSION", "render_page"]
+__all__ = ["CONSENT_POLICY_VERSION", "mistake_noun", "render_page"]
 
 ADULT_CONFIRMATION_TEXT = "I confirm that I am at least 18 years old."
 STORAGE_CONFIRMATION_TEXT = (
@@ -275,11 +275,20 @@ _SCRIPT = """
     statusLine.textContent = message;
   }
 
+  function setNoun(id, count) {
+    // One record is a mistake, not "1 mistakes". The count and its noun change
+    // together, so the noun is rewritten wherever the count is.
+    var node = document.getElementById(id);
+    if (node) { node.textContent = count === 1 ? "mistake" : "mistakes"; }
+  }
+
   function applyCounts(data) {
     var willSend = document.getElementById("will-send-count");
     if (willSend) { willSend.textContent = String(data.will_send); }
+    setNoun("will-send-noun", data.will_send);
     var sendCount = document.getElementById("send-count");
     if (sendCount) { sendCount.textContent = String(data.will_send); }
+    setNoun("send-noun", data.will_send);
     var withheld = document.getElementById("withheld-user-count");
     if (withheld) { withheld.textContent = String(data.withheld_by_user); }
     setBlocked(downloadLink, data.will_send === 0);
@@ -401,6 +410,16 @@ def _escape(value: str) -> str:
     return html.escape(value, quote=True)
 
 
+def mistake_noun(count: int) -> str:
+    """The noun that agrees with a record count: singular only at one.
+
+    The count is interpolated into two sentences the user acts on, and a tool
+    that teaches English agreement cannot write "Send 1 mistakes anonymously".
+    The page script applies the same rule when a checkbox changes the count.
+    """
+    return "mistake" if count == 1 else "mistakes"
+
+
 def _definition_row(term: str, value: str, *, value_id: str | None = None) -> str:
     """One term/value pair wrapped in a div.
 
@@ -447,7 +466,7 @@ def _summary_section(state: ReviewSessionState) -> str:
             f"{counts.analyzed_english_words} of {counts.eligible_english_words}",
         )
         + _definition_row(
-            "Eligible utterances analyzed",
+            "Eligible messages analyzed",
             f"{counts.analyzed_utterances} of {counts.eligible_utterances}",
         )
         + _definition_row("Verified mistakes", str(counts.verified_total_mistakes))
@@ -480,7 +499,8 @@ def _records_section(state: ReviewSessionState) -> str:
         f"<p>{_escape(EXCLUSION_EXPLANATION_TEXT)}</p>"
         f'<ul class="records" role="list">{rows}</ul>'
         '<p class="will-send" id="will-send" aria-live="polite" aria-atomic="true">Will send '
-        f'<span id="will-send-count">{state.included_count}</span> mistakes.</p>'
+        f'<span id="will-send-count">{state.included_count}</span> '
+        f'<span id="will-send-noun">{mistake_noun(state.included_count)}</span>.</p>'
         "</section>"
     )
 
@@ -553,7 +573,8 @@ def _actions(
             '<button type="button" class="button primary" id="send-button" '
             f'aria-describedby="send-requirements" aria-disabled="{send_blocked}">'
             f'Send <span id="send-count">{state.included_count}</span> '
-            "mistakes anonymously</button>"
+            f'<span id="send-noun">{mistake_noun(state.included_count)}</span> '
+            "anonymously</button>"
         )
         notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
     else:

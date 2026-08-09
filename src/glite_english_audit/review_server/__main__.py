@@ -35,10 +35,7 @@ def main(argv: list[str] | None = None) -> int:
         / REVIEWED_ARTIFACT_NAME
     )
     if not artifact_path.is_file():
-        sys.stderr.write(
-            "No reviewed submission artifact exists for this run yet. "
-            "Finish the earlier stages first.\n"
-        )
+        sys.stderr.write("This run has nothing to review yet. Finish the earlier steps first.\n")
         return 1
     reviewed = read_model(artifact_path, ReviewedSubmissionArtifact)
     config_dir = arguments.config_dir if arguments.config_dir is not None else endpoint_config_dir()

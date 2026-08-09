@@ -41,7 +41,8 @@ def generate_all(root: Path) -> list[Path]:
 def main() -> int:
     """Regenerate all wrappers under the repository root."""
     written = generate_all(repo_root())
-    sys.stdout.write(f"generated {len(written)} wrapper file(s)\n")
+    noun = "file" if len(written) == 1 else "files"
+    sys.stdout.write(f"generated {len(written)} wrapper {noun}\n")
     return 0
 
 

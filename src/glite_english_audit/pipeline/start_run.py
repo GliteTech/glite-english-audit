@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         "--inventory-dir",
         type=Path,
         default=None,
-        help="defaults to the inventory discovery left pending",
+        help="defaults to the inventory that discovery left pending",
     )
     parser.add_argument("--runtime", default="claude_code", choices=[r.value for r in AgentRuntime])
     parser.add_argument("--os-environment", default="macos")

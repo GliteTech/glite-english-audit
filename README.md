@@ -142,7 +142,7 @@ See `FUTURE.md` for what a later version may add.
 **Source not found** (`SOURCE_NOT_FOUND`, informational). The application or its data directory is
 not on this machine. If your data lives outside the default location, set the documented override
 before the run: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CLINE_DATA_DIR`, `GEMINI_CLI_HOME`,
-`AIDER_INPUT_HISTORY_FILE`, `AIDER_CHAT_HISTORY_FILE`, `XDG_DATA_HOME` or `OPENCODE_DB`. Each
+`AIDER_INPUT_HISTORY_FILE`, `AIDER_CHAT_HISTORY_FILE`, `XDG_DATA_HOME`, or `OPENCODE_DB`. Each
 source specification lists the overrides it honors.
 
 **Detected, unsupported schema** (`SOURCE_UNSUPPORTED_SCHEMA`). The store exists but its fingerprint
@@ -169,8 +169,8 @@ consent versions changed since the checkpoint.
 **The review page will not open.** The address has the form `http://127.0.0.1:<port>/t/<token>/`;
 the token is part of the path, and any other path returns 404. Open it on the same machine, since
 the server binds only to loopback. It stops after 30 minutes without a request; restart it with
-`uv run python -m glite_english_audit.review_server --run-id <run-id>`. If it prints "No reviewed
-submission artifact exists for this run yet," the run has not reached the review stage.
+`uv run python -m glite_english_audit.review_server --run-id <run-id>`. If it prints "This run has
+nothing to review yet," the run has not reached the review stage.
 
 **The page says direct sending is not available.** This is download-only mode, and it is the normal
 state today. It appears when no `submission-endpoint.json` is present in the runtime `config`

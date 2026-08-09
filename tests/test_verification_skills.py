@@ -254,3 +254,38 @@ def test_wrapper_content_shape(tmp_path: Path) -> None:
     assert "# demo-skill wrapper" in content
     assert "`skills/demo-skill/SKILL.md`" in content
     assert "Do not edit" in content
+
+
+def test_the_verifier_summary_counts_errors_in_english(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One error is an error. "1 error(s)" is a placeholder, not a sentence."""
+    from glite_english_audit.verification import verify_skills as cli
+
+    def _one(_root: Path) -> list[Diagnostic]:
+        return [Diagnostic.from_code("SKILL_MISSING_FILE", "no SKILL.md", item_ref="demo")]
+
+    monkeypatch.setattr(cli, "verify_all_skills", _one)
+    assert cli.main() == 1
+    assert "skill verification failed with 1 error\n" in capsys.readouterr().err
+
+    def _two(_root: Path) -> list[Diagnostic]:
+        return _one(_root) * 2
+
+    monkeypatch.setattr(cli, "verify_all_skills", _two)
+    assert cli.main() == 1
+    assert "skill verification failed with 2 errors\n" in capsys.readouterr().err
+
+
+def test_the_wrapper_generator_counts_files_in_english(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from glite_english_audit.verification import generate_wrappers as cli
+
+    monkeypatch.setattr(cli, "generate_all", lambda _root: [Path("one")])
+    assert cli.main() == 0
+    assert capsys.readouterr().out == "generated 1 wrapper file\n"
+
+    monkeypatch.setattr(cli, "generate_all", lambda _root: [Path("one"), Path("two")])
+    assert cli.main() == 0
+    assert capsys.readouterr().out == "generated 2 wrapper files\n"

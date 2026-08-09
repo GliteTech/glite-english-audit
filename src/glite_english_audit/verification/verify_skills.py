@@ -21,7 +21,8 @@ def main() -> int:
         stream.write(f"{diagnostic.severity.value}: {diagnostic.code}: {diagnostic.message}\n")
     errors = [d for d in diagnostics if d.severity is Severity.ERROR]
     if errors:
-        sys.stderr.write(f"skill verification failed with {len(errors)} error(s)\n")
+        noun = "error" if len(errors) == 1 else "errors"
+        sys.stderr.write(f"skill verification failed with {len(errors)} {noun}\n")
         return 1
     sys.stdout.write("skill verification passed\n")
     return 0

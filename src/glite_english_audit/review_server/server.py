@@ -417,7 +417,9 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 HTTPStatus.BAD_GATEWAY,
                 {
-                    "reason": (outcome.transport_error or "the request could not be completed")
+                    # The page prints this after "Not sent. ", so it starts a
+                    # sentence and is capitalized like one.
+                    "reason": (outcome.transport_error or "The request could not be completed")
                     + ". Nothing was retried."
                 },
             )
