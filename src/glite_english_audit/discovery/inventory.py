@@ -9,9 +9,11 @@ stdout.
 """
 
 import argparse
+import functools
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,8 +22,10 @@ from pydantic import BaseModel, ConfigDict
 from glite_english_audit.artifacts.enums import StageId
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.models import InstanceInventorySummary, SourceInstanceRecord
+from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
-from glite_english_audit.discovery.registry import create_all_adapters
+from glite_english_audit.discovery.parallel import map_in_threads, thread_count
+from glite_english_audit.discovery.registry import adapter_ids, create_adapter
 from glite_english_audit.paths import (
     detect_os_environment,
     pending_inventory_dir,
@@ -36,6 +40,15 @@ class PrivateInventory(BaseModel):
 
     records: list[SourceInstanceRecord]
     instance_paths: dict[str, str]
+    failures: list[Diagnostic] = []
+
+
+@dataclass(frozen=True)
+class DiscoveryReport:
+    """One discovery pass: what every adapter produced, and which ones failed."""
+
+    outcomes: list[DiscoveryOutcome]
+    failures: list[Diagnostic]
 
 
 def summarize(record: SourceInstanceRecord) -> InstanceInventorySummary:
@@ -56,15 +69,56 @@ def summarize(record: SourceInstanceRecord) -> InstanceInventorySummary:
     )
 
 
-def run_discovery(context: DiscoveryContext) -> list[DiscoveryOutcome]:
-    """Run every registered adapter. One failing adapter never stops others."""
-    outcomes: list[DiscoveryOutcome] = []
-    for adapter in create_all_adapters():
-        try:
-            outcomes.append(adapter.discover(context))
-        except Exception:  # adapter isolation: one broken source never stops the rest
-            outcomes.append(DiscoveryOutcome(records=[], instance_paths={}))
-    return outcomes
+@dataclass(frozen=True)
+class _AdapterResult:
+    """What one adapter thread produced: an outcome, or the failure's type."""
+
+    adapter_id: str
+    outcome: DiscoveryOutcome | None
+    failure_type: str | None
+
+
+def _discover_one(adapter_id: str, *, context: DiscoveryContext) -> _AdapterResult:
+    """Build and run one adapter, converting any failure into a result.
+
+    Only the exception's type name is kept. An adapter message could quote the
+    source data that broke it, and no source text may reach a diagnostic.
+    """
+    try:
+        outcome = create_adapter(adapter_id).discover(context)
+    except Exception as error:  # adapter isolation: one broken source never stops the rest
+        return _AdapterResult(
+            adapter_id=adapter_id, outcome=None, failure_type=type(error).__name__
+        )
+    return _AdapterResult(adapter_id=adapter_id, outcome=outcome, failure_type=None)
+
+
+def run_discovery(context: DiscoveryContext) -> DiscoveryReport:
+    """Run every registered adapter concurrently, isolated from each other.
+
+    Adapters run on threads: each one spends its time in filesystem walks and
+    in the shared worker pool, so threads add concurrency without stacking a
+    second layer of processes. Results keep registry order, never completion
+    order, so the inventory is identical whatever the thread count.
+    """
+    ids = adapter_ids()
+    results = map_in_threads(
+        functools.partial(_discover_one, context=context),
+        ids,
+        workers=thread_count(item_count=len(ids), environ=context.environ),
+    )
+    return DiscoveryReport(
+        outcomes=[result.outcome for result in results if result.outcome is not None],
+        failures=[
+            Diagnostic.from_code(
+                "SOURCE_DISCOVERY_FAILED",
+                f"discovery raised {result.failure_type}; the other sources continued",
+                item_ref=result.adapter_id,
+            )
+            for result in results
+            if result.failure_type is not None
+        ],
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,17 +158,18 @@ def main(argv: list[str] | None = None) -> int:
         now=datetime.now(tz=UTC),
         environ=dict(os.environ),
     )
-    outcomes = run_discovery(context)
-    records = [record for outcome in outcomes for record in outcome.records]
+    report = run_discovery(context)
+    records = [record for outcome in report.outcomes for record in outcome.records]
     if arguments.run_dir is not None:
         ensure_private_dir(arguments.run_dir)
         private = PrivateInventory(
             records=records,
             instance_paths={
                 key: str(path)
-                for outcome in outcomes
+                for outcome in report.outcomes
                 for key, path in outcome.instance_paths.items()
             },
+            failures=report.failures,
         )
         write_model(arguments.run_dir / "source-inventory.json", private)
 

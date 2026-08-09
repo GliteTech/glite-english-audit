@@ -209,6 +209,11 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
             "The snapshot target sits in a cloud-synced or network root, so it was refused."
         ),
     ),
+    DiagnosticDefinition(
+        code="SOURCE_DISCOVERY_FAILED",
+        severity=Severity.WARNING,
+        description="One adapter failed during discovery; the remaining sources continued.",
+    ),
     # Stage-4 semantic finding verification.
     DiagnosticDefinition(
         code="FINDING_NATIVE_PLAUSIBLE",

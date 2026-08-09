@@ -38,9 +38,13 @@ from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import pending_inventory_dir, run_dir, stage_dir
+from glite_english_audit.pipeline.save_choice import load_choice
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
+
+DEFAULT_PERIOD = "last-30-days"
+DEFAULT_PROFILE = "recommended"
 
 PERIOD_PRESETS: dict[str, int | None] = {
     "last-7-days": 7,
@@ -133,9 +137,9 @@ def start_run(
     *,
     runtime: AgentRuntime,
     os_environment_value: str,
-    preset: str,
+    preset: str | None,
     instance_keys: list[str] | None,
-    processing_profile: str,
+    processing_profile: str | None,
     runs_root: Path | None,
     inventory_dir: Path,
     include_sources: list[str] | None = None,
@@ -158,6 +162,25 @@ def start_run(
 
     moment = now if now is not None else utc_now()
     inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
+
+    # A choice the user already made during setup is used unless this call
+    # overrides it, so an answer given once does not have to be repeated.
+    remembered = load_choice(inventory_dir=inventory_dir)
+    if remembered is not None:
+        if preset is None:
+            preset = remembered.period_preset
+        if processing_profile is None:
+            processing_profile = remembered.processing_profile
+        if include_sources is None:
+            include_sources = remembered.include_sources
+        if exclude_sources is None:
+            exclude_sources = remembered.exclude_sources
+        if exclude_labels is None:
+            exclude_labels = remembered.exclude_labels
+    if preset is None:
+        preset = DEFAULT_PERIOD
+    if processing_profile is None:
+        processing_profile = DEFAULT_PROFILE
     selected = (
         instance_keys
         if instance_keys
@@ -236,8 +259,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--runtime", default="claude_code", choices=[r.value for r in AgentRuntime])
     parser.add_argument("--os-environment", default="macos")
-    parser.add_argument("--period", default="last-30-days", choices=sorted(PERIOD_PRESETS))
-    parser.add_argument("--profile", default="recommended")
+    parser.add_argument(
+        "--period",
+        default=None,
+        choices=sorted(PERIOD_PRESETS),
+        help="defaults to the remembered choice, then to " + DEFAULT_PERIOD,
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="defaults to the remembered choice, then to " + DEFAULT_PROFILE,
+    )
     parser.add_argument(
         "--instance-key",
         action="append",

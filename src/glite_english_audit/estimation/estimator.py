@@ -7,6 +7,7 @@ low-confidence cells widen the upper bound (13.7).
 """
 
 import math
+import textwrap
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
 from statistics import median
@@ -32,9 +33,7 @@ ASSUMED_BATCH_SIZE: int = 25
 # measured claude-code cells are dominated by cached input, which the provider
 # re-reads far faster than it generates output, so dividing their totals by a
 # fresh-token throughput overstates duration by roughly two orders of
-# magnitude. Preset and preflight durations use :func:`estimate_unit_time`
-# instead; :func:`estimate_time` stays for callers that genuinely bill time by
-# fresh throughput.
+# magnitude. Preset and preflight durations use :func:`estimate_unit_time`.
 THROUGHPUT_TOKENS_PER_MINUTE_LOW: int = 4000
 THROUGHPUT_TOKENS_PER_MINUTE_HIGH: int = 9000
 
@@ -343,6 +342,9 @@ def format_time_range(time: TimeRange | None) -> str:
 
 
 def _format_token_count(tokens: int) -> str:
+    if tokens >= 1_000_000_000:
+        scaled = f"{tokens / 1_000_000_000:.1f}".removesuffix(".0")
+        return f"{scaled}B"
     if tokens >= 1_000_000:
         scaled = f"{tokens / 1_000_000:.1f}".removesuffix(".0")
         return f"{scaled}M"
@@ -394,15 +396,22 @@ def render_preset_table(rows: Sequence[PresetEstimate]) -> str:
     return "\n".join(lines)
 
 
-def render_estimate_report(rows: Sequence[PresetEstimate], *, notes: Sequence[str]) -> str:
+def render_estimate_report(
+    rows: Sequence[PresetEstimate], *, notes: Sequence[str], width: int = 88
+) -> str:
     """The preset table plus the caveats that must travel with its numbers.
 
     The table alone reads as measurement. Interpolated word counts, an
     uncalibrated cell, and an unavailable price all have to reach the user
     with the numbers rather than in a separate paragraph a caller may drop, so
-    they are rendered into the same block.
+    they are rendered into the same block. Notes wrap; the table never does,
+    because a wrapped column stops being a column.
     """
     table = render_preset_table(rows)
     if not notes:
         return table
-    return table + "\n\n" + "\n".join(f"- {note}" for note in notes)
+    wrapped = [
+        textwrap.fill(note, width=width, initial_indent="- ", subsequent_indent="  ")
+        for note in notes
+    ]
+    return table + "\n\n" + "\n".join(wrapped)

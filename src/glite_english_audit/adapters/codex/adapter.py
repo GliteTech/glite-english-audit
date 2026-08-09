@@ -11,14 +11,13 @@ against the snapshot alone and yields verbatim written user text.
 import hashlib
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from glite_english_audit.adapters.codex.rollout import (
     ROLLOUT_FILE_NAME,
-    FileScan,
     FileStatus,
     scan_rollout_file,
 )
@@ -42,6 +41,7 @@ from glite_english_audit.discovery.base import (
     SnapshotCapture,
     SourceAdapter,
 )
+from glite_english_audit.discovery.parallel import map_in_processes, worker_count
 from glite_english_audit.normalization.tokenizer import count_words
 
 ADAPTER_ID = "codex"
@@ -195,20 +195,96 @@ def _empty_probe(
     )
 
 
-def _probe_root(root: Path) -> _InstanceProbe:
+@dataclass(frozen=True)
+class _FileJob:
+    """One rollout file to scan, addressed as root plus relative path."""
+
+    root: str
+    relative_path: str
+
+
+@dataclass(frozen=True)
+class _FileAggregate:
+    """Everything one scanned file contributes to the inventory.
+
+    Deliberately text-free: this value is what crosses the worker-process
+    boundary, so counts, timestamps, and CLI version strings are all that can
+    ever leave a worker.
+    """
+
+    readable: bool
+    status: FileStatus
+    generation: str
+    eligible: bool
+    cli_versions: tuple[str, ...]
+    pre_filter_count: int
+    candidate_messages: int
+    candidate_words: int
+    candidate_bytes: int
+    earliest: datetime | None
+    latest: datetime | None
+
+
+_UNREADABLE_FILE = _FileAggregate(
+    readable=False,
+    status=FileStatus.EMPTY,
+    generation="",
+    eligible=False,
+    cli_versions=(),
+    pre_filter_count=0,
+    candidate_messages=0,
+    candidate_words=0,
+    candidate_bytes=0,
+    earliest=None,
+    latest=None,
+)
+
+
+def _scan_file_aggregate(job: _FileJob) -> _FileAggregate:
+    """Scan one rollout file down to counts. Runs inside a worker process."""
+    try:
+        scan = scan_rollout_file(Path(job.root) / job.relative_path, job.relative_path)
+    except OSError:
+        # One unreadable file is skipped, never guessed about.
+        return _UNREADABLE_FILE
+    eligible = scan.status is FileStatus.SUPPORTED and scan.eligible
+    candidates = scan.candidates if eligible else ()
+    stamps = [candidate.timestamp for candidate in candidates if candidate.timestamp is not None]
+    return _FileAggregate(
+        readable=True,
+        status=scan.status,
+        generation=scan.generation,
+        eligible=scan.eligible,
+        cli_versions=scan.cli_versions,
+        pre_filter_count=scan.pre_filter_count,
+        candidate_messages=len(candidates),
+        candidate_words=sum(count_words(candidate.text) for candidate in candidates),
+        candidate_bytes=sum(len(candidate.text.encode("utf-8")) for candidate in candidates),
+        earliest=min(stamps) if stamps else None,
+        latest=max(stamps) if stamps else None,
+    )
+
+
+def _probe_root(root: Path, *, environ: Mapping[str, str] | None = None) -> _InstanceProbe:
     if not root.is_dir():
         return _empty_probe(root, Accessibility.NOT_FOUND, "SOURCE_NOT_FOUND")
     try:
         relative_files = _iter_session_files(root)
-        scans: list[FileScan] = []
-        for relative in relative_files:
-            try:
-                scans.append(scan_rollout_file(root / relative, relative.as_posix()))
-            except OSError:
-                # One unreadable file is skipped, never guessed about.
-                continue
     except PermissionError:
         return _empty_probe(root, Accessibility.INACCESSIBLE, "SOURCE_INACCESSIBLE")
+
+    jobs = [_FileJob(root=str(root), relative_path=path.as_posix()) for path in relative_files]
+    # Every per-file value below is a sum, a min, a max, or a set union, so the
+    # aggregate does not depend on which worker finished first.
+    scans = [
+        aggregate
+        for aggregate in map_in_processes(
+            _scan_file_aggregate,
+            jobs,
+            workers=worker_count(item_count=len(jobs), environ=environ),
+        )
+        if aggregate.readable
+    ]
 
     supported = [scan for scan in scans if scan.status is FileStatus.SUPPORTED]
     unsupported_count = sum(1 for scan in scans if scan.status is FileStatus.UNSUPPORTED)
@@ -220,10 +296,8 @@ def _probe_root(root: Path) -> _InstanceProbe:
         diagnostic_code = "SOURCE_UNSUPPORTED_SCHEMA"
 
     eligible = [scan for scan in supported if scan.eligible]
-    candidates = [candidate for scan in eligible for candidate in scan.candidates]
-    timestamps = sorted(
-        candidate.timestamp for candidate in candidates if candidate.timestamp is not None
-    )
+    earliest = [scan.earliest for scan in eligible if scan.earliest is not None]
+    latest = [scan.latest for scan in eligible if scan.latest is not None]
     versions = sorted({version for scan in scans for version in scan.cli_versions})
     labels = sorted({scan.generation for scan in scans})
     return _InstanceProbe(
@@ -234,11 +308,11 @@ def _probe_root(root: Path) -> _InstanceProbe:
         schema_fingerprint="+".join(labels) if labels else "empty",
         app_version=", ".join(versions) if versions else None,
         estimated_records=sum(scan.pre_filter_count for scan in supported),
-        earliest=timestamps[0] if timestamps else None,
-        latest=timestamps[-1] if timestamps else None,
-        candidate_messages=len(candidates),
-        candidate_words=sum(count_words(candidate.text) for candidate in candidates),
-        candidate_bytes=sum(len(candidate.text.encode("utf-8")) for candidate in candidates),
+        earliest=min(earliest) if earliest else None,
+        latest=max(latest) if latest else None,
+        candidate_messages=sum(scan.candidate_messages for scan in eligible),
+        candidate_words=sum(scan.candidate_words for scan in eligible),
+        candidate_bytes=sum(scan.candidate_bytes for scan in eligible),
     )
 
 
@@ -258,7 +332,7 @@ class CodexAdapter:
         return Stability.STABLE
 
     def discover(self, context: DiscoveryContext) -> DiscoveryOutcome:
-        probes = [_probe_root(root) for root in _candidate_roots(context)]
+        probes = [_probe_root(root, environ=context.environ) for root in _candidate_roots(context)]
         probes.sort(key=lambda probe: (probe.earliest or _SORT_SENTINEL, probe.path_hash))
         records: list[SourceInstanceRecord] = []
         instance_paths: dict[str, Path] = {}

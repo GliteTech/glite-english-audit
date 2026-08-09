@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 8
+**Version**: 9
 
 ## Goal
 
@@ -26,6 +26,8 @@ Produce the stage-0 source inventory and show the user an aggregate-only summary
 
 - The local machine. Discovery takes no arguments and needs no run: it comes
   before one exists.
+- For the period estimate, the inventory discovery just left pending, plus the
+  apps the user already ruled in or out.
 
 ## Context
 
@@ -106,24 +108,49 @@ agent sees only the derived `InstanceInventorySummary`.
    Don't: the same facts run together in a paragraph, or the words "adapter",
    "beta", and "candidate" left undefined for the reader to decode.
 
-5. Ask so the user can answer in one gesture. Ask about apps and period as
+5. Estimate every period before you offer any period. Run
+   `uv run python -m glite_english_audit.estimation.estimate`
+   (`src/glite_english_audit/estimation/estimate.py`). With no arguments it
+   estimates the apps that are on by default, which is what the first table
+   should show. When the user then drops or adds an app, run it again with their
+   words — `--exclude-source "Cursor"`, `--include-source "Wispr Flow"`,
+   `--exclude-label "Claude Code 4"` — before you ask about the period, so the
+   numbers describe the run they are about to start and not some other one.
+
+   It prints one object per preset (words, utterances, token range, minutes
+   range, confidence) plus a rendered table with its notes. Show that table, or
+   put its numbers in the options; do not summarize it as "a few hours".
+
+   Repeat what the notes say rather than dropping them. They state which counts
+   are interpolated, which model steps are not calibrated, and that quota and
+   price are unavailable. A number the tool marks low confidence is not
+   presented as measured, and a subscription percentage the tool did not compute
+   is not invented.
+
+   Do: "Last 30 days — 355,000 words, 3–13 hours. That is an estimate from
+   partly calibrated measurements, and I cannot see your usage limits."
+   Don't: "Last 30 days will take about 6 hours" — a single number the tool
+   never produced, with the uncertainty removed.
+
+6. Ask so the user can answer in one gesture. Ask about apps and period as
    separate questions; never bundle sources, period, profile, and cost into one.
 
    In Claude Code, use `AskUserQuestion`: one multi-select question for which
    apps to include, pre-selected to the default rule, and one single-select for
-   the period. Keep option labels under about a dozen characters and put the
-   numbers in each option's description.
+   the period. Keep option labels under about a dozen characters. Each period
+   option's description carries that preset's words and estimated time from
+   step 5; the apps question carries their candidate words.
 
    In Codex, ask in plain text, using the pattern in the section below. Codex
    does have a picker (`request_user_input`), but it is single-select and works
    only in Plan mode, which forbids writing files — and this run writes files
    continuously. Do not call it, and do not ask the user to switch modes.
 
-6. Say what was not found in one line naming the apps, with no diagnostic codes.
+7. Say what was not found in one line naming the apps, with no diagnostic codes.
    Report an app whose data could not be read separately and plainly: that one
    is actionable, because English exists on this machine the audit cannot see.
 
-7. Say plainly where the answers went, and never claim more than happened.
+8. Say plainly where the answers went, and never claim more than happened.
    Discovery writes only the inventory. The user's choice of apps and period is
    not saved by this skill: it lives in the conversation until
    `pipeline.start_run` records it in the run manifest, which is the moment a run
@@ -162,12 +189,16 @@ Do:
 ```text
 Which period should I analyze?
 
-1. Last 30 days (recommended) — 121,000 words, about 25 minutes
-2. Last 3 months — 480,000 words, about 1.7 hours
-3. Everything — 2.8M words, about 9 hours
+1. Last 30 days (recommended) — 121,000 words, 1–4 hours
+2. Last 3 months — 480,000 words, 4–15 hours
+3. Everything — 2.8M words, 18–75 hours
 
 Reply with a number.
 ```
+
+Keep the range the estimate gave. Collapsing "1–4 hours" into "about 2 hours"
+invents a precision the measurement does not have, and the user makes a
+several-hour decision on it.
 
 Never write Markdown checkboxes such as `- [ ]` or `- [x]`. Codex does not
 render task lists, so they appear as literal text that looks clickable and is
@@ -187,12 +218,20 @@ model forbids extra fields, so a path or workspace name cannot appear without
 failing validation. The private stage-0 artifact is `SourceInventoryArtifact` in the
 same module.
 
+The estimate command prints one JSON object with `presets` (one entry per period
+preset: `preset`, `label`, `words`, `utterances`, `tokens.p50_tokens` and
+`tokens.p90_tokens`, `minutes.low_minutes` and `minutes.high_minutes`, and
+`confidence`), `notes`, and `table` — a plain-text table ready to show. Both are
+aggregate numbers; neither carries a label, a path, or any text.
+
 ## Done When
 
 - The stage-0 artifact exists in the run store and its deterministic verifier
   reports no errors.
 - The conversation shows one row per detected instance with an opaque label,
   stability, date range, and counts labeled "candidate".
+- Every period option carried that preset's words and estimated time range, and
+  the estimate's confidence and quota caveats reached the user.
 - Undetected or unusable sources are reported with their diagnostic codes.
 - No path, project, workspace, account name, or source text appeared in the
   conversation or in tool output shown to the model.
@@ -209,7 +248,11 @@ same module.
 - Do not start with a tool call. The user's first sight of this skill is a
   sentence from you, not a spinner.
 - Do not explore the repository: no `git` commands, no searching source files, no
-  reading modules to work out what discovery does. Run the one command in step 2.
+  reading modules to work out what discovery does. Run the two commands in steps
+  2 and 5.
+- Do not estimate a period yourself, and do not offer a period the estimate
+  command did not cover. Guessing "a few hours" is the failure this skill's step
+  5 exists to remove.
 - Do not report your own validation to the user: that every row parsed, that the
   artifact has the right permissions, that a document is out of date. Those are
   your job, not their reading. Fix a defect or note it for the maintainer; do not
@@ -256,6 +299,26 @@ Claude Code     Claude Code 1    Mar 3 - Aug 1    61,900            selected
 Claude Code     Claude Code 2    Jun 9 - Jul 30    9,800            selected
 Codex           not found on this machine
 ```
+
+Then `uv run python -m glite_english_audit.estimation.estimate`, whose `table`
+field is shown before the period question:
+
+```text
+Period          Words  Time        Expected use
+Last 7 days        97  0–2 min     502K–867K tokens, low confidence
+Last 30 days   13,442  0.9–3.5 h   21.5M–46.7M tokens, low confidence
+Last 3 months  44,251  2.8–11.5 h  70.4M–152.9M tokens, low confidence
+Last year      71,700  4.6–18.6 h  113.7M–247.2M tokens, low confidence
+Everything     71,700  4.6–18.6 h  113.7M–247.2M tokens, low confidence
+Custom dates                       Calculated after dates are entered
+```
+
+Both projects went quiet a week ago, so the seven-day row is nearly empty and
+still costs half a million tokens: the per-batch prompt overhead is paid even
+for three messages. Each preset then becomes one option with its words and time
+in the description, and the notes printed under the table are repeated — the
+counts are interpolated from each source's date range, two model steps are not
+yet calibrated, and quota and price are unavailable.
 
 Verification result: the deterministic inventory verifier validates every summary
 row against `InstanceInventorySummary`, confirms adapter IDs are registered public

@@ -331,8 +331,8 @@ def build_notes(
 ) -> tuple[str, ...]:
     """The caveats that must reach the user with the numbers."""
     notes = [
-        "Word counts are candidate messages before stage 3 drops text you did not write, "
-        "interpolated from each source's date range. Only Everything is exact.",
+        "Words and messages are candidates, counted before stage 3 drops text you did not "
+        "write, and interpolated from each source's date range. Only Everything is exact.",
     ]
     if undated_instances:
         notes.append(
@@ -342,6 +342,10 @@ def build_notes(
     notes.append(
         "Most estimated tokens are cached input re-read on each turn, not fresh input, "
         "so the totals are large and are not billed at the fresh-input rate."
+    )
+    notes.append(
+        "Covers the three measured model steps. Stage 3, which decides which text you "
+        "wrote, has no calibrated cell yet, so its cost is missing from these totals."
     )
     uncalibrated = [entry.step for entry in steps.entries() if entry.is_uncalibrated]
     low = [

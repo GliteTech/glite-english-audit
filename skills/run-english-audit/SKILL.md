@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 5
+**Version**: 6
 
 ## Goal
 
@@ -125,12 +125,16 @@ runtime; naming both is confusing and wrong.
       inaccessible, unsupported-schema, cleaned-only, and unknown-provenance sources
       are not selected automatically.
    2. Period: offer the presets Last 7 days, Last 30 days, Last 3 months, Last year,
-      Everything, and Custom dates. Before asking, compute an estimate for every
-      preset with the estimation module (`glite_english_audit.estimation`; profile
-      format in `specifications/token_estimation_profile.md`) and show the table:
-      candidate words, estimated time range, and expected quota use or price range.
-      Warn when a preset is unlikely to fit the remaining allowance. Say when quota
-      or price data is unavailable. These are calibrated estimates, not guarantees.
+      Everything, and Custom dates. Before asking, run
+      `uv run python -m glite_english_audit.estimation.estimate`
+      (`src/glite_english_audit/estimation/estimate.py`; profile format in
+      `specifications/token_estimation_profile.md`), passing the apps the user just
+      chose with the same `--include-source`, `--exclude-source`, and
+      `--exclude-label` arguments the run will use. Show its `table` and repeat its
+      `notes`: which counts are interpolated, which steps are not calibrated, and
+      that quota and price are unavailable. Warn when a preset is unlikely to fit the
+      remaining allowance. These are calibrated estimates, not guarantees, and a
+      range the command marks low confidence stays a range when you repeat it.
    3. Processing profile: offer Recommended (lowest-cost models inside the measured
       top-quality band, with strong independent verification) and Maximum assurance
       (highest measured eligible models regardless of cost). Both may resolve to the
@@ -165,11 +169,21 @@ runtime; naming both is confusing and wrong.
 7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
    Ask this on every audit. A confirmation stored by a previous run does not count.
-8. Preflight. Show: selected sources and period; estimated messages and English
+8. Preflight. Take the numbers from the same command, re-run with the final
+   selection: `uv run python -m glite_english_audit.estimation.estimate` with the
+   chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
+   Read the row whose `preset` is the chosen period and quote its `words`,
+   `utterances`, `tokens.p50_tokens`, `tokens.p90_tokens`, and `minutes` range
+   unchanged, with its `confidence`. Preflight numbers that disagree with the
+   numbers the period question showed mean one of the two was invented.
+
+   Show: selected sources and period; estimated messages and English
    words; processing profile and planned model roles; expected token range with a
    conservative upper bound; expected API cost range when API billing is detected;
    current subscription-limit percentages and reset times when available; estimated
-   duration; and whether paid overage might be used. Fix the autonomous policies now:
+   duration; and whether paid overage might be used. State plainly when the command
+   reports quota and price unavailable rather than leaving those lines blank. Fix
+   the autonomous policies now:
    - API billing: the user confirms a planned-spend ceiling. Before every new batch,
      compare the conservative projected final cost against the ceiling; checkpoint
      instead of starting a batch that would exceed it. A running batch may cause the
@@ -313,11 +327,19 @@ Intermediate decisions: discovery returns two instances, "Claude Code 1" (stable
 selected by default. The user keeps both, sees the period table:
 
 ```text
-Period          Words    Time       Expected use
-Last 7 days     16,900   7-11 min   5-8% of your remaining 5-hour limit
-Last 30 days    81,800   31-44 min  26-37% of your remaining 5-hour limit
-Everything     412,000   3.1-4.4 h  More than the currently available limit
+Period          Words  Time        Expected use
+Last 7 days     4,333  16–65 min   6.8M–14.7M tokens, low confidence
+Last 30 days   18,571  1.1–4.7 h   28.5M–61.9M tokens, low confidence
+Last 3 months  51,268  3.2–12.8 h  78.5M–170.6M tokens, low confidence
+Last year      81,800  5–20.5 h    125M–271.8M tokens, low confidence
+Everything     81,800  5–20.5 h    125M–271.8M tokens, low confidence
+Custom dates                       Calculated after dates are entered
 ```
+
+The notes under it are repeated in the conversation: the counts are interpolated
+from each source's date range, two model steps have fewer than ten measured
+batches, and quota and price are unavailable, so no percentage of a subscription
+limit is shown.
 
 The user picks Last 30 days and the Recommended profile, confirms provider transfer
 ("Send the selected text to your current AI provider through Claude Code?"), and
@@ -329,11 +351,11 @@ Exact output (one progress update during stage 4):
 English audit — 38% complete
 
 Step 5 of 9: Finding English mistakes
-Claude Code: 412 of 1,038 utterances analyzed — 40%
+Claude Code: 205 of 512 utterances analyzed — 40%
 This step: 40% · Overall: 38%
 
-Collected so far: 1,038 eligible utterances, 24,610 English words
-Estimated remaining: 61K-88K tokens · 11-16 minutes
+Collected so far: 512 eligible utterances, 14,900 English words
+Estimated remaining: 14M-31M tokens · 42-115 minutes
 ```
 
 Verification result: every stage passes its deterministic verifier; stages 4-7 also

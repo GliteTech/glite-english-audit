@@ -93,6 +93,7 @@ Generated from the registry; a sync test fails when this table and the registry 
 | `SKILL_VERSION_INVALID` | error | The skill body lacks a plain-integer **Version** marker. |
 | `SKILL_WRAPPER_DRIFT` | error | A generated wrapper no longer matches its canonical skill. |
 | `SKILL_WRAPPER_MISSING` | error | A generated .claude/skills or .codex/skills wrapper is missing. |
+| `SOURCE_DISCOVERY_FAILED` | warning | One adapter failed during discovery; the remaining sources continued. |
 | `SOURCE_INACCESSIBLE` | warning | Source data exists but cannot be read with current permissions. |
 | `SOURCE_LOCKED` | warning | A source database is locked and no consistent snapshot could be taken. |
 | `SOURCE_NOT_FOUND` | info | The source application or its data directory was not found. |

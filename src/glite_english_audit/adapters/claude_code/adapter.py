@@ -41,6 +41,7 @@ from glite_english_audit.discovery.base import (
     SnapshotCapture,
     SourceAdapter,
 )
+from glite_english_audit.discovery.parallel import map_in_processes, worker_count
 from glite_english_audit.normalization.tokenizer import count_words
 
 ADAPTER_ID = "claude_code"
@@ -175,6 +176,118 @@ class _ProvisionalInstance:
     bytes_count: int
 
 
+@dataclass(frozen=True)
+class _InstanceScan:
+    """One project directory's aggregates plus the paths the scan opened.
+
+    Deliberately text-free: this value is what crosses the worker-process
+    boundary, so counts, timestamps, and file paths are all that can ever
+    leave a worker. The path list keeps the adapter's opened-path audit
+    complete when scanning runs out of process.
+    """
+
+    instance: _ProvisionalInstance
+    opened_paths: tuple[str, ...]
+
+
+def _list_transcript_files(directory: Path) -> list[Path]:
+    """Depth-1 session transcripts only; everything else stays unread."""
+    return sorted(
+        entry
+        for entry in directory.iterdir()
+        if entry.is_file()
+        and not entry.is_symlink()
+        and entry.suffix == ".jsonl"
+        and entry.name not in DENY_FILE_NAMES
+    )
+
+
+def _assert_transcript_allowed(path: Path) -> None:
+    if (
+        path.suffix != ".jsonl"
+        or path.name in DENY_FILE_NAMES
+        or any(part in DENY_DIR_NAMES for part in path.parts)
+    ):
+        msg = "refusing to open a path outside the transcript allowlist"
+        raise PermissionError(msg)
+
+
+def _unreadable_instance(directory: Path, path_hash: str) -> _ProvisionalInstance:
+    return _ProvisionalInstance(
+        root=directory,
+        path_hash=path_hash,
+        accessibility=Accessibility.INACCESSIBLE,
+        diagnostic_code="SOURCE_INACCESSIBLE",
+        schema_fingerprint="unknown",
+        app_version=None,
+        estimated_records=0,
+        earliest=None,
+        latest=None,
+        messages=0,
+        words=0,
+        bytes_count=0,
+    )
+
+
+def _scan_project_directory(directory_path: str) -> _InstanceScan:
+    """Scan one project directory down to counts. Runs in a worker process."""
+    directory = Path(directory_path)
+    path_hash = _hash_text(_canonical_path(directory))
+    opened: list[str] = []
+    try:
+        scans: list[FileScan] = []
+        for path in _list_transcript_files(directory):
+            _assert_transcript_allowed(path)
+            opened.append(str(path))
+            scans.append(scan_transcript(path))
+    except OSError:
+        return _InstanceScan(
+            instance=_unreadable_instance(directory, path_hash),
+            opened_paths=tuple(opened),
+        )
+    app_version = next(
+        (scan.app_version for scan in reversed(scans) if scan.app_version is not None),
+        None,
+    )
+    if scans and all(scan.unsupported for scan in scans):
+        return _InstanceScan(
+            instance=_ProvisionalInstance(
+                root=directory,
+                path_hash=path_hash,
+                accessibility=Accessibility.UNSUPPORTED_SCHEMA,
+                diagnostic_code="SOURCE_UNSUPPORTED_SCHEMA",
+                schema_fingerprint="unsupported",
+                app_version=app_version,
+                estimated_records=0,
+                earliest=None,
+                latest=None,
+                messages=0,
+                words=0,
+                bytes_count=0,
+            ),
+            opened_paths=tuple(opened),
+        )
+    deduped = _dedup_candidates(scans)
+    stamps = [candidate.timestamp for _, candidate in deduped if candidate.timestamp is not None]
+    return _InstanceScan(
+        instance=_ProvisionalInstance(
+            root=directory,
+            path_hash=path_hash,
+            accessibility=Accessibility.FOUND,
+            diagnostic_code=None,
+            schema_fingerprint=_fingerprint(scans),
+            app_version=app_version,
+            estimated_records=sum(scan.parsed_records for scan in scans),
+            earliest=min(stamps) if stamps else None,
+            latest=max(stamps) if stamps else None,
+            messages=len(deduped),
+            words=sum(count_words(candidate.text) for _, candidate in deduped),
+            bytes_count=sum(len(candidate.text.encode("utf-8")) for _, candidate in deduped),
+        ),
+        opened_paths=tuple(opened),
+    )
+
+
 class ClaudeCodeAdapter:
     """SourceAdapter implementation for the Claude Code CLI transcript store."""
 
@@ -216,7 +329,18 @@ class ClaudeCodeAdapter:
         if not project_dirs:
             return self._degenerate_outcome(context, root)
 
-        provisional = [self._scan_instance(directory) for directory in project_dirs]
+        # Project directories are independent, so they scan in parallel. The
+        # results stay in directory order, which is what _label_and_build then
+        # sorts: no completion order can renumber an opaque label.
+        scans = map_in_processes(
+            _scan_project_directory,
+            [str(directory) for directory in project_dirs],
+            workers=worker_count(item_count=len(project_dirs), environ=context.environ),
+        )
+        provisional: list[_ProvisionalInstance] = []
+        for scan in scans:
+            self._opened_paths.extend(Path(opened) for opened in scan.opened_paths)
+            provisional.append(scan.instance)
         return self._label_and_build(context, provisional)
 
     def _storage_root(self, context: DiscoveryContext) -> Path:
@@ -268,64 +392,6 @@ class ClaudeCodeAdapter:
         )
         return self._label_and_build(context, [provisional])
 
-    def _scan_instance(self, directory: Path) -> _ProvisionalInstance:
-        path_hash = _hash_text(_canonical_path(directory))
-        try:
-            files = self._transcript_files(directory)
-            scans = [self._scan_file(path) for path in files]
-        except OSError:
-            return _ProvisionalInstance(
-                root=directory,
-                path_hash=path_hash,
-                accessibility=Accessibility.INACCESSIBLE,
-                diagnostic_code="SOURCE_INACCESSIBLE",
-                schema_fingerprint="unknown",
-                app_version=None,
-                estimated_records=0,
-                earliest=None,
-                latest=None,
-                messages=0,
-                words=0,
-                bytes_count=0,
-            )
-        app_version = next(
-            (scan.app_version for scan in reversed(scans) if scan.app_version is not None),
-            None,
-        )
-        if scans and all(scan.unsupported for scan in scans):
-            return _ProvisionalInstance(
-                root=directory,
-                path_hash=path_hash,
-                accessibility=Accessibility.UNSUPPORTED_SCHEMA,
-                diagnostic_code="SOURCE_UNSUPPORTED_SCHEMA",
-                schema_fingerprint="unsupported",
-                app_version=app_version,
-                estimated_records=0,
-                earliest=None,
-                latest=None,
-                messages=0,
-                words=0,
-                bytes_count=0,
-            )
-        deduped = _dedup_candidates(scans)
-        stamps = [
-            candidate.timestamp for _, candidate in deduped if candidate.timestamp is not None
-        ]
-        return _ProvisionalInstance(
-            root=directory,
-            path_hash=path_hash,
-            accessibility=Accessibility.FOUND,
-            diagnostic_code=None,
-            schema_fingerprint=_fingerprint(scans),
-            app_version=app_version,
-            estimated_records=sum(scan.parsed_records for scan in scans),
-            earliest=min(stamps) if stamps else None,
-            latest=max(stamps) if stamps else None,
-            messages=len(deduped),
-            words=sum(count_words(candidate.text) for _, candidate in deduped),
-            bytes_count=sum(len(candidate.text.encode("utf-8")) for _, candidate in deduped),
-        )
-
     def _label_and_build(
         self, context: DiscoveryContext, provisional: list[_ProvisionalInstance]
     ) -> DiscoveryOutcome:
@@ -364,26 +430,13 @@ class ClaudeCodeAdapter:
 
     def _transcript_files(self, directory: Path) -> list[Path]:
         """Depth-1 session transcripts only; everything else stays unread."""
-        return sorted(
-            entry
-            for entry in directory.iterdir()
-            if entry.is_file()
-            and not entry.is_symlink()
-            and entry.suffix == ".jsonl"
-            and entry.name not in DENY_FILE_NAMES
-        )
+        return _list_transcript_files(directory)
 
     def _assert_readable_transcript(self, path: Path) -> None:
-        if (
-            path.suffix != ".jsonl"
-            or path.name in DENY_FILE_NAMES
-            or any(part in DENY_DIR_NAMES for part in path.parts)
-        ):
-            msg = "refusing to open a path outside the transcript allowlist"
-            raise PermissionError(msg)
+        _assert_transcript_allowed(path)
 
     def _scan_file(self, path: Path) -> FileScan:
-        self._assert_readable_transcript(path)
+        _assert_transcript_allowed(path)
         self._opened_paths.append(path)
         return scan_transcript(path)
 
