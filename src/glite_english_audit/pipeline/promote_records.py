@@ -20,7 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
@@ -31,6 +31,7 @@ from glite_english_audit.artifacts.io import (
 )
 from glite_english_audit.artifacts.models import SafeRecordCandidate
 from glite_english_audit.paths import stage_dir
+from glite_english_audit.pipeline.record_stage import advance_to
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
 from glite_english_audit.verification.reports import VerificationReport
 
@@ -127,6 +128,18 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
             jsonl_sha256=digest,
         ),
     )
+    # Stages 5 and 6 produced the input this stage just re-read and approved,
+    # so both are durable; stage 7 is promoted on its own scanner report. All
+    # three are semantic stages, and the confidentiality skill that runs before
+    # this command is their second reader (specification, 6.6).
+    for stage in (StageId.PRIVATE_MISTAKES, StageId.SAFE_RECORDS, StageId.PRIVACY_APPROVED):
+        advance_to(
+            run_id,
+            stage,
+            StageStatus.PROMOTED,
+            producer_version=CLIENT_VERSION,
+            runs_root=runs_root,
+        )
     return {
         "candidates": len(candidates),
         "approved": len(approved),

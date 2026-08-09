@@ -12,8 +12,26 @@ from pathlib import Path
 
 import pytest
 
-from glite_english_audit.artifacts.enums import Modality, StageId, TextStatus
-from glite_english_audit.artifacts.io import read_jsonl_models, write_jsonl_models
+from glite_english_audit.artifacts.enums import (
+    AgentRuntime,
+    Modality,
+    OsEnvironment,
+    RunStatus,
+    StageId,
+    TextStatus,
+)
+from glite_english_audit.artifacts.io import (
+    ensure_private_dir,
+    read_jsonl_models,
+    write_jsonl_models,
+    write_model,
+)
+from glite_english_audit.artifacts.manifest import (
+    CompatibilityFingerprint,
+    ConsentState,
+    RunManifest,
+    empty_stage_map,
+)
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import stage_dir
@@ -28,6 +46,7 @@ from glite_english_audit.pipeline.authorship_batches import (
 from glite_english_audit.verification.verify_corpus import verify_corpus
 
 _RUN = "run-" + "2" * 32
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
 
 _PLAIN = "I am agree that the second variant reads better."
 _MIXED = "fix those issues\n$ npm run lint\napp.ts:14:3 error 'cfg' is assigned but never used"
@@ -55,7 +74,41 @@ def _utterance(index: int, text: str) -> NormalizedUtterance:
     )
 
 
+def _seed_manifest(runs_root: Path) -> None:
+    """A run this stage can record its progress in.
+
+    apply_authorship promotes stage 3 when the corpus is durable, and there is
+    nowhere to record that without a manifest. Seeding one here keeps these
+    tests exercising the real driver rather than a variant that skips its own
+    bookkeeping.
+    """
+    manifest = RunManifest(
+        manifest_schema_version=1,
+        run_id=_RUN,
+        created_at=_NOW,
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment=OsEnvironment.MACOS,
+        status=RunStatus.AWAITING_PREFLIGHT,
+        consent=ConsentState(consent_policy_version="1", local_scan_confirmed_at=_NOW),
+        selection=None,
+        stages=empty_stage_map(),
+        fingerprint=CompatibilityFingerprint(
+            adapter_versions={"claude_code": "1.0.0"},
+            artifact_schema_version=1,
+            tokenizer_version="1.0.0",
+            skill_versions={"filter-authored-english": 1},
+            prompt_versions={"judge-authorship": 1},
+            model_ids={"judge-authorship": "example-model-1"},
+            consent_policy_version="1",
+        ),
+        last_checkpoint_at=None,
+    )
+    ensure_private_dir(runs_root / _RUN)
+    write_model(runs_root / _RUN / "run-manifest.json", manifest)
+
+
 def _seed(runs_root: Path) -> None:
+    _seed_manifest(runs_root)
     candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=runs_root)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(

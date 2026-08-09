@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import Modality, StageId
+from glite_english_audit.artifacts.enums import Modality, StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import (
@@ -41,6 +41,7 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import stage_dir
+from glite_english_audit.pipeline.record_stage import advance_to, enter_review
 
 CORPUS_NAME = "corpus.jsonl"
 CORPUS_MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -141,6 +142,17 @@ def build_review(
     )
     target = ensure_private_dir(stage_dir(run_id, StageId.REVIEWED_SUBMISSION, root=runs_root))
     write_model(target / REVIEWED_NAME, artifact)
+    # The run is now waiting on a person rather than on a stage. Recording that
+    # is what lets a resumed run reopen the review instead of rebuilding it.
+    advance_to(
+        run_id,
+        StageId.REVIEWED_SUBMISSION,
+        StageStatus.PROMOTED,
+        artifact_id=artifact.envelope.artifact_id,
+        producer_version=CLIENT_VERSION,
+        runs_root=runs_root,
+    )
+    enter_review(run_id, runs_root=runs_root)
     return artifact
 
 

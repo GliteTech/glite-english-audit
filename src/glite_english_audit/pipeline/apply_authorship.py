@@ -36,7 +36,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
@@ -51,6 +51,7 @@ from glite_english_audit.pipeline.authorship_batches import (
     decisions_dir,
     read_candidate_utterances,
 )
+from glite_english_audit.pipeline.record_stage import advance_to
 
 CORPUS_NAME = "corpus.jsonl"
 MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -341,6 +342,19 @@ def apply_authorship(
     )
     write_model(out_dir / MANIFEST_NAME, manifest)
     _write_repair_list(run_id, diagnostics, runs_root=runs_root, decisions_root=decisions_root)
+    # The corpus is durable, so the manifest may point at it. Stage 3 is
+    # deterministic once the model's decisions are in hand: the span verifier
+    # above is the check, and a decision that fails it is quarantined rather
+    # than corrected, so there is no second opinion left to wait for.
+    advance_to(
+        run_id,
+        StageId.ELIGIBLE_ENGLISH,
+        StageStatus.PROMOTED,
+        artifact_id=manifest.envelope.artifact_id,
+        artifact_hash=manifest.jsonl_sha256,
+        producer_version=CLIENT_VERSION,
+        runs_root=runs_root,
+    )
 
     return AuthorshipApplication(
         manifest=manifest,

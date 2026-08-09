@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
@@ -40,6 +40,7 @@ from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.discovery.registry import create_adapter
 from glite_english_audit.discovery.snapshot_safety import cleanup_snapshot, ensure_safe_snapshot_dir
 from glite_english_audit.paths import run_dir, stage_dir
+from glite_english_audit.pipeline.record_stage import advance_to
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
@@ -182,6 +183,21 @@ def collect(
             jsonl_sha256=sha256_hex(candidates_path.read_bytes()),
         ),
     )
+    # Both artifacts are on disk, so the manifest may now point at them
+    # (specification, 9.3). Stage 0 is promoted here too: reading its inventory
+    # successfully is the only proof this run has that discovery finished.
+    for stage in (
+        StageId.SOURCE_INVENTORY,
+        StageId.SOURCE_SNAPSHOTS,
+        StageId.CANDIDATE_UTTERANCES,
+    ):
+        advance_to(
+            run_id,
+            stage,
+            StageStatus.PROMOTED,
+            producer_version=CLIENT_VERSION,
+            runs_root=runs_root,
+        )
     return {
         "candidate_utterances": count,
         "per_source": per_source,
