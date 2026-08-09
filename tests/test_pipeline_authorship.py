@@ -447,7 +447,7 @@ def test_prepare_names_every_step_b_session_and_where_its_answer_goes(tmp_path: 
 def test_the_projection_holds_the_text_to_judge_and_nothing_that_names_the_learner(
     tmp_path: Path,
 ) -> None:
-    """Three fields, because the other ten only identify whose words these are.
+    """Four fields, because the other nine only identify whose words these are.
 
     A step-b line carries a session hash, a path hash and an utterance id built
     from the session hash. None of the three changes an authorship judgment and
@@ -461,11 +461,13 @@ def test_the_projection_holds_the_text_to_judge_and_nothing_that_names_the_learn
     first = next(e for e in prepared.sessions if e.file_name == "session-0001.jsonl")
     raw = Path(first.input_path).read_text(encoding="utf-8")
 
-    # Modality stays: the dictation rules turn on it. The index replaces the
-    # utterance id, and it is local to the file, so it names nothing outside it.
+    # Modality stays because the dictation rules turn on it, and the adapter's
+    # paste flags because they are evidence about authorship the text does not
+    # carry. The index replaces the utterance id, and it is local to the file,
+    # so it names nothing outside it.
     assert [json.loads(line) for line in raw.splitlines()] == [
-        {"i": 1, "modality": "written", "text": _PLAIN},
-        {"i": 2, "modality": "written", "text": _MIXED},
+        {"i": 1, "modality": "written", "text": _PLAIN, "content_flags": []},
+        {"i": 2, "modality": "written", "text": _MIXED, "content_flags": []},
     ]
     for identifier in (_SESSION_HASHES["session-0001.jsonl"], "c" * 64, "u-001"):
         assert identifier not in raw

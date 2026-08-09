@@ -210,7 +210,7 @@ def test_the_projection_carries_nothing_that_identifies_anyone() -> None:
     """
     source = [_utterance(1, "some text")]
     projected = project_utterances(source)
-    assert set(type(projected[0]).model_fields) == {"i", "modality", "text"}
+    assert set(type(projected[0]).model_fields) == {"i", "modality", "text", "content_flags"}
     serialized = projected[0].model_dump_json()
     assert source[0].session_hash not in serialized
     assert source[0].source_path_hash not in serialized
@@ -234,6 +234,9 @@ def test_the_step_e_projection_hides_the_addresses_it_must_not_judge() -> None:
 def test_the_projection_numbers_from_one_in_file_order() -> None:
     source = [_utterance(n, f"line {n}") for n in range(1, 4)]
     assert [item.i for item in project_utterances(source)] == [1, 2, 3]
+    # The adapter's own paste heuristics are evidence about authorship that the
+    # text alone does not carry, so they travel; they name no one.
+    assert project_utterances(source)[0].content_flags == ["possible_paste"]
     assert [item.text for item in project_utterances(source)] == ["line 1", "line 2", "line 3"]
 
 

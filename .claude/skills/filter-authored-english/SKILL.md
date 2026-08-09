@@ -1,6 +1,6 @@
 ---
 name: "filter-authored-english"
-description: "Judge, utterance by utterance, which spans of one session file the learner actually wrote, and write the same session file back under the same name with every item kept in order and its text replaced by those verbatim spans. Use during step c of an audit run, one agent per session file, after deduplication and before mistakes are found."
+description: "Judge, utterance by utterance, which spans of one session the learner actually wrote, and answer each utterance by its index with those spans copied verbatim; the driver rebuilds the session file from the answers. Use during step c of an audit run, one agent per session file, after deduplication and before mistakes are found."
 ---
 
 # filter-authored-english wrapper

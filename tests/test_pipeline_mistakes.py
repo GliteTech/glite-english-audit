@@ -540,10 +540,14 @@ def test_the_step_d_skill_names_the_models_its_files_really_hold() -> None:
     skill = (repo_root() / "skills" / "find-english-mistakes" / "SKILL.md").read_text(
         encoding="utf-8"
     )
-    assert "`NormalizedUtterance` in `src/glite_english_audit/artifacts/models.py`" in skill
-    assert "`MistakeRecord` in `src/glite_english_audit/artifacts/models.py`" in skill
-    # The pooled pipeline's own names. A skill drifting back to either would
-    # send the agent to validate against a model no file here contains.
+    assert "`UtteranceForJudgment` in `src/glite_english_audit/pipeline/agent_io.py`" in skill
+    assert "`MistakeDraft` in `src/glite_english_audit/pipeline/agent_io.py`" in skill
+    # The names of files the agent never opens. MistakeRecord is what the driver
+    # expands a draft into and NormalizedUtterance is what step c wrote; sending
+    # an agent to validate against either describes a file it will never hold.
+    assert "`MistakeRecord` in `src/glite_english_audit/artifacts/models.py`" not in skill
+    assert "`NormalizedUtterance` in `src/glite_english_audit/artifacts/models.py`" not in skill
+    # The pooled pipeline's own names, from two shapes ago.
     assert "AnalysisUtterance" not in skill
     assert "PrivateMistake" not in skill
 

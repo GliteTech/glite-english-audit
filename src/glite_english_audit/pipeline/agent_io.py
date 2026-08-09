@@ -62,10 +62,20 @@ drop list exists to make impossible.
 class UtteranceForJudgment(BaseModel):
     """One utterance as steps c and d are given it.
 
-    Three fields. ``modality`` is here because the dictation rules turn on it —
-    a finding built on a single unstressed function word is the recognizer's
-    error, not the speaker's. Nothing else in the stored utterance changes a
-    judgment, and everything else in it identifies the person.
+    Everything here changes a judgment; nothing here names anyone.
+
+    ``modality`` is present because the dictation rules turn on it — a finding
+    built on a single unstressed function word is the recognizer's error, not
+    the speaker's. ``content_flags`` because the adapter's own paste heuristics
+    are evidence about authorship that the text alone does not carry: dropping
+    them left the step-c skill weighing ``possible_paste`` against a field it
+    could no longer see.
+
+    Absent, deliberately: the utterance ID, the session hash, the source path
+    hash, the adapter and its version, the timestamp, the text status, the
+    authorship confidence and basis, and the destination app. None of them
+    changes what the learner wrote, and several of them identify the person who
+    wrote it.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -73,6 +83,7 @@ class UtteranceForJudgment(BaseModel):
     i: int = Field(ge=1)
     modality: Modality
     text: str
+    content_flags: list[str] = Field(default_factory=list)
 
 
 class RecordForConfidentiality(BaseModel):
@@ -173,7 +184,12 @@ def _stem(session_file: str) -> str:
 def project_utterances(utterances: Iterable[NormalizedUtterance]) -> list[UtteranceForJudgment]:
     """What steps c and d hand an agent, in the order the session holds."""
     return [
-        UtteranceForJudgment(i=index, modality=utterance.modality, text=utterance.text)
+        UtteranceForJudgment(
+            i=index,
+            modality=utterance.modality,
+            text=utterance.text,
+            content_flags=list(utterance.content_flags),
+        )
         for index, utterance in enumerate(utterances, 1)
     ]
 
