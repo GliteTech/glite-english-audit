@@ -9,10 +9,30 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.english import plural, singularize
 
-STEP_TOTAL = 8
-"""User-visible steps in one audit (specification, 9.1)."""
+STEP_TITLES: dict[StepId, str] = {
+    StepId.A_COLLECTED: "Collecting your messages",
+    StepId.B_DEDUPLICATED: "Removing what you said twice",
+    StepId.C_AUTHORED: "Keeping only what you wrote",
+    StepId.D_MISTAKES: "Finding English mistakes",
+    StepId.E_VERIFIED: "Checking nothing private got through",
+}
+"""The step titles the user sees, written once so they cannot drift.
+
+A skill that retypes these produces a different name for the same step in the
+same run, and the person reading the update has no way to tell whether they are
+watching one step or two.
+"""
+
+STEP_TOTAL = len(STEP_TITLES)
+"""User-visible steps in one audit: the five the pipeline actually has.
+
+Discovery happens during setup, before the run exists, and the review is not a
+step — it reads step e and writes into ``submission/``. Counting either of them
+here would report a run as less finished than it is.
+"""
 
 MIN_EMIT_INTERVAL_SECONDS = 10.0
 MAX_EMIT_INTERVAL_SECONDS = 60.0
@@ -71,9 +91,9 @@ class ProgressState(BaseModel):
     est_remaining_tokens: EstimateRange
     est_remaining_minutes: EstimateRange
     work_unit: str = "sessions"
-    """Plural noun for what the per-source counts count. Early steps walk
-    sessions; from stage 3 on the unit is messages, and calling those sessions
-    tells the user their history is twenty times smaller than it is."""
+    """Plural noun for what the per-source counts count. Step a walks sessions;
+    from step c on the unit is messages, and calling those sessions tells the
+    user their history is twenty times smaller than it is."""
     waiting_note: str | None = None
     """Set when the previous update was delayed by an uninterruptible
     provider call; rendered as a trailing note (specification, 9.1)."""
