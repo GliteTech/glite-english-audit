@@ -259,7 +259,12 @@ runtime; naming both is confusing and wrong.
      --run-id <run-id>`, then the `analyze-english-text` skill on each batch file,
      verified by the independent `verify-english-findings` skill.
    - Stage 5: the `create-mistakes-jsonl` skill plus semantic verification, writing
-     `mistakes.jsonl` into the stage-5 directory.
+     `mistakes.jsonl` into the stage-5 directory. Then
+     `uv run python -m glite_english_audit.verification.verify_mistakes
+     --run-id <run-id>`, which checks every evidence span against the corpus and
+     refuses records that count one mistake twice. It exits non-zero when
+     anything failed; repair the named records rather than promoting the stage,
+     because the total it protects is the numerator of the rate you report.
    - Stage 6: the `create-private-safe-mistakes` skill, writing `candidates.jsonl`
      into the stage-6 directory.
    - Stage 7: the independent `verify-mistake-confidentiality` skill, then
