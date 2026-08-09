@@ -238,6 +238,12 @@ def _judged_by(run_id: str, skill_name: str, *, runs_root: Path | None = None) -
 
     There is deliberately no fall back to the client version. A missing
     attestation is recoverable; a wrong one is believed.
+
+    Returned as the bare number, not ``name@version``. This value is copied into
+    the submission package, whose gate refuses anything that is not a plain
+    version — because a free-form version string is exactly the shape that
+    carries a path, a session ID, or source text off the machine. Which skill it
+    belongs to is fixed by the field: creator is step d, verifier is step e.
     """
     manifest = load_manifest(run_id, root=runs_root)
     version = manifest.fingerprint.skill_versions.get(skill_name)
@@ -249,7 +255,7 @@ def _judged_by(run_id: str, skill_name: str, *, runs_root: Path | None = None) -
             "disk, so the attestation cannot say which check cleared these records"
         )
         raise ValueError(msg)
-    return f"{skill_name}@{version}"
+    return str(version)
 
 
 def write_step_report(

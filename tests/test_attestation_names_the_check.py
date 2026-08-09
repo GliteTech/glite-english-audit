@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from glite_english_audit import CLIENT_VERSION
+from glite_english_audit.artifacts.submission import VERSION_PATTERN
 from glite_english_audit.paths import repo_root
 from glite_english_audit.pipeline.mistakes import SKILL_NAME as STEP_D_SKILL
 from glite_english_audit.pipeline.verify import SKILL_NAME as STEP_E_SKILL
@@ -51,6 +52,20 @@ def test_the_recorded_versions_are_not_the_client_version() -> None:
     versions = skill_versions(repo_root())
     assert all(isinstance(value, int) for value in versions.values())
     assert CLIENT_VERSION not in {str(value) for value in versions.values()}
+
+
+def test_an_attested_version_survives_the_submission_gate() -> None:
+    """The value is copied into the package, whose gate refuses free-form strings.
+
+    That refusal is a privacy rule, not a formatting one: an unconstrained
+    version string is exactly the shape that carries a path, a session ID, or
+    source text off the machine. So the attestation is the bare number, and
+    which skill it belongs to is fixed by the field rather than written into the
+    value.
+    """
+    for value in skill_versions(repo_root()).values():
+        assert VERSION_PATTERN.fullmatch(str(value)), value
+    assert not VERSION_PATTERN.fullmatch("find-english-mistakes@1")
 
 
 def test_a_skill_version_is_read_from_the_file_not_the_wrapper(tmp_path: Path) -> None:
