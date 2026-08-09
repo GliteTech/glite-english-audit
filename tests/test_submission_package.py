@@ -11,7 +11,9 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
 )
-from glite_english_audit.artifacts.submission import verify_payload_hash
+from glite_english_audit.artifacts.submission import SubmissionPackage, verify_payload_hash
+from glite_english_audit.diagnostics.codes import Diagnostic
+from glite_english_audit.submission import package as package_module
 from glite_english_audit.submission.package import MaterializationError, materialize_package
 
 _RUN_ID = "run-" + "0" * 32
@@ -240,3 +242,38 @@ def test_record_with_email_fails_the_gate() -> None:
     assert "PRIVACY_EMAIL_PRESENT" in codes
     # The leaked address must not be echoed into the error diagnostics.
     assert all("fake.person@example.com" not in d.message for d in excinfo.value.diagnostics)
+
+
+def test_the_materializer_runs_the_package_against_review_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second gate is wired in, not merely unit-tested next door.
+
+    ``verify_package_against_review`` is what catches a package whose records
+    or counts stopped matching the artifact the user actually reviewed. Testing
+    it directly proves the function works; only this proves the materializer
+    asks it.
+    """
+    called: list[str] = []
+
+    def _tripwire(package: SubmissionPackage, reviewed: ReviewedSubmissionArtifact) -> list[object]:
+        called.append(package.submission_id)
+        return [
+            Diagnostic.from_code(
+                "SUBMISSION_COUNT_MISMATCH",
+                "tripwire: the materializer reached the package-against-review gate",
+            )
+        ]
+
+    monkeypatch.setattr(package_module, "verify_package_against_review", _tripwire)
+    reviewed = _reviewed([(_safe_record(), True)])
+
+    with pytest.raises(MaterializationError) as excinfo:
+        materialize_package(
+            reviewed,
+            submission_id=_SUBMISSION_ID,
+            recovery_secret=_RECOVERY_SECRET,
+        )
+
+    assert called == [_SUBMISSION_ID]
+    assert [d.code for d in excinfo.value.diagnostics] == ["SUBMISSION_COUNT_MISMATCH"]

@@ -6,6 +6,8 @@ adapter that broke ranks rather than on the pipeline stage that noticed.
 """
 
 import os
+import shutil
+import sqlite3
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
@@ -79,6 +81,25 @@ def test_no_instance_claims_more_maturity_than_its_adapter(adapter_id: str, tmp_
         )
 
 
+def _prepared_home(adapter_id: str, destination: Path) -> Path:
+    """A writable copy of one adapter's success fixture, ready to discover.
+
+    SQLite-backed fixtures ship as ``*.sql`` text so the committed tree stays
+    readable and diffable; the database only exists once it is replayed.
+    """
+    home = destination / "home"
+    shutil.copytree(repo_root() / "fixtures" / adapter_id / "success" / "home", home)
+    for sql_path in sorted(home.rglob("*.sql")):
+        connection = sqlite3.connect(sql_path.with_suffix(""))
+        try:
+            connection.executescript(sql_path.read_text(encoding="utf-8"))
+            connection.commit()
+        finally:
+            connection.close()
+        sql_path.unlink()
+    return home
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX modes only")
 @pytest.mark.parametrize("adapter_id", sorted(PUBLIC_SOURCE_TYPES))
 def test_snapshot_copies_are_owner_only(adapter_id: str, tmp_path: Path) -> None:
@@ -87,15 +108,15 @@ def test_snapshot_copies_are_owner_only(adapter_id: str, tmp_path: Path) -> None
     A snapshot is a second plaintext copy of the user's own data. Copying
     inherits nothing from the source's mode, and source stores are often group
     or world readable, so each adapter has to tighten what it writes.
+
+    Every branch below is an assertion rather than a skip: all nine adapters
+    ship a success fixture that discovers, and a skip here would silently stop
+    checking the adapter whose snapshot handling changed.
     """
-    home = repo_root() / "fixtures" / adapter_id / "success" / "home"
-    if not home.is_dir():
-        pytest.skip(f"{adapter_id} has no success fixture home")
     adapter = create_adapter(adapter_id)
-    outcome = adapter.discover(_context(home))
+    outcome = adapter.discover(_context(_prepared_home(adapter_id, tmp_path)))
     found = [record for record in outcome.records if record.accessibility is Accessibility.FOUND]
-    if not found:
-        pytest.skip(f"{adapter_id} finds nothing in its fixture home under this context")
+    assert found, f"{adapter_id} found nothing in its own success fixture"
     record = found[0]
     source = outcome.instance_paths[record.instance_key]
     target = tmp_path / "snap"
@@ -103,6 +124,8 @@ def test_snapshot_copies_are_owner_only(adapter_id: str, tmp_path: Path) -> None
     adapter.snapshot(record, Path(source), target)
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o700
+    files = [path for path in target.rglob("*") if path.is_file()]
+    assert files, f"{adapter_id} snapshotted no file, so the modes below prove nothing"
     wrong = {
         path.relative_to(target).as_posix(): oct(stat.S_IMODE(path.stat().st_mode))
         for path in sorted(target.rglob("*"))

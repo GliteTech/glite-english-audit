@@ -434,3 +434,26 @@ def test_shutdown_is_idempotent() -> None:
     with _running() as handle:
         handle.shutdown()
         handle.shutdown()
+
+
+def test_a_prefix_or_extension_of_the_token_is_not_the_token() -> None:
+    """The comparison covers the whole token, not a leading run of it.
+
+    A prefix test would let a local process recover the token one character at
+    a time, and the token is the only thing between it and every record on the
+    page. One fixed wrong token of the right length cannot show this.
+    """
+    with _running() as handle:
+        token = handle.token
+        base = f"http://127.0.0.1:{handle.port}"
+        for candidate in (token[:-1], token[:8], token + "a", token[1:]):
+            status, _, _ = _request(f"{base}/t/{candidate}/")
+            assert status == 404, f"route accepted {len(candidate)} of {len(token)} characters"
+            post_status, _, _ = _post(
+                handle,
+                "decisions",
+                {"mistake_id": "m-1", "included": False},
+                extra_headers={CSRF_HEADER: candidate},
+            )
+            assert post_status == 403, "CSRF check accepted a token that is not the token"
+        assert handle.state.included_count == 2

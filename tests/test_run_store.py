@@ -28,8 +28,10 @@ from glite_english_audit.state.run_store import (
     create_run,
     describe_resume,
     expire_stale_runs,
+    invalidate_from,
     list_unfinished,
     load_manifest,
+    next_incomplete_stage,
     save_manifest,
     write_checkpoint,
 )
@@ -396,3 +398,142 @@ def test_cleanup_refuses_symlinked_stages_dir(tmp_path: Path) -> None:
     with pytest.raises(RunStoreError, match="symlink"):
         cleanup_completed(root / manifest.run_id)
     assert (victim / "keep.txt").exists()
+
+
+# -- snapshots are private data too ------------------------------------------
+
+
+def _leftover_snapshot(run_directory: Path) -> Path:
+    """A snapshot an interrupted extraction left behind.
+
+    Manifest-bounded cleanup removes snapshots as soon as extraction is
+    durable, so a snapshot still on disk at retention time means extraction
+    never finished. It holds a verbatim copy of the user's application data.
+    """
+    copied = run_directory / "snapshots" / "claude_code" / "abc123def456" / "session.jsonl"
+    copied.parent.mkdir(parents=True, exist_ok=True)
+    copied.write_text('{"text": "private source language"}\n', "utf-8")
+    return copied
+
+
+def test_expiry_deletes_a_snapshot_an_interrupted_extraction_left(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    write_checkpoint(manifest, root=tmp_path, now=_NOW - timedelta(days=31))
+    copied = _leftover_snapshot(tmp_path / manifest.run_id)
+
+    assert expire_stale_runs(tmp_path, now=_NOW) == [manifest.run_id]
+
+    assert not copied.exists()
+    assert not (tmp_path / manifest.run_id / "snapshots").exists()
+
+
+def test_completed_cleanup_deletes_a_snapshot_an_interrupted_extraction_left(
+    tmp_path: Path,
+) -> None:
+    manifest = _create(tmp_path)
+    _advance(manifest, *_TO_COMPLETED)
+    save_manifest(manifest, root=tmp_path)
+    run_directory = tmp_path / manifest.run_id
+    copied = _leftover_snapshot(run_directory)
+
+    cleanup_completed(run_directory)
+
+    assert not copied.exists()
+    assert not (run_directory / "snapshots").exists()
+    assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
+
+
+def test_create_makes_the_snapshot_directory_with_the_others(tmp_path: Path) -> None:
+    # Retention walks a fixed list of subtrees; a snapshot directory created
+    # somewhere else at extraction time would fall outside it.
+    manifest = _create(tmp_path)
+    assert (tmp_path / manifest.run_id / "snapshots").is_dir()
+
+
+# -- resume pointer and downstream invalidation ------------------------------
+
+
+def _promote(manifest: RunManifest, *stages: StageId) -> None:
+    for stage in stages:
+        state = manifest.stages[stage]
+        for target in (
+            StageStatus.IN_PROGRESS,
+            StageStatus.PRODUCED,
+            StageStatus.VERIFIED_DETERMINISTIC,
+            StageStatus.VERIFIED_SEMANTIC,
+            StageStatus.PROMOTED,
+        ):
+            state.status = advance_stage(state.status, target, stage=stage)
+        state.current_artifact_id = f"art-{int(stage)}"
+        state.current_artifact_hash = f"{int(stage):064d}"
+
+
+def test_next_incomplete_stage_is_the_first_unpromoted_one(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    assert next_incomplete_stage(manifest) is StageId.SOURCE_INVENTORY
+
+    _promote(manifest, StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS)
+    assert next_incomplete_stage(manifest) is StageId.CANDIDATE_UTTERANCES
+
+
+def test_next_incomplete_stage_ignores_promotions_above_a_gap(tmp_path: Path) -> None:
+    # Stage 5 rests on a stage-2 output that is missing, so resuming at 6 would
+    # build the submission on nothing.
+    manifest = _create(tmp_path)
+    _promote(manifest, StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS, StageId.PRIVATE_MISTAKES)
+    assert next_incomplete_stage(manifest) is StageId.CANDIDATE_UTTERANCES
+
+
+def test_next_incomplete_stage_is_none_when_every_stage_is_promoted(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    _promote(manifest, *StageId)
+    assert next_incomplete_stage(manifest) is None
+
+
+def test_invalidate_from_clears_the_stage_and_everything_after_it(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    _promote(manifest, *StageId)
+
+    invalidated = invalidate_from(manifest, StageId.PLAIN_FINDINGS, now=_NOW)
+
+    assert invalidated == [
+        StageId.PLAIN_FINDINGS,
+        StageId.PRIVATE_MISTAKES,
+        StageId.SAFE_RECORDS,
+        StageId.PRIVACY_APPROVED,
+        StageId.REVIEWED_SUBMISSION,
+    ]
+    for stage in invalidated:
+        state = manifest.stages[stage]
+        assert state.status is StageStatus.INVALIDATED
+        # The pointer goes with the status: a stage that must be recomputed may
+        # not stay the manifest's current artifact for lineage checks.
+        assert state.current_artifact_id is None
+        assert state.current_artifact_hash is None
+        assert state.updated_at == _NOW
+    # Everything upstream keeps its promoted artifact.
+    for stage in (StageId.SOURCE_INVENTORY, StageId.CANDIDATE_UTTERANCES, StageId.ELIGIBLE_ENGLISH):
+        assert manifest.stages[stage].status is StageStatus.PROMOTED
+        assert manifest.stages[stage].current_artifact_id == f"art-{int(stage)}"
+
+
+def test_invalidate_from_leaves_a_failed_stage_and_its_history_alone(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    _promote(manifest, *StageId)
+    failed = manifest.stages[StageId.SAFE_RECORDS]
+    failed.status = advance_stage(
+        failed.status, StageStatus.IN_PROGRESS, stage=StageId.SAFE_RECORDS
+    )
+    failed.status = advance_stage(failed.status, StageStatus.FAILED, stage=StageId.SAFE_RECORDS)
+
+    invalidated = invalidate_from(manifest, StageId.PLAIN_FINDINGS, now=_NOW)
+
+    assert StageId.SAFE_RECORDS not in invalidated
+    assert manifest.stages[StageId.SAFE_RECORDS].status is StageStatus.FAILED
+
+
+def test_invalidate_from_the_first_stage_invalidates_the_whole_run(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    _promote(manifest, *StageId)
+
+    assert invalidate_from(manifest, StageId.SOURCE_INVENTORY, now=_NOW) == list(StageId)
