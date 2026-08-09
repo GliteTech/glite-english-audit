@@ -30,7 +30,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import contextmanager
 
 # Overridable for tests and for users on unusual machines. A value of 1 keeps
-# every stage inline, which is also what fixtures-sized inputs get by default.
+# every step inline, which is also what fixtures-sized inputs get by default.
 WORKER_COUNT_ENV = "GLITE_DISCOVERY_WORKERS"
 
 # Never unbounded: a 128-core machine gains nothing from 128 readers competing

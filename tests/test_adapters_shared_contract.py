@@ -2,7 +2,7 @@
 
 The nine adapters were written separately, so the rules that must hold for
 all of them are the ones most likely to drift. Each test here fails on the
-adapter that broke ranks rather than on the pipeline stage that noticed.
+adapter that broke ranks rather than on the pipeline step that noticed.
 """
 
 import os
@@ -53,7 +53,7 @@ def test_every_shipped_adapter_id_is_a_submittable_source_type() -> None:
 
     ``PUBLIC_SOURCE_TYPES`` is frozen rather than derived, so a new adapter
     can register without becoming submittable. That gap is silent until a
-    real run reaches stage 6.
+    real run reaches step 6.
     """
     assert set(adapter_ids()) <= PUBLIC_SOURCE_TYPES
 

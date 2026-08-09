@@ -47,6 +47,7 @@ from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimator import (
+    ASSUMED_MESSAGES_PER_SESSION,
     AUTHORED_UTTERANCE_RETENTION,
     AUTHORED_WORD_RETENTION,
     HIGH_CONFIDENCE_MIN_RECORDS,
@@ -64,7 +65,7 @@ from glite_english_audit.estimation.estimator import (
     apply_time_confidence,
     confidence_for,
     estimate_run,
-    estimate_stage,
+    estimate_step,
     estimate_unit_time,
     format_token_range,
     profile_batches,
@@ -105,6 +106,17 @@ CUSTOM_ROW_TEXT: str = "Calculated after dates are entered"
 QUOTA_UNAVAILABLE_NOTE: str = (
     "Quota and price are unavailable: this client does not read subscription limits or "
     "provider prices, so no percentage or price range is shown."
+)
+
+# The pipeline reads one session per model call and pays the skill prompt once
+# per call, so the session count drives a large part of the total. The source
+# inventory reports messages and words but not sessions, so this estimate
+# assumes an average session length and will be wrong for anyone whose sessions
+# are shorter — in the direction that understates cost. Said out loud, because a
+# number the user consents to should not hide the assumption it rests on.
+SESSION_SIZE_NOTE: str = (
+    f"Assumes about {ASSUMED_MESSAGES_PER_SESSION} messages per session. Your apps report "
+    "messages, not sessions, so a lot of short sessions will cost more than shown."
 )
 
 
@@ -313,15 +325,15 @@ def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
         (units.verify_findings, steps.verify_findings),
         (units.create_safe_records, steps.create_safe_records),
     )
-    stages = [
-        estimate_stage(counts.words, units.judge_authorship, steps.judge_authorship),
-        estimate_stage(analyzed_words, units.find_mistakes, steps.find_mistakes),
+    estimates = [
+        estimate_step(counts.words, units.judge_authorship, steps.judge_authorship),
+        estimate_step(analyzed_words, units.find_mistakes, steps.find_mistakes),
     ]
-    stages.extend(
-        estimate_stage(round(count * entry.average_words_per_message), count, entry)
+    estimates.extend(
+        estimate_step(round(count * entry.average_words_per_message), count, entry)
         for count, entry in downstream
     )
-    return estimate_run(stages)
+    return estimate_run(estimates)
 
 
 def estimate_preset(
@@ -381,7 +393,7 @@ def build_notes(
 ) -> tuple[str, ...]:
     """The caveats that must reach the user with the numbers."""
     notes = [
-        "Words and messages are candidates, counted before stage 3 drops text you did not "
+        "Words and messages are candidates, counted before step 3 drops text you did not "
         "write, and interpolated from each source's date range. Only Everything is exact.",
     ]
     if saturated:
@@ -432,21 +444,22 @@ def build_notes(
         # subject is the batches, so the verb is plural however many steps the
         # list names.
         notes.append(
-            f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} batches have been measured for "
+            f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} samples have been measured for "
             f"{and_list(low)}, so the total stays low confidence and its upper bound "
             "is widened."
         )
     mismatch = _measured_elsewhere_note(steps)
     if mismatch is not None:
         notes.append(mismatch)
+    notes.append(SESSION_SIZE_NOTE)
     notes.append(QUOTA_UNAVAILABLE_NOTE)
     if concurrent_batches == 1:
         notes.append(
-            "Times assume one batch at a time; running N batches in parallel divides them "
-            "by roughly N."
+            "Times assume one session at a time; running N sessions in parallel divides "
+            "them by roughly N."
         )
     else:
-        notes.append(f"Times assume {concurrent_batches} batches running in parallel.")
+        notes.append(f"Times assume {concurrent_batches} sessions running in parallel.")
     return tuple(notes)
 
 

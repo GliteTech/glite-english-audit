@@ -5,7 +5,7 @@ import json
 import os
 import sqlite3
 import stat
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -273,8 +273,10 @@ def test_discover_migration_reduced_generation(tmp_path: Path) -> None:
 
     extracted = _snapshot_and_extract(adapter, outcome, record, tmp_path / "snap")
     assert {utterance.text for utterance in extracted} == MIGRATION_TEXTS
-    # No conversationId column: every dictation is its own session.
-    assert len({utterance.session_hash for utterance in extracted}) == 3
+    # No conversationId column, so sessions come from the silence between
+    # dictations: the two on 2024-06-10 are one burst, the next morning is
+    # another. Before 1.1.0 this produced three sessions of one utterance each.
+    assert len({utterance.session_hash for utterance in extracted}) == 2
     by_text = {utterance.text: utterance for utterance in extracted}
     windows_app = by_text["Can you check my text for mistakes, I wrote it very quick."]
     assert windows_app.destination_app == "other"
@@ -419,7 +421,7 @@ def test_extract_success_golden(tmp_path: Path) -> None:
 
     solo = by_text["Yesterday I have wrote the report and sended it to my colleague."]
     assert solo.session_hash == _session_hash(
-        "wispr_flow|transcript|aaaaaaaa-0003-4aaa-8aaa-000000000003"
+        "wispr_flow|burst|aaaaaaaa-0003-4aaa-8aaa-000000000003"
     )
     assert solo.destination_app == "email"
 
@@ -772,3 +774,78 @@ def test_never_opens_denylisted_files(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "000001.log" not in accessed_names
     assert "main.log" not in accessed_names
     assert "accessibility.log" not in accessed_names
+
+
+def _history_row(index: int, *, minute: int | None, conversation: str | None = None) -> Any:
+    """One History row reduced to the fields the session rule reads."""
+    from glite_english_audit.adapters.wispr_flow.store import HistoryRow
+
+    return HistoryRow(
+        transcript_entity_id=f"tid-{index:04d}",
+        text=f"dictation {index}",
+        word_count=2,
+        timestamp=None
+        if minute is None
+        else datetime(2026, 6, 1, 10, tzinfo=UTC) + timedelta(minutes=minute),
+        conversation_id=conversation,
+        destination_app=None,
+        app_version=None,
+        content_flags=(),
+    )
+
+
+def _bases(rows: list[Any]) -> list[str]:
+    return [basis for _, basis in wispr_adapter._with_session_basis(rows)]
+
+
+def test_a_burst_of_dictations_is_one_session() -> None:
+    """The change 1.1.0 exists for.
+
+    Wispr Flow has no session of its own and the conversationId column is
+    absent from the generation measured on 2026-08-09, so every dictated
+    sentence used to become a session of one. Under the five-step pipeline a
+    session is the unit of work, and steps c, d and e each spend one agent call
+    per session file — so that shape charged three full skill prompts per
+    sentence.
+    """
+    rows = [_history_row(1, minute=0), _history_row(2, minute=5), _history_row(3, minute=29)]
+    assert len(set(_bases(rows))) == 1
+
+
+def test_a_long_silence_starts_a_new_session() -> None:
+    rows = [_history_row(1, minute=0), _history_row(2, minute=31)]
+    assert _bases(rows) == ["wispr_flow|burst|tid-0001", "wispr_flow|burst|tid-0002"]
+
+
+def test_the_gap_is_measured_from_the_previous_dictation_not_the_first() -> None:
+    # A two-hour stretch of talking every twenty minutes is one working
+    # session. Measuring from the first dictation would cut it at the 30-minute
+    # mark and split a continuous burst in half.
+    rows = [_history_row(index, minute=20 * index) for index in range(7)]
+    assert len(set(_bases(rows))) == 1
+
+
+def test_a_conversation_id_wins_over_the_timing() -> None:
+    # When the store does group dictations itself, that grouping is better
+    # evidence than a clock, so it is used whatever the gaps say.
+    rows = [
+        _history_row(1, minute=0, conversation="conv-a"),
+        _history_row(2, minute=600, conversation="conv-a"),
+    ]
+    assert _bases(rows) == ["wispr_flow|conversation|conv-a"] * 2
+
+
+def test_an_undated_dictation_is_never_folded_into_a_neighbour() -> None:
+    # It cannot be placed in time, and a session file is what a person reads to
+    # check a run: putting words into a session they may not belong to is worse
+    # than one extra file.
+    rows = [_history_row(1, minute=0), _history_row(2, minute=None), _history_row(3, minute=5)]
+    bases = _bases(rows)
+    assert bases[1] == "wispr_flow|transcript|tid-0002"
+    assert bases[0] == bases[2]
+
+
+def test_the_same_store_always_produces_the_same_sessions() -> None:
+    rows = [_history_row(1, minute=0), _history_row(2, minute=10), _history_row(3, minute=90)]
+    assert _bases(rows) == _bases(list(rows))
+    assert _bases(rows)[0] == "wispr_flow|burst|tid-0001"

@@ -1,8 +1,8 @@
-"""Run manifest: consent, selection, per-stage state, and compatibility.
+"""Run manifest: consent, selection, per-step state, and compatibility.
 
-The manifest points to exactly one current artifact per stage. There is no
+The manifest points to exactly one current artifact per step. There is no
 revision chain: replacing an artifact repoints the manifest and invalidates
-downstream stages (specification, 5.2, 6.5).
+downstream steps (specification, 5.2, 6.5).
 """
 
 from datetime import datetime
@@ -14,12 +14,19 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
-    StageStatus,
+    StepId,
+    StepStatus,
 )
 from glite_english_audit.paths import validate_run_id
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
+"""2 renamed ``stages`` to ``steps`` and ``stage_id`` to ``step_id``.
+
+A manifest written by version 1 no longer validates, which the resume policy
+already handles: an incompatible artifact-schema version refuses the resume and
+offers a new run. Migrating it would mean carrying the old vocabulary in the
+code that reads it, which is the thing being removed.
+"""
 
 
 class ConsentState(BaseModel):
@@ -96,13 +103,13 @@ class CompatibilityFingerprint(BaseModel):
     """
 
 
-class StageState(BaseModel):
-    """Verification lifecycle and current artifact pointer for one stage."""
+class StepState(BaseModel):
+    """Verification lifecycle and current artifact pointer for one step."""
 
     model_config = ConfigDict(extra="forbid")
 
-    stage: StageId
-    status: StageStatus = StageStatus.PENDING
+    step: StepId
+    status: StepStatus = StepStatus.PENDING
     current_artifact_id: str | None = None
     current_artifact_hash: str | None = None
     producer_version: str | None = None
@@ -122,7 +129,7 @@ class RunManifest(BaseModel):
     status: RunStatus
     consent: ConsentState
     selection: SelectionState | None = None
-    stages: dict[StageId, StageState]
+    steps: dict[StepId, StepState]
     fingerprint: CompatibilityFingerprint
     last_checkpoint_at: datetime | None = None
 
@@ -133,20 +140,20 @@ class RunManifest(BaseModel):
         # snapshot directory, so it may never be absolute or traversing.
         return validate_run_id(value)
 
-    @field_validator("stages")
+    @field_validator("steps")
     @classmethod
-    def _complete_stage_map(cls, value: dict[StageId, StageState]) -> dict[StageId, StageState]:
-        missing = [stage for stage in StageId if stage not in value]
+    def _complete_step_map(cls, value: dict[StepId, StepState]) -> dict[StepId, StepState]:
+        missing = [step for step in StepId if step not in value]
         if missing:
-            msg = f"manifest must track every stage; missing: {missing}"
+            msg = f"manifest must track every step; missing: {missing}"
             raise ValueError(msg)
-        for stage, state in value.items():
-            if state.stage is not stage:
-                msg = f"stage state under key {stage} claims to be {state.stage}"
+        for step, state in value.items():
+            if state.step is not step:
+                msg = f"step state under key {step} claims to be {state.step}"
                 raise ValueError(msg)
         return value
 
 
-def empty_stage_map() -> dict[StageId, StageState]:
-    """A fresh all-pending stage map for a new run."""
-    return {stage: StageState(stage=stage) for stage in StageId}
+def empty_step_map() -> dict[StepId, StepState]:
+    """A fresh all-pending step map for a new run."""
+    return {step: StepState(step=step) for step in StepId}

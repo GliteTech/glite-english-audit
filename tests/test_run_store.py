@@ -11,15 +11,15 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
-    StageStatus,
+    StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
 )
-from glite_english_audit.state.machine import advance_run, advance_stage
+from glite_english_audit.state.machine import advance_run, advance_step
 from glite_english_audit.state.run_store import (
     RETENTION_DAYS,
     RUN_MANIFEST_FILENAME,
@@ -32,7 +32,7 @@ from glite_english_audit.state.run_store import (
     invalidate_from,
     list_unfinished,
     load_manifest,
-    next_incomplete_stage,
+    next_incomplete_step,
     save_manifest,
     write_checkpoint,
 )
@@ -45,7 +45,7 @@ def _fingerprint(**overrides: object) -> CompatibilityFingerprint:
         "adapter_versions": {"claude_code": "1.0.0", "codex": "1.0.0"},
         "artifact_schema_version": 1,
         "tokenizer_version": "1.0.0",
-        "skill_versions": {"analyze-english-text": 1},
+        "skill_versions": {"find-english-mistakes": 1},
         "prompt_versions": {"find-mistakes": 1},
         "model_ids": {"find-mistakes": "example-model-1"},
         "consent_policy_version": "1",
@@ -77,11 +77,11 @@ def test_create_writes_manifest_and_private_dirs(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
     run_directory = tmp_path / manifest.run_id
     assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
-    for name in ("stages", "logs", "submission"):
+    for name in ("steps", "logs", "snapshot-manifests", "submission"):
         assert (run_directory / name).is_dir()
     assert manifest.status is RunStatus.CREATED
     assert manifest.last_checkpoint_at is None
-    assert all(state.status is StageStatus.PENDING for state in manifest.stages.values())
+    assert all(state.status is StepStatus.PENDING for state in manifest.steps.values())
 
 
 def test_create_load_round_trip(tmp_path: Path) -> None:
@@ -136,21 +136,19 @@ def test_list_unfinished_skips_finished_runs(tmp_path: Path) -> None:
 
 def test_list_unfinished_reports_promotion_and_checkpoint_age(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    stage_state = manifest.stages[StageId.SOURCE_INVENTORY]
+    stage_state = manifest.steps[StepId.A_COLLECTED]
     for target in (
-        StageStatus.IN_PROGRESS,
-        StageStatus.PRODUCED,
-        StageStatus.VERIFIED_DETERMINISTIC,
-        StageStatus.PROMOTED,
+        StepStatus.IN_PROGRESS,
+        StepStatus.PRODUCED,
+        StepStatus.VERIFIED_DETERMINISTIC,
+        StepStatus.PROMOTED,
     ):
-        stage_state.status = advance_stage(
-            stage_state.status, target, stage=StageId.SOURCE_INVENTORY
-        )
+        stage_state.status = advance_step(stage_state.status, target, step=StepId.A_COLLECTED)
     checkpoint_at = _NOW - timedelta(hours=6)
     write_checkpoint(manifest, root=tmp_path, now=checkpoint_at)
 
     (summary,) = list_unfinished(tmp_path, now=_NOW)
-    assert summary.last_promoted_stage is StageId.SOURCE_INVENTORY
+    assert summary.last_promoted_step is StepId.A_COLLECTED
     assert summary.last_checkpoint_at == checkpoint_at
     assert summary.checkpoint_age == timedelta(hours=6)
 
@@ -172,26 +170,30 @@ def test_resume_continue_when_fingerprints_match(tmp_path: Path) -> None:
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
     assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
     assert assessment.decision is ResumeDecision.CONTINUE
-    assert assessment.earliest_affected_stage is None
+    assert assessment.earliest_affected_step is None
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"skill_versions": {"analyze-english-text": 2}},
+        {"skill_versions": {"find-english-mistakes": 2}},
         {"prompt_versions": {"find-mistakes": 2}},
         {"model_ids": {"find-mistakes": "example-model-2"}},
     ],
 )
-def test_resume_invalidates_downstream_from_stage_four(
+def test_resume_invalidates_downstream_from_the_first_agent_step(
     tmp_path: Path, overrides: dict[str, object]
 ) -> None:
+    # Skills, prompts and model IDs are compared as whole maps, not per step, so
+    # a change in any of them lands on the earliest step whose file content is
+    # model judgment. That is step c: steps a and b are collected and
+    # deduplicated by script, so their per-session files stay reusable, while c
+    # and everything after it are recomputed.
     manifest = _create(tmp_path)
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
     assessment = describe_resume(manifest, _fingerprint(**overrides), now=_NOW)
     assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
-    assert int(StageId.PLAIN_FINDINGS) == 4
+    assert assessment.earliest_affected_step is StepId.C_AUTHORED
 
 
 @pytest.mark.parametrize(
@@ -212,16 +214,18 @@ def test_resume_restart_on_incompatible_change(
     assert assessment.decision is ResumeDecision.RESTART
 
 
-def test_resume_invalidates_from_safe_records_on_client_version_change(tmp_path: Path) -> None:
+def test_resume_invalidates_from_the_mistakes_step_on_client_version_change(
+    tmp_path: Path,
+) -> None:
     # A pure-Python change (for example a privacy-scanner fix) must not let a
-    # run keep SAFE_RECORDS and PRIVACY_APPROVED artifacts approved by the
-    # known-bad scanner (specification, 6.6).
+    # run keep the step-d mistake files, or the step-e verification of them,
+    # that the known-bad scanner approved (specification, 6.6).
     manifest = _create(tmp_path, _fingerprint(client_version="0.0.1"))
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
 
     assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
     assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert assessment.earliest_affected_stage is StageId.SAFE_RECORDS
+    assert assessment.earliest_affected_step is StepId.D_MISTAKES
 
 
 def test_resume_records_the_running_client_version_by_default() -> None:
@@ -229,14 +233,23 @@ def test_resume_records_the_running_client_version_by_default() -> None:
 
 
 def test_resume_client_change_never_widens_an_earlier_invalidation(tmp_path: Path) -> None:
-    manifest = _create(tmp_path, _fingerprint(client_version="0.0.1"))
-    write_checkpoint(manifest, root=tmp_path, now=_NOW)
+    # Two mismatches at once land on the earlier of the two boundaries. The
+    # client-code boundary is step d and the model-judgment boundary is step c,
+    # so a client change on top of a skill change must add nothing: the run
+    # whose client version also changed stops exactly where the one whose did
+    # not stops.
+    changed_skill = _fingerprint(skill_versions={"find-english-mistakes": 2})
+    also_changed_client = _create(tmp_path, _fingerprint(client_version="0.0.1"))
+    write_checkpoint(also_changed_client, root=tmp_path, now=_NOW)
+    skill_change_only = _create(tmp_path)
+    write_checkpoint(skill_change_only, root=tmp_path, now=_NOW)
 
-    assessment = describe_resume(
-        manifest, _fingerprint(skill_versions={"analyze-english-text": 2}), now=_NOW
-    )
-    assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
+    both = describe_resume(also_changed_client, changed_skill, now=_NOW)
+    skill_alone = describe_resume(skill_change_only, changed_skill, now=_NOW)
+
+    assert both.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
+    assert both.earliest_affected_step is StepId.C_AUTHORED
+    assert both.earliest_affected_step == skill_alone.earliest_affected_step
 
 
 def test_resume_continues_at_twenty_nine_days(tmp_path: Path) -> None:
@@ -265,20 +278,24 @@ def test_expire_stale_runs_thirty_day_boundary(tmp_path: Path) -> None:
     write_checkpoint(fresh, root=tmp_path, now=_NOW - timedelta(days=29))
     stale = _create(tmp_path)
     write_checkpoint(stale, root=tmp_path, now=_NOW - timedelta(days=31))
-    (tmp_path / stale.run_id / "stages" / "private.json").write_text("{}", "utf-8")
+    (tmp_path / stale.run_id / "steps" / "private.json").write_text("{}", "utf-8")
+    # The manifests list the source files a snapshot copied, so they are private
+    # too and moved out of the step tree to the run root in the same change.
+    (tmp_path / stale.run_id / "snapshot-manifests" / "claude_code.json").write_text("{}", "utf-8")
 
     assert expire_stale_runs(tmp_path, now=_NOW) == [stale.run_id]
 
     stale_dir = tmp_path / stale.run_id
     assert load_manifest(stale.run_id, root=tmp_path).status is RunStatus.EXPIRED
     assert (stale_dir / RUN_MANIFEST_FILENAME).is_file()
-    assert not (stale_dir / "stages").exists()
+    assert not (stale_dir / "steps").exists()
     assert not (stale_dir / "logs").exists()
+    assert not (stale_dir / "snapshot-manifests").exists()
     assert not (stale_dir / "submission").exists()
 
     fresh_dir = tmp_path / fresh.run_id
     assert load_manifest(fresh.run_id, root=tmp_path).status is RunStatus.CREATED
-    assert (fresh_dir / "stages").is_dir()
+    assert (fresh_dir / "steps").is_dir()
 
 
 def test_expire_routes_processing_through_checkpointed(tmp_path: Path) -> None:
@@ -292,18 +309,18 @@ def test_expire_routes_processing_through_checkpointed(tmp_path: Path) -> None:
 
 
 def test_expire_stale_runs_expires_an_abandoned_review(tmp_path: Path) -> None:
-    # A user who closes the review tab leaves the run in REVIEW with stage 4-7
-    # artifacts containing raw source language. Retention must still apply.
+    # A user who closes the review tab leaves the run in REVIEW with step d and
+    # step e files containing raw source language. Retention must still apply.
     manifest = _create(tmp_path)
     _advance(manifest, *_TO_PROCESSING, RunStatus.REVIEW)
     manifest.last_checkpoint_at = _NOW - timedelta(days=400)
     save_manifest(manifest, root=tmp_path)
     run_directory = tmp_path / manifest.run_id
-    (run_directory / "stages" / "findings.md").write_text("private source language", "utf-8")
+    (run_directory / "steps" / "findings.md").write_text("private source language", "utf-8")
 
     assert expire_stale_runs(tmp_path, now=_NOW) == [manifest.run_id]
     assert load_manifest(manifest.run_id, root=tmp_path).status is RunStatus.EXPIRED
-    assert not (run_directory / "stages").exists()
+    assert not (run_directory / "steps").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
 
 
@@ -314,7 +331,7 @@ def test_expire_stale_runs_ignores_a_copied_run_directory(tmp_path: Path) -> Non
     original = _create(tmp_path)
     write_checkpoint(original, root=tmp_path, now=_NOW - timedelta(days=1))
     original_directory = tmp_path / original.run_id
-    (original_directory / "stages" / "private.json").write_text("{}", "utf-8")
+    (original_directory / "steps" / "private.json").write_text("{}", "utf-8")
 
     copy_directory = tmp_path / ("run-" + "a" * 32)
     shutil.copytree(original_directory, copy_directory)
@@ -326,7 +343,7 @@ def test_expire_stale_runs_ignores_a_copied_run_directory(tmp_path: Path) -> Non
 
     assert expire_stale_runs(tmp_path, now=_NOW) == []
     assert load_manifest(original.run_id, root=tmp_path).status is RunStatus.CREATED
-    assert (original_directory / "stages" / "private.json").is_file()
+    assert (original_directory / "steps" / "private.json").is_file()
 
 
 def test_list_unfinished_skips_a_copied_run_directory(tmp_path: Path) -> None:
@@ -337,7 +354,7 @@ def test_list_unfinished_skips_a_copied_run_directory(tmp_path: Path) -> None:
     assert [summary.run_id for summary in summaries] == [original.run_id]
 
 
-def test_expire_refuses_symlinked_stages_dir(tmp_path: Path) -> None:
+def test_expire_refuses_symlinked_steps_dir(tmp_path: Path) -> None:
     victim = tmp_path / "victim"
     victim.mkdir()
     (victim / "keep.txt").write_text("keep", "utf-8")
@@ -346,9 +363,9 @@ def test_expire_refuses_symlinked_stages_dir(tmp_path: Path) -> None:
     root.mkdir()
     manifest = _create(root)
     write_checkpoint(manifest, root=root, now=_NOW - timedelta(days=31))
-    stages = root / manifest.run_id / "stages"
-    stages.rmdir()
-    stages.symlink_to(victim)
+    steps = root / manifest.run_id / "steps"
+    steps.rmdir()
+    steps.symlink_to(victim)
 
     with pytest.raises(RunStoreError, match="symlink"):
         expire_stale_runs(root, now=_NOW)
@@ -360,18 +377,24 @@ def test_cleanup_completed_keeps_package_and_manifest(tmp_path: Path) -> None:
     _advance(manifest, *_TO_COMPLETED)
     save_manifest(manifest, root=tmp_path)
     run_directory = tmp_path / manifest.run_id
-    (run_directory / "stages" / "private.json").write_text("{}", "utf-8")
+    (run_directory / "steps" / "private.json").write_text("{}", "utf-8")
     (run_directory / "logs" / "run.log").write_text("log", "utf-8")
+    (run_directory / "snapshot-manifests" / "claude_code.json").write_text("{}", "utf-8")
     (run_directory / "selection.json").write_text("{}", "utf-8")
     (run_directory / "progress.json").write_text("{}", "utf-8")
+    # The inventory names the applications and paths found on this machine, so
+    # it leaves with the rest once the package is built.
+    (run_directory / "source-inventory.json").write_text("{}", "utf-8")
     (run_directory / "submission" / "package.json").write_text("{}", "utf-8")
 
     cleanup_completed(run_directory)
 
-    assert not (run_directory / "stages").exists()
+    assert not (run_directory / "steps").exists()
     assert not (run_directory / "logs").exists()
+    assert not (run_directory / "snapshot-manifests").exists()
     assert not (run_directory / "selection.json").exists()
     assert not (run_directory / "progress.json").exists()
+    assert not (run_directory / "source-inventory.json").exists()
     assert (run_directory / "submission" / "package.json").is_file()
     assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
 
@@ -382,7 +405,7 @@ def test_cleanup_refuses_unfinished_run(tmp_path: Path) -> None:
         cleanup_completed(tmp_path / manifest.run_id)
 
 
-def test_cleanup_refuses_symlinked_stages_dir(tmp_path: Path) -> None:
+def test_cleanup_refuses_symlinked_steps_dir(tmp_path: Path) -> None:
     victim = tmp_path / "victim"
     victim.mkdir()
     (victim / "keep.txt").write_text("keep", "utf-8")
@@ -392,9 +415,9 @@ def test_cleanup_refuses_symlinked_stages_dir(tmp_path: Path) -> None:
     manifest = _create(root)
     _advance(manifest, *_TO_COMPLETED)
     save_manifest(manifest, root=root)
-    stages = root / manifest.run_id / "stages"
-    stages.rmdir()
-    stages.symlink_to(victim)
+    steps = root / manifest.run_id / "steps"
+    steps.rmdir()
+    steps.symlink_to(victim)
 
     with pytest.raises(RunStoreError, match="symlink"):
         cleanup_completed(root / manifest.run_id)
@@ -454,90 +477,92 @@ def test_create_makes_the_snapshot_directory_with_the_others(tmp_path: Path) -> 
 # -- resume pointer and downstream invalidation ------------------------------
 
 
-def _promote(manifest: RunManifest, *stages: StageId) -> None:
-    for stage in stages:
-        state = manifest.stages[stage]
+def _promote(manifest: RunManifest, *steps: StepId) -> None:
+    """Walk each named step to PROMOTED the way the pipeline promotes it.
+
+    Straight from the deterministic check, with no semantic verification in
+    between: no step has an independent second reader any more
+    (``SEMANTIC_STEPS`` is empty), and steps a and b are scripts, for which the
+    status would mean nothing.
+    """
+    for step in steps:
+        state = manifest.steps[step]
         for target in (
-            StageStatus.IN_PROGRESS,
-            StageStatus.PRODUCED,
-            StageStatus.VERIFIED_DETERMINISTIC,
-            StageStatus.VERIFIED_SEMANTIC,
-            StageStatus.PROMOTED,
+            StepStatus.IN_PROGRESS,
+            StepStatus.PRODUCED,
+            StepStatus.VERIFIED_DETERMINISTIC,
+            StepStatus.PROMOTED,
         ):
-            state.status = advance_stage(state.status, target, stage=stage)
-        state.current_artifact_id = f"art-{int(stage)}"
-        state.current_artifact_hash = f"{int(stage):064d}"
+            state.status = advance_step(state.status, target, step=step)
+        state.current_artifact_id = f"art-{int(step)}"
+        state.current_artifact_hash = f"{int(step):064d}"
 
 
 def test_next_incomplete_stage_is_the_first_unpromoted_one(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    assert next_incomplete_stage(manifest) is StageId.SOURCE_INVENTORY
+    assert next_incomplete_step(manifest) is StepId.A_COLLECTED
 
-    _promote(manifest, StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS)
-    assert next_incomplete_stage(manifest) is StageId.CANDIDATE_UTTERANCES
+    _promote(manifest, StepId.A_COLLECTED, StepId.B_DEDUPLICATED)
+    assert next_incomplete_step(manifest) is StepId.C_AUTHORED
 
 
 def test_next_incomplete_stage_ignores_promotions_above_a_gap(tmp_path: Path) -> None:
-    # Stage 5 rests on a stage-2 output that is missing, so resuming at 6 would
-    # build the submission on nothing.
+    # Step d is promoted while step c is not, so the mistakes rest on authored
+    # spans that are missing. Resuming at d would analyze nothing.
     manifest = _create(tmp_path)
-    _promote(manifest, StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS, StageId.PRIVATE_MISTAKES)
-    assert next_incomplete_stage(manifest) is StageId.CANDIDATE_UTTERANCES
+    _promote(manifest, StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.D_MISTAKES)
+    assert next_incomplete_step(manifest) is StepId.C_AUTHORED
 
 
 def test_next_incomplete_stage_is_none_when_every_stage_is_promoted(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    _promote(manifest, *StageId)
-    assert next_incomplete_stage(manifest) is None
+    _promote(manifest, *StepId)
+    assert next_incomplete_step(manifest) is None
 
 
 def test_invalidate_from_clears_the_stage_and_everything_after_it(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    _promote(manifest, *StageId)
+    _promote(manifest, *StepId)
 
-    invalidated = invalidate_from(manifest, StageId.PLAIN_FINDINGS, now=_NOW)
+    invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_NOW)
 
-    assert invalidated == [
-        StageId.PLAIN_FINDINGS,
-        StageId.PRIVATE_MISTAKES,
-        StageId.SAFE_RECORDS,
-        StageId.PRIVACY_APPROVED,
-        StageId.REVIEWED_SUBMISSION,
-    ]
-    for stage in invalidated:
-        state = manifest.stages[stage]
-        assert state.status is StageStatus.INVALIDATED
-        # The pointer goes with the status: a stage that must be recomputed may
+    assert invalidated == [StepId.D_MISTAKES, StepId.E_VERIFIED]
+    for step in invalidated:
+        state = manifest.steps[step]
+        assert state.status is StepStatus.INVALIDATED
+        # The pointer goes with the status: a step that must be recomputed may
         # not stay the manifest's current artifact for lineage checks.
         assert state.current_artifact_id is None
         assert state.current_artifact_hash is None
         assert state.updated_at == _NOW
     # Everything upstream keeps its promoted artifact.
-    for stage in (StageId.SOURCE_INVENTORY, StageId.CANDIDATE_UTTERANCES, StageId.ELIGIBLE_ENGLISH):
-        assert manifest.stages[stage].status is StageStatus.PROMOTED
-        assert manifest.stages[stage].current_artifact_id == f"art-{int(stage)}"
+    for step in (StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.C_AUTHORED):
+        assert manifest.steps[step].status is StepStatus.PROMOTED
+        assert manifest.steps[step].current_artifact_id == f"art-{int(step)}"
 
 
 def test_invalidate_from_leaves_a_failed_stage_and_its_history_alone(tmp_path: Path) -> None:
+    # The failed step sits inside the invalidated range, not at its edge: only
+    # a promoted step is cleared, so the diagnostic history of the step that
+    # failed survives the resume decision.
     manifest = _create(tmp_path)
-    _promote(manifest, *StageId)
-    failed = manifest.stages[StageId.SAFE_RECORDS]
-    failed.status = advance_stage(
-        failed.status, StageStatus.IN_PROGRESS, stage=StageId.SAFE_RECORDS
-    )
-    failed.status = advance_stage(failed.status, StageStatus.FAILED, stage=StageId.SAFE_RECORDS)
+    _promote(manifest, *StepId)
+    failed = manifest.steps[StepId.E_VERIFIED]
+    failed.status = advance_step(failed.status, StepStatus.IN_PROGRESS, step=StepId.E_VERIFIED)
+    failed.status = advance_step(failed.status, StepStatus.FAILED, step=StepId.E_VERIFIED)
 
-    invalidated = invalidate_from(manifest, StageId.PLAIN_FINDINGS, now=_NOW)
+    invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_NOW)
 
-    assert StageId.SAFE_RECORDS not in invalidated
-    assert manifest.stages[StageId.SAFE_RECORDS].status is StageStatus.FAILED
+    assert invalidated == [StepId.D_MISTAKES]
+    assert StepId.E_VERIFIED not in invalidated
+    assert manifest.steps[StepId.E_VERIFIED].status is StepStatus.FAILED
 
 
 def test_invalidate_from_the_first_stage_invalidates_the_whole_run(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    _promote(manifest, *StageId)
+    _promote(manifest, *StepId)
 
-    assert invalidate_from(manifest, StageId.SOURCE_INVENTORY, now=_NOW) == list(StageId)
+    assert invalidate_from(manifest, StepId.A_COLLECTED, now=_NOW) == list(StepId)
 
 
 def test_a_refused_resume_carries_the_code_the_documents_promise(tmp_path: Path) -> None:

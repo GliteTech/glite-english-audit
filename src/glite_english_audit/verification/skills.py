@@ -58,6 +58,32 @@ def skills_root(repo_root: Path) -> Path:
     return repo_root / "skills"
 
 
+def skill_versions(repo_root: Path) -> dict[str, int]:
+    """Every canonical skill's declared version, by skill name.
+
+    Frozen into the run manifest so a resume can tell whether the instructions
+    that produced an artifact are the ones that would produce it now. The field
+    existed and was written as an empty dict, which meant the resume policy's
+    "changed skills recompute findings and later steps" could never fire: an
+    empty dict equals an empty dict forever.
+
+    A skill whose file declares no version is omitted rather than defaulted.
+    Recording a 1 nobody wrote would make a later real 1 look unchanged.
+    """
+    directory = skills_root(repo_root)
+    if not directory.is_dir():
+        return {}
+    found: dict[str, int] = {}
+    for entry in sorted(entry for entry in directory.iterdir() if entry.is_dir()):
+        skill_file = entry / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        match = _VERSION_PATTERN.search(skill_file.read_text(encoding="utf-8"))
+        if match is not None:
+            found[entry.name] = int(match.group(1))
+    return found
+
+
 def split_frontmatter(text: str) -> tuple[str, str] | None:
     """Split a SKILL.md into (frontmatter text, body). None when malformed."""
     if not text.startswith("---\n"):

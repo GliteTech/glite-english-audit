@@ -46,10 +46,10 @@ def test_from_code_carries_optional_references() -> None:
         "CARDINALITY_MISMATCH",
         "line count disagrees with manifest",
         item_ref="utt-0001",
-        evidence_path="stage-2/candidates.jsonl",
+        evidence_path="step-2/candidates.jsonl",
     )
     assert diagnostic.item_ref == "utt-0001"
-    assert diagnostic.evidence_path == "stage-2/candidates.jsonl"
+    assert diagnostic.evidence_path == "step-2/candidates.jsonl"
 
 
 def test_from_code_rejects_unknown_code() -> None:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId
+from glite_english_audit.artifacts.enums import ExampleType, Modality, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import (
     canonical_json_bytes,
@@ -115,7 +115,7 @@ def _artifact() -> ReviewedSubmissionArtifact:
         schema_version=1,
         artifact_id=new_artifact_id(),
         run_id=new_run_id(),
-        stage_id=StageId.REVIEWED_SUBMISSION,
+        step_id=StepId.E_VERIFIED,
         producer_name="test",
         producer_version="0.1.0",
         created_at=utc_now(),
@@ -460,7 +460,7 @@ def _run_for_consent(root: Path) -> str:
             adapter_versions={"claude_code": "1.0.0"},
             artifact_schema_version=1,
             tokenizer_version="1.0.0",
-            skill_versions={"analyze-english-text": 1},
+            skill_versions={"find-english-mistakes": 1},
             prompt_versions={"find-mistakes": 1},
             model_ids={"find-mistakes": "example-model-1"},
             consent_policy_version="1",

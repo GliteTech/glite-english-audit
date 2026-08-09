@@ -1,4 +1,4 @@
-"""Stage record models for the audit waterfall.
+"""Record models for the five pipeline steps.
 
 These Pydantic models are the authoritative definitions for reading, writing,
 and validating the project's internal JSON and JSONL (specification, Section
@@ -38,9 +38,9 @@ _ID_CHARACTERS = r"A-Za-z0-9_.:-"
 _UTTERANCE_ID_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,256}}$")
 _ID_PART_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,128}}$")
 
-# Instance keys become directory and file names: stage 1 writes snapshots to
+# Instance keys become directory and file names: step 1 writes snapshots to
 # '<snapshots>/<adapter_id>/<instance_key[:12]}' and its manifest to
-# '<stage>/<instance_key[:12]}.json'. A key holding a separator or a dot run
+# '<step>/<instance_key[:12]}.json'. A key holding a separator or a dot run
 # puts both outside the run's own tree, where manifest-bounded cleanup will not
 # reach the copied source data. No separators and no dots, so truncating one
 # can never produce a traversal component.
@@ -180,7 +180,7 @@ class InstanceInventorySummary(BaseModel):
 
 
 class SourceInventoryArtifact(BaseModel):
-    """Stage 0 output: every discovered instance, private form."""
+    """Discovery output: every discovered instance, private form."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -221,7 +221,7 @@ class SnapshotFileEntry(BaseModel):
 
 
 class SnapshotManifest(BaseModel):
-    """Stage 1 record: project-owned description of one foreign snapshot.
+    """Project-owned description of one foreign snapshot, taken during step a.
 
     Cleanup may delete only files listed here, resolved under the run's
     snapshot directory (specification, 3.6).
@@ -277,35 +277,12 @@ class NormalizedUtterance(BaseModel):
 
 
 class CandidateUtterancesManifest(BaseModel):
-    """Stage 2 manifest accompanying the candidate-utterance JSONL file."""
+    """Manifest accompanying one step-a session file."""
 
     model_config = ConfigDict(extra="forbid")
 
     envelope: ArtifactEnvelope
     utterance_count: int = Field(ge=0)
-    jsonl_relative_path: str
-    jsonl_sha256: str
-
-    @field_validator("jsonl_sha256")
-    @classmethod
-    def _sha256(cls, value: str) -> str:
-        if not _SHA256_PATTERN.fullmatch(value):
-            msg = "jsonl_sha256 must be a SHA-256 hex digest"
-            raise ValueError(msg)
-        return value
-
-
-class EligibleCorpusManifest(BaseModel):
-    """Stage 3 manifest: eligible user-authored English after filtering."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    envelope: ArtifactEnvelope
-    tokenizer_version: str
-    utterance_count: int = Field(ge=0)
-    english_word_count: int = Field(ge=0)
-    quarantined_utterance_count: int = Field(ge=0)
-    deduplicated_utterance_count: int = Field(ge=0)
     jsonl_relative_path: str
     jsonl_sha256: str
 
@@ -319,7 +296,7 @@ class EligibleCorpusManifest(BaseModel):
 
 
 class FindingsArtifactMeta(BaseModel):
-    """Sidecar envelope for one human-readable stage 4 findings file.
+    """Sidecar envelope for one human-readable step 4 findings file.
 
     The findings body itself is Markdown-flavored plain text following the
     deterministic format in ``specifications/artifacts.md``. It is private and
@@ -369,7 +346,9 @@ class EvidenceSpan(BaseModel):
 
 
 class PrivateMistake(BaseModel):
-    """Stage 5 record: one verified structured mistake. Private.
+    """One verified structured mistake, in the shape the old pipeline used.
+
+    Superseded by :class:`MistakeRecord`, which step d writes. Private.
 
     Occurrence-based and atomic: one record per verified occurrence, each with
     exactly one evidence span and one occurrence ID so verifiers can detect
@@ -410,7 +389,7 @@ class PrivateMistake(BaseModel):
 
 
 class PrivateMistakesManifest(BaseModel):
-    """Stage 5 manifest accompanying the private-mistakes JSONL file."""
+    """Manifest accompanying the private-mistakes JSONL file."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -435,6 +414,13 @@ class SafeMistakeRecord(BaseModel):
     (no names, numbers, URLs, context-dependent rules) are enforced by the
     creator skill and the deterministic scanner, not by this model.
     """
+
+    # The wording above is frozen, "Stage 6" and all. This docstring is exported
+    # as the `description` of SafeMistakeRecord in three committed JSON Schemas,
+    # and `specifications/contract_versions.md` freezes those files by digest —
+    # so rewording it is a submission-contract change requiring a new version
+    # row. The step it names is now step d. Fix the word when the contract
+    # version next moves for a real reason, not before.
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -473,8 +459,73 @@ class SafeMistakeRecord(BaseModel):
         return value
 
 
+class MistakeRecord(BaseModel):
+    """One mistake as steps d and e carry it: shareable content plus its address.
+
+    Two things separate it from :class:`PrivateMistake`, which it replaces.
+
+    It is shareable when written. Step d emits the six fields of
+    :class:`SafeMistakeRecord` with a synthetic example, so no later step has to
+    turn a private record into a safe one and step e confirms rather than
+    repairs. A privacy-scanner hit on a step-d file is therefore a defect in
+    step d, not a filter.
+
+    It carries no ``original_text``. The old record quoted the learner's words
+    and a verifier compared the quote with the span it claimed; a fabricated
+    pair that agreed with itself passed that check. Here the span alone
+    addresses the step-c file the run keeps, and the quote is resolved from
+    there, which makes an invented quote impossible rather than detectable.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    utterance_id: str
+    evidence_span: EvidenceSpan
+    mistake: str
+    rule: str
+    example: str
+    example_type: ExampleType
+    source_type: str
+    modality: Modality
+
+    @field_validator("utterance_id")
+    @classmethod
+    def _utterance_id(cls, value: str) -> str:
+        return _validate_utterance_id(value)
+
+    @property
+    def record_id(self) -> str:
+        """Local identity, derived from the address rather than declared.
+
+        Two records for one utterance may not cover overlapping spans, so the
+        pair is unique within a run and identical across reruns — an ID a model
+        chooses is neither. It stays on the machine: a submission carries
+        :meth:`shareable` alone.
+        """
+        return f"{self.utterance_id}:{self.evidence_span.start}-{self.evidence_span.end}"
+
+    def shareable(self) -> SafeMistakeRecord:
+        """The six fields exactly as Glite would receive them."""
+        return SafeMistakeRecord(
+            mistake=self.mistake,
+            rule=self.rule,
+            example=self.example,
+            example_type=self.example_type,
+            source_type=self.source_type,
+            modality=self.modality,
+        )
+
+    @model_validator(mode="after")
+    def _shareable_on_arrival(self) -> "MistakeRecord":
+        # Every rule SafeMistakeRecord enforces applies at step d rather than at
+        # the submission boundary. A record that cannot become one is a defect
+        # the producing agent fixes while it still has the session in hand.
+        self.shareable()
+        return self
+
+
 class SafeRecordCandidate(BaseModel):
-    """Stage 6/7 private wrapper linking a safe record to its private mistake."""
+    """Private wrapper linking a safe record to its private mistake."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -610,7 +661,7 @@ class ReviewedRecord(BaseModel):
 
 
 class ReviewedSubmissionArtifact(BaseModel):
-    """Stage 8 private artifact: selected records plus review decisions.
+    """Private review artifact: selected records plus review decisions.
 
     Carries the normal private envelope. The exported package is derived from
     it by the materializer, which applies the Section 8.3 allowlist and drops

@@ -18,11 +18,28 @@ from glite_english_audit.estimation.profile import CalibrationRecord, TokenUsage
 
 PRODUCER_VERSION: str = "0.1.0"
 
-# Batch assumption: per-batch fixed overhead (skill text, schema, instructions)
-# is amortized over batches of 25 messages, the batching strategy the profile
-# coefficients were measured with. Callers pass a different size only when the
-# orchestrator actually batches differently.
-ASSUMED_BATCH_SIZE: int = 25
+# How the committed profile was measured: 25 messages per model call. The
+# confidence rule counts calibration samples, and a sample is one measured call,
+# so this stays 25 whatever the pipeline later does.
+CALIBRATED_BATCH_SIZE: int = 25
+
+# How the pipeline now groups work: one model call per session file. The fixed
+# prompt (skill text, schema, instructions) is paid once per call, so the number
+# of calls is what multiplies it — and that is now the session count, not
+# messages divided by 25.
+#
+# Measured on a real run: 141 messages in 20 sessions, 7.05 messages each. At 25
+# per call that run would have made 6 calls; it makes 20, so estimating it the
+# old way understated the fixed overhead by more than a third.
+#
+# This is an assumption and a poor one for any single run — sessions vary from
+# one message to fifty-four in that same sample. It is here because the source
+# inventory reports messages and words but not sessions, so nothing better is
+# available before step a has run. Replacing it with a real per-source session
+# count is the fix; until then :func:`estimate_step` is systematically wrong for
+# anyone whose sessions are shorter than average, which is the direction that
+# understates cost.
+ASSUMED_MESSAGES_PER_SESSION: int = 7
 
 # Placeholder throughput pending real calibration: end-to-end audit throughput
 # observed in early development runs falls roughly in this band. Both bounds
@@ -55,13 +72,13 @@ SECONDS_PER_UNIT_HIGH: float = 11.4
 VERIFY_UNITS_PER_MESSAGE: float = 0.40
 SAFE_RECORD_UNITS_PER_MESSAGE: float = 0.18
 
-# What survives the stage-3 authorship judgment, measured on the 2026-08-09
+# What survives the step-3 authorship judgment, measured on the 2026-08-09
 # real-data run: of 198 candidate utterances holding 8,956 words, 192
 # utterances and 4,265 words were judged the learner's own. Nearly every
 # utterance keeps something, but under half its words do, because the bulk of
 # what a learner pastes into a coding agent was written by someone else.
 #
-# Every step after stage 3 reads the retained text, so estimating them from the
+# Every step after step 3 reads the retained text, so estimating them from the
 # candidate word count overstates them by roughly a factor of two. Both ratios
 # move with the corpus — a learner who pastes less keeps more.
 AUTHORED_WORD_RETENTION: float = 0.48
@@ -153,31 +170,32 @@ class PresetEstimate(BaseModel):
     expected_use: str
 
 
-def estimate_stage(
+def estimate_step(
     words: int,
     utterances: int,
     entry: TokenUsageProfileEntry,
     *,
-    batch_size: int = ASSUMED_BATCH_SIZE,
+    messages_per_call: int = ASSUMED_MESSAGES_PER_SESSION,
 ) -> TokenEstimate:
-    """Estimate total tokens for one stage from per-message coefficients.
+    """Estimate total tokens for one step from per-message coefficients.
 
     Per-message p50/p90 covers input, cached input, and output at the
-    calibrated average message length; the fixed per-batch overhead is added
-    once per batch of ``batch_size`` messages. When the selected text is
-    denser or sparser than the calibrated average, the input side is adjusted
-    by ``input_tokens_per_word`` times the word delta.
+    calibrated average message length; the fixed prompt overhead is added once
+    per model call, and a call now processes one session file of roughly
+    ``messages_per_call`` messages. When the selected text is denser or sparser
+    than the calibrated average, the input side is adjusted by
+    ``input_tokens_per_word`` times the word delta.
     """
     if words < 0 or utterances < 0:
         msg = "words and utterances must be non-negative"
         raise ValueError(msg)
-    if batch_size < 1:
-        msg = "batch_size must be at least 1"
+    if messages_per_call < 1:
+        msg = "messages_per_call must be at least 1"
         raise ValueError(msg)
     if utterances == 0:
         return TokenEstimate(p50_tokens=0, p90_tokens=0)
-    batches = math.ceil(utterances / batch_size)
-    fixed_overhead = batches * entry.fixed_input_tokens_per_batch
+    calls = math.ceil(utterances / messages_per_call)
+    fixed_overhead = calls * entry.fixed_input_tokens_per_batch
     word_delta = words - utterances * entry.average_words_per_message
     word_adjustment = word_delta * entry.input_tokens_per_word
     p50 = utterances * entry.p50_total_tokens_per_message + fixed_overhead + word_adjustment
@@ -187,11 +205,11 @@ def estimate_stage(
     return TokenEstimate(p50_tokens=p50_tokens, p90_tokens=p90_tokens)
 
 
-def estimate_run(stage_estimates: Iterable[TokenEstimate]) -> TokenEstimate:
-    """Sum stage estimates into one run-level estimate."""
+def estimate_run(step_estimates: Iterable[TokenEstimate]) -> TokenEstimate:
+    """Sum step estimates into one run-level estimate."""
     p50_total = 0
     p90_total = 0
-    for estimate in stage_estimates:
+    for estimate in step_estimates:
         p50_total += estimate.p50_tokens
         p90_total += estimate.p90_tokens
     return TokenEstimate(p50_tokens=p50_total, p90_tokens=p90_total)
@@ -270,13 +288,18 @@ def apply_time_confidence(time: TimeRange, confidence: EstimateConfidence) -> Ti
 
 
 def profile_batches(entry: TokenUsageProfileEntry) -> int:
-    """Completed batches behind a committed cell, at the assumed batch size.
+    """Calibration samples behind a committed cell.
 
-    The confidence rule counts batches (specification, 13.7) while the profile
-    records messages, so the committed sample is converted here rather than at
-    each call site.
+    The confidence rule counts measured calls (specification, 13.7) while the
+    profile records messages, so the committed sample is converted here rather
+    than at each call site. It divides by :data:`CALIBRATED_BATCH_SIZE`, not by
+    the pipeline's current grouping: how many samples were taken is a fact about
+    the measurement and does not change when the product regroups its work.
+    Dividing by the smaller number would turn the same evidence into four times
+    as many samples and flip low-confidence cells to high without measuring
+    anything.
     """
-    return entry.messages_measured // ASSUMED_BATCH_SIZE
+    return entry.messages_measured // CALIBRATED_BATCH_SIZE
 
 
 def _percentile(sorted_values: Sequence[float], fraction: float) -> float:

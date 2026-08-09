@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.envelope import utc_now
 
 EventKind = Literal[
@@ -38,7 +38,7 @@ class RunEvent(BaseModel):
 
     at: datetime
     kind: EventKind
-    stage_id: StageId | None = None
+    step_id: StepId | None = None
     artifact_id: str | None = None
     artifact_hash: str | None = None
     replaced_artifact_id: str | None = None
@@ -71,7 +71,7 @@ def log_event(
     run_dir: Path,
     kind: EventKind,
     *,
-    stage_id: StageId | None = None,
+    step_id: StepId | None = None,
     artifact_id: str | None = None,
     artifact_hash: str | None = None,
     replaced_artifact_id: str | None = None,
@@ -82,7 +82,7 @@ def log_event(
     event = RunEvent(
         at=utc_now(),
         kind=kind,
-        stage_id=stage_id,
+        step_id=step_id,
         artifact_id=artifact_id,
         artifact_hash=artifact_hash,
         replaced_artifact_id=replaced_artifact_id,

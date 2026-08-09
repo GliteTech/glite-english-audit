@@ -19,7 +19,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from glite_english_audit.artifacts.enums import StageId
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.models import InstanceInventorySummary, SourceInstanceRecord
 from glite_english_audit.diagnostics.codes import Diagnostic
@@ -28,8 +27,8 @@ from glite_english_audit.discovery.parallel import map_in_threads, thread_count
 from glite_english_audit.discovery.registry import adapter_ids, create_adapter
 from glite_english_audit.paths import (
     detect_os_environment,
+    inventory_path,
     pending_inventory_dir,
-    stage_dir,
 )
 
 
@@ -136,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--run-id",
         default=None,
-        help="run whose stage-0 directory receives the full private records",
+        help="run whose step-0 directory receives the full private records",
     )
     parser.add_argument(
         "--run-dir",
@@ -153,11 +152,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if arguments.run_dir is None:
         if arguments.run_id is not None:
-            arguments.run_dir = stage_dir(
-                arguments.run_id, StageId.SOURCE_INVENTORY, root=arguments.runs_root
-            )
+            arguments.run_dir = inventory_path(arguments.run_id, root=arguments.runs_root).parent
         else:
-            # No run exists yet at stage 0, so the inventory waits in the
+            # No run exists yet at step 0, so the inventory waits in the
             # pending location until start_run adopts it.
             arguments.run_dir = pending_inventory_dir()
             # Remove an abandoned one before writing this one. There is no

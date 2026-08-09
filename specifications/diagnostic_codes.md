@@ -17,10 +17,10 @@ stable diagnostic codes. This document states the conventions and lists the curr
 | `PRIVACY_` | Forbidden patterns in content that must stay privacy-safe |
 | `SUBMISSION_` | Submission allowlist, counts, payload hash |
 | `SOURCE_` | Source discovery, accessibility, snapshot safety |
-| `FINDING_` | Stage-4 findings checked against the strict non-native threshold |
+| `FINDING_` | Step-d mistake records checked against the strict non-native threshold |
 | `STATE_` | Run state machine, checkpoints, resume |
 | `SKILL_` | Canonical skill files and generated wrappers |
-| `AUTHORSHIP_` | Stage-3 authorship decisions checked against their candidate text |
+| `AUTHORSHIP_` | Step-c authored spans checked against their step-b text |
 
 - Each code has a fixed severity: `error` blocks promotion of the artifact, `warning` is
   surfaced and recorded but does not block by itself, `info` is informational.
@@ -106,7 +106,7 @@ Generated from the registry; a sync test fails when this table and the registry 
 | `SOURCE_WSL_HOST_STORE_HINT` | info | A Windows-host data store was seen from WSL; run the audit from native Windows. |
 | `STATE_CHECKPOINT_CORRUPT` | error | A checkpoint or manifest file is unreadable or fails validation. |
 | `STATE_EXPIRED_INPUT` | warning | A private input required for resume passed the 30-day retention limit. |
-| `STATE_INVALID_TRANSITION` | error | A run or stage attempted a transition the state machine forbids. |
+| `STATE_INVALID_TRANSITION` | error | A run or step attempted a transition the state machine forbids. |
 | `STATE_RESUME_INCOMPATIBLE` | warning | A checkpoint fingerprint is incompatible with the current versions. |
 | `STATE_RUN_DIRECTORY_MISMATCH` | error | A run directory name differs from the run ID recorded in its own manifest. |
 | `STATE_RUN_ID_INVALID` | error | A run identifier does not match the required run- plus 32 hex digits form. |

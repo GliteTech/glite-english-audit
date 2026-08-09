@@ -50,12 +50,12 @@ def verify_lineage(envelope: ArtifactEnvelope, manifest: RunManifest) -> list[Di
     diagnostics: list[Diagnostic] = []
     current_ids = {
         state.current_artifact_id
-        for state in manifest.stages.values()
+        for state in manifest.steps.values()
         if state.current_artifact_id is not None
     }
     current_hashes = {
         state.current_artifact_hash
-        for state in manifest.stages.values()
+        for state in manifest.steps.values()
         if state.current_artifact_hash is not None
     }
     for input_id in envelope.input_artifact_ids:

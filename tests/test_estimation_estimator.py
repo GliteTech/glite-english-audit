@@ -13,10 +13,11 @@ from glite_english_audit.estimation.estimator import (
     apply_confidence,
     confidence_for,
     estimate_run,
-    estimate_stage,
+    estimate_step,
     estimate_time,
     format_time_range,
     format_word_count,
+    profile_batches,
     render_preset_table,
     update_estimate,
 )
@@ -69,34 +70,58 @@ def _record(total_tokens: int, **overrides: object) -> CalibrationRecord:
 
 def test_estimate_stage_known_inputs() -> None:
     # 50 messages at the calibrated 40 words each: no word adjustment.
-    # Two batches of 25 add 2 * 1000 fixed tokens.
-    estimate = estimate_stage(2000, 50, _entry())
-    assert estimate == TokenEstimate(p50_tokens=7000, p90_tokens=9500)
+    # ceil(50 / 7) = 8 calls add 8 * 1000 fixed tokens.
+    estimate = estimate_step(2000, 50, _entry())
+    assert estimate == TokenEstimate(p50_tokens=13000, p90_tokens=15500)
 
 
 def test_estimate_stage_word_adjustment_scales_input() -> None:
     # 100 words above the calibrated average add 100 * 2.0 input tokens.
-    estimate = estimate_stage(2100, 50, _entry())
-    assert estimate == TokenEstimate(p50_tokens=7200, p90_tokens=9700)
+    estimate = estimate_step(2100, 50, _entry())
+    assert estimate == TokenEstimate(p50_tokens=13200, p90_tokens=15700)
 
 
 def test_estimate_stage_zero_utterances_is_zero() -> None:
-    assert estimate_stage(0, 0, _entry()) == TokenEstimate(p50_tokens=0, p90_tokens=0)
+    assert estimate_step(0, 0, _entry()) == TokenEstimate(p50_tokens=0, p90_tokens=0)
 
 
 def test_estimate_stage_never_drops_below_fixed_overhead() -> None:
-    # An extreme negative word delta cannot push the estimate below the
-    # per-batch fixed overhead.
-    estimate = estimate_stage(0, 50, _entry(input_tokens_per_word=4.0))
-    assert estimate.p50_tokens == 2000
+    # An extreme negative word delta cannot push the estimate below the fixed
+    # prompt overhead, which is paid once per call whatever the text is.
+    estimate = estimate_step(0, 50, _entry(input_tokens_per_word=4.0))
+    assert estimate.p50_tokens == 8000
     assert estimate.p90_tokens >= estimate.p50_tokens
+
+
+def test_a_call_is_a_session_file_not_a_batch_of_25() -> None:
+    """The fixed prompt is paid per call, and a call is now one session file.
+
+    Measured on a real run: 141 messages in 20 sessions. Amortizing over 25
+    would charge 6 calls for work that makes 20, understating the fixed
+    overhead by more than a third — and the fixed overhead is ~100K tokens per
+    call in the committed profile, not a rounding error.
+    """
+    entry = _entry(input_tokens_per_word=0.0)
+    per_message = 141 * 100  # p50_total_tokens_per_message
+    assert estimate_step(141 * 40, 141, entry).p50_tokens == per_message + 21 * 1000
+    assert (
+        estimate_step(141 * 40, 141, entry, messages_per_call=25).p50_tokens
+        == per_message + 6 * 1000
+    )
+
+
+def test_the_confidence_sample_count_does_not_move_with_the_grouping() -> None:
+    # How many calibration samples were taken is a fact about the measurement.
+    # Dividing it by the pipeline's current grouping would turn the same
+    # evidence into more samples and flip low-confidence cells to high.
+    assert profile_batches(_entry(messages_measured=198)) == 198 // 25
 
 
 def test_estimate_stage_rejects_negative_inputs() -> None:
     with pytest.raises(ValueError, match="non-negative"):
-        estimate_stage(-1, 10, _entry())
-    with pytest.raises(ValueError, match="batch_size"):
-        estimate_stage(100, 10, _entry(), batch_size=0)
+        estimate_step(-1, 10, _entry())
+    with pytest.raises(ValueError, match="messages_per_call"):
+        estimate_step(100, 10, _entry(), messages_per_call=0)
 
 
 def test_estimate_run_sums_stage_estimates() -> None:

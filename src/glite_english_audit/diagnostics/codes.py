@@ -214,7 +214,7 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         severity=Severity.WARNING,
         description="One adapter failed during discovery; the remaining sources continued.",
     ),
-    # Stage-4 semantic finding verification.
+    # Step-d findings checked against the strict non-native threshold.
     DiagnosticDefinition(
         code="FINDING_NATIVE_PLAUSIBLE",
         severity=Severity.ERROR,
@@ -250,7 +250,7 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
     DiagnosticDefinition(
         code="STATE_INVALID_TRANSITION",
         severity=Severity.ERROR,
-        description="A run or stage attempted a transition the state machine forbids.",
+        description="A run or step attempted a transition the state machine forbids.",
     ),
     DiagnosticDefinition(
         code="STATE_RESUME_INCOMPATIBLE",
@@ -355,7 +355,7 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
             "what is stored differ."
         ),
     ),
-    # Stage-3 authorship decisions checked against their candidate text.
+    # Step-c authored spans checked against their step-b text.
     DiagnosticDefinition(
         code="AUTHORSHIP_UNKNOWN_UTTERANCE",
         severity=Severity.ERROR,

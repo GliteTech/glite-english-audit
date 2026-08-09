@@ -1,1 +1,1 @@
-"""Typed artifact contracts: enums, envelope, stage models, manifests, IO."""
+"""Typed artifact contracts: enums, envelope, step models, manifests, IO."""

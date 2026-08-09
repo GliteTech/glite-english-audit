@@ -2,7 +2,7 @@
 name: "prepare-glite-submission"
 description: "Show the user every privacy-approved mistake on a local review page,
 wait while they decide, then report what was sent, what was saved, and what was
-withheld. Use as the last audit stage, after the privacy stage is promoted."
+withheld. Use after step e is promoted, as the last thing an audit does."
 ---
 
 # Prepare Glite Submission
@@ -26,7 +26,7 @@ audit with a clear outcome and honest counts.
 
 ## Inputs
 
-- The run ID whose stages 0-7 are promoted in the run manifest.
+- The run ID whose steps a through e are promoted in the run manifest.
 - The promoted privacy-safe records and the run's `AuditCounts`
   (`src/glite_english_audit/artifacts/models.py`). The commands in Steps read both;
   you never open them yourself.
@@ -86,13 +86,13 @@ uses.
    Don't: starting with a manifest read, so the user's first sight of the final step
    is a spinner.
 
-2. Confirm in the run manifest that stages 0-7 are promoted. If one is not, stop and
+2. Confirm in the run manifest that steps a through e are promoted. If one is not, stop and
    say which step is unfinished. Do not build a review from a partial run.
 3. Make sure the review data exists. If the orchestration already built it for this
    run, go on to step 4. Otherwise run
    `uv run python -m glite_english_audit.pipeline.build_review --run-id <run-id>`.
    It computes the counts from the run's own artifacts and writes the
-   reviewed-submission file into the run's private stage-8 directory with every
+   reviewed-submission file into the run's private submission directory with every
    record included. Its stdout is the count JSON in Output Format. Read that; do not
    open the file it wrote.
 
@@ -127,7 +127,7 @@ uses.
    Don't: retyping, trimming, or prettifying the address. A changed address is a dead
    link, and the user cannot tell that from a typo.
 
-6. Wait while they work in the browser. This wait belongs to this stage; it is not a
+6. Wait while they work in the browser. This wait belongs to the review; it is not a
    mid-run question. Answer questions about what the page shows and change nothing.
 
    Include and exclude decisions are made on the page only. If the user names records

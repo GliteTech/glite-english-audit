@@ -271,7 +271,8 @@ prompts are handled by the downstream normalization and privacy stages.
 `sessionId` from session metadata (J2 first line / J1 top level). Fallback when metadata
 is missing but message records parse: the 8-char ID fragment plus timestamp from the
 filename, reported with a `session_meta_missing` diagnostic. Session IDs are stored only
-as salted local hashes in normalized utterances.
+as local SHA-256 hashes in normalized utterances; the hash is unsalted and never
+leaves the machine.
 
 ### 6.2 Timestamps
 

@@ -212,11 +212,11 @@ def test_an_empty_selection_is_an_error_not_a_table_of_zeros(tmp_path: Path) -> 
 
 
 def test_a_partly_calibrated_runtime_is_low_confidence(tmp_path: Path) -> None:
-    # claude-code has 10 measured find-mistakes batches but only 4 verify and 1
-    # safe-record batches, which is under the 10-batch minimum of 13.7.
+    # claude-code has 10 measured find-mistakes samples but only 4 verify and 1
+    # safe-record samples, which is under the 10-sample minimum of 13.7.
     report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
     assert all(row.confidence is EstimateConfidence.LOW for row in report.presets)
-    assert any("batches have been measured" in note for note in report.notes)
+    assert any("samples have been measured" in note for note in report.notes)
 
 
 def test_an_uncalibrated_runtime_says_so_instead_of_showing_a_bare_number(
@@ -362,7 +362,7 @@ def test_the_low_confidence_note_is_a_sentence_with_a_verb() -> None:
     )
     low = [note for note in notes if note.startswith("Fewer than")]
     assert low, f"no low-confidence note among {notes}"
-    assert "batches have been measured for" in low[0]
+    assert "samples have been measured for" in low[0]
     assert ", and " in low[0]
 
 

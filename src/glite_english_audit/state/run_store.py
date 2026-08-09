@@ -1,7 +1,7 @@
 """Private run store: creation, checkpoints, resume policy, and retention.
 
 One directory per run under the private runtime root holds the manifest, the
-per-stage artifacts, logs, and the submission package (specification, 3.6).
+per-step artifacts, logs, and the submission package (specification, 3.6).
 Resume behavior is deterministic from the compatibility fingerprint
 (specification, 9.4), and retention is state-based: unfinished runs keep their
 private artifacts for 30 days after the last successful checkpoint, completed
@@ -24,8 +24,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
-    StageStatus,
+    StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_run_id
@@ -35,28 +35,35 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.state.machine import advance_run, advance_stage, can_advance_run
+from glite_english_audit.state.machine import advance_run, advance_step, can_advance_run
 
 RUN_MANIFEST_FILENAME = "run-manifest.json"
 RETENTION_DAYS = 30
 """Unfinished-run retention after the last checkpoint (specification, 3.6)."""
 
-EARLIEST_SEMANTIC_STAGE = StageId.PLAIN_FINDINGS
-"""First stage whose output depends on skills, prompts, or model choice."""
+EARLIEST_SEMANTIC_STEP = StepId.C_AUTHORED
+"""First step whose output depends on skills, prompts, or model choice."""
 
-EARLIEST_CLIENT_CODE_STAGE = StageId.SAFE_RECORDS
-"""First stage a pure-Python change invalidates.
+EARLIEST_CLIENT_CODE_STEP = StepId.D_MISTAKES
+"""First step a pure-Python change invalidates.
 
-Stages 6 and 7 depend on the deterministic privacy scanner and the packaging
+Step d depends on the deterministic privacy scanner and the packaging
 allowlist, so a client change may not leave records approved by the previous
 code promoted (specification, 6.6, 8.3).
 """
 
-_PRIVATE_SUBDIRS = ("stages", "logs", "snapshots", "submission")
+_PRIVATE_SUBDIRS = ("steps", "logs", "snapshots", "snapshot-manifests", "submission")
 """Private subtrees of a run directory, created together and expired together.
+
+``steps/`` holds the learner's own sentences at every step, and named
+``steps/`` until the five-step refactor — a rename that left retention
+pointing at an empty directory while every file it was meant to delete sat in
+the new one. ``snapshot-manifests/`` and ``source-inventory.json`` moved to the
+run root in the same change and were outside retention entirely; the inventory
+names local applications and paths, and the manifests list copied source files.
 
 ``snapshots/`` holds verbatim copies of the user's own application data
 (:mod:`glite_english_audit.discovery.snapshot_safety`). Manifest-bounded
@@ -65,8 +72,8 @@ interrupted or failed extraction leaves them behind, so retention must reach
 them too (specification, 3.6).
 """
 
-_CLEANUP_ONLY_SUBDIRS = ("stages", "logs", "snapshots")
-_CLEANUP_ONLY_FILES = ("selection.json", "progress.json")
+_CLEANUP_ONLY_SUBDIRS = ("steps", "logs", "snapshots", "snapshot-manifests")
+_CLEANUP_ONLY_FILES = ("selection.json", "progress.json", "source-inventory.json")
 _FINISHED_STATUSES = frozenset(
     {RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_EXCLUSIONS, RunStatus.EXPIRED}
 )
@@ -96,7 +103,7 @@ class ResumeAssessment(BaseModel):
 
     decision: ResumeDecision
     detail: str
-    earliest_affected_stage: StageId | None = None
+    earliest_affected_step: StepId | None = None
     diagnostic: Diagnostic | None = None
     """The stable code for this refusal, when there is one.
 
@@ -114,7 +121,7 @@ class RunSummary(BaseModel):
     run_id: str
     started_at: datetime
     status: RunStatus
-    last_promoted_stage: StageId | None
+    last_promoted_step: StepId | None
     last_checkpoint_at: datetime | None
     checkpoint_age: timedelta
 
@@ -159,7 +166,7 @@ def create_run(
         status=RunStatus.CREATED,
         consent=consent,
         selection=None,
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=fingerprint,
         last_checkpoint_at=None,
     )
@@ -222,9 +229,9 @@ def load_manifest(run_id: str, *, root: Path | None = None) -> RunManifest:
     return _load_manifest_in(_run_directory(run_id, root))
 
 
-def _last_promoted_stage(manifest: RunManifest) -> StageId | None:
+def _last_promoted_step(manifest: RunManifest) -> StepId | None:
     promoted = [
-        stage for stage, state in manifest.stages.items() if state.status is StageStatus.PROMOTED
+        step for step, state in manifest.steps.items() if state.status is StepStatus.PROMOTED
     ]
     return max(promoted) if promoted else None
 
@@ -261,7 +268,7 @@ def list_unfinished(
                 run_id=manifest.run_id,
                 started_at=manifest.created_at,
                 status=manifest.status,
-                last_promoted_stage=_last_promoted_stage(manifest),
+                last_promoted_step=_last_promoted_step(manifest),
                 last_checkpoint_at=manifest.last_checkpoint_at,
                 checkpoint_age=moment - _last_checkpoint(manifest),
             )
@@ -345,37 +352,38 @@ def describe_resume(
         )
 
     downstream_changes = [
-        (name, stage)
-        for name, stage, matches in (
+        (name, step)
+        for name, step, matches in (
             (
                 "skill versions",
-                EARLIEST_SEMANTIC_STAGE,
+                EARLIEST_SEMANTIC_STEP,
                 recorded.skill_versions == current.skill_versions,
             ),
             (
                 "prompt versions",
-                EARLIEST_SEMANTIC_STAGE,
+                EARLIEST_SEMANTIC_STEP,
                 recorded.prompt_versions == current.prompt_versions,
             ),
-            ("model ids", EARLIEST_SEMANTIC_STAGE, recorded.model_ids == current.model_ids),
+            ("model ids", EARLIEST_SEMANTIC_STEP, recorded.model_ids == current.model_ids),
             (
                 "client version",
-                EARLIEST_CLIENT_CODE_STAGE,
+                EARLIEST_CLIENT_CODE_STEP,
                 recorded.client_version == current.client_version,
             ),
         )
         if not matches
     ]
     if downstream_changes:
-        earliest = min(stage for _, stage in downstream_changes)
+        earliest = min(step for _, step in downstream_changes)
         names = [name for name, _ in downstream_changes]
         return ResumeAssessment(
             decision=ResumeDecision.INVALIDATE_DOWNSTREAM,
             detail=(
                 f"Changed since the checkpoint: {', '.join(names)}. "
-                f"Stage {int(earliest)} and later are recomputed after a refreshed preflight."
+                f"Step {paths.step_dir_name(earliest)[0]} and later are recomputed "
+                "after a refreshed preflight."
             ),
-            earliest_affected_stage=earliest,
+            earliest_affected_step=earliest,
         )
 
     return ResumeAssessment(
@@ -384,46 +392,46 @@ def describe_resume(
     )
 
 
-def next_incomplete_stage(manifest: RunManifest) -> StageId | None:
-    """The earliest stage that is not promoted, or ``None`` when all are.
+def next_incomplete_step(manifest: RunManifest) -> StepId | None:
+    """The earliest step that is not promoted, or ``None`` when all are.
 
-    Where a continued run resumes (specification, 9.4). A stage below a
+    Where a continued run resumes (specification, 9.4). A step below a
     promoted one counts as incomplete too: its output is missing, so anything
     later rests on nothing and has to be recomputed after it.
     """
-    for stage in sorted(manifest.stages):
-        if manifest.stages[stage].status is not StageStatus.PROMOTED:
-            return stage
+    for step in sorted(manifest.steps):
+        if manifest.steps[step].status is not StepStatus.PROMOTED:
+            return step
     return None
 
 
 def invalidate_from(
     manifest: RunManifest,
-    earliest: StageId,
+    earliest: StepId,
     *,
     now: datetime | None = None,
-) -> list[StageId]:
-    """Invalidate ``earliest`` and every promoted stage after it.
+) -> list[StepId]:
+    """Invalidate ``earliest`` and every promoted step after it.
 
     The invalidate-downstream branch of the resume policy (specification, 9.4,
-    6.5). Only promoted stages move: a quarantined or failed stage keeps its
+    6.5). Only promoted steps move: a quarantined or failed step keeps its
     status, so its diagnostic history survives the decision. The artifact
-    pointer is cleared with the status, because a stage that must be recomputed
+    pointer is cleared with the status, because a step that must be recomputed
     may not stay the manifest's current artifact for lineage checks.
 
     Callers save the manifest; this function only edits it.
     """
     moment = now if now is not None else utc_now()
-    invalidated: list[StageId] = []
-    for stage in sorted(manifest.stages):
-        state = manifest.stages[stage]
-        if stage < earliest or state.status is not StageStatus.PROMOTED:
+    invalidated: list[StepId] = []
+    for step in sorted(manifest.steps):
+        state = manifest.steps[step]
+        if step < earliest or state.status is not StepStatus.PROMOTED:
             continue
-        state.status = advance_stage(state.status, StageStatus.INVALIDATED, stage=stage)
+        state.status = advance_step(state.status, StepStatus.INVALIDATED, step=step)
         state.current_artifact_id = None
         state.current_artifact_hash = None
         state.updated_at = moment
-        invalidated.append(stage)
+        invalidated.append(step)
     return invalidated
 
 
@@ -520,8 +528,8 @@ def expire_stale_runs(
     """Apply the 30-day retention rule to unfinished runs (specification, 3.6).
 
     Marks each stale manifest EXPIRED via the state machine, then deletes every
-    private subtree, snapshots included. The manifest itself is kept. Returns
-    the expired run IDs.
+    private subtree, snapshots included, and the private run-root files. Only
+    the manifest is kept. Returns the expired run IDs.
 
     Each directory is read and written through itself. A directory whose name
     disagrees with its manifest is left alone: writing through the claimed ID
@@ -554,6 +562,12 @@ def expire_stale_runs(
         _save_manifest_in(child, manifest)
         for name in _PRIVATE_SUBDIRS:
             _delete_subtree(child, name)
+        for name in _CLEANUP_ONLY_FILES:
+            # Expiry deleted only subtrees, so the run-root files outlived the
+            # retention rule. source-inventory.json names the user's local
+            # applications and the absolute paths they store data under, which
+            # is the most locating thing a finished run can leave behind.
+            (child / name).unlink(missing_ok=True)
         expired.append(manifest.run_id)
     return expired
 
@@ -562,8 +576,9 @@ def cleanup_completed(manifest_dir: Path) -> None:
     """Apply completed-run retention to one run directory (specification, 3.6).
 
     Keeps only the ``submission/`` package and the run manifest; deletes
-    ``stages/``, ``logs/``, any snapshot left behind by a source whose
-    extraction failed, and the private selection and progress files.
+    ``steps/``, ``logs/``, the snapshot manifests, any snapshot left behind by
+    a source whose extraction failed, and the private run-root files including
+    the source inventory.
     """
     _refuse_symlinked_run_directory(manifest_dir)
     manifest_path = manifest_dir / RUN_MANIFEST_FILENAME

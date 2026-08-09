@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.state.event_log import RunEvent, log_event, read_events
 
 
@@ -14,14 +14,14 @@ def test_append_and_read_round_trip(tmp_path: Path) -> None:
     first = log_event(
         tmp_path,
         "artifact_produced",
-        stage_id=StageId.PLAIN_FINDINGS,
+        step_id=StepId.D_MISTAKES,
         artifact_id="art-" + "a" * 32,
         artifact_hash="b" * 64,
     )
     second = log_event(
         tmp_path,
         "artifact_replaced",
-        stage_id=StageId.PLAIN_FINDINGS,
+        step_id=StepId.D_MISTAKES,
         artifact_id="art-" + "c" * 32,
         replaced_artifact_id="art-" + "a" * 32,
         diagnostic_codes=["LINEAGE_HASH_MISMATCH"],
@@ -49,7 +49,7 @@ def test_model_has_no_free_text_field() -> None:
     allowed = {
         "at",
         "kind",
-        "stage_id",
+        "step_id",
         "artifact_id",
         "artifact_hash",
         "replaced_artifact_id",

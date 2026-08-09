@@ -2,7 +2,7 @@
 name: "prepare-glite-submission"
 description: "Show the user every privacy-approved mistake on a local review page,
 wait while they decide, then report what was sent, what was saved, and what was
-withheld. Use as the last audit stage, after the privacy stage is promoted."
+withheld. Use after step e is promoted, as the last thing an audit does."
 ---
 
 # prepare-glite-submission wrapper

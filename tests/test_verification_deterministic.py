@@ -10,7 +10,7 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageId,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import sha256_hex
@@ -18,7 +18,7 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.artifacts.models import (
     AuditCounts,
@@ -60,7 +60,7 @@ def _envelope(
         schema_version=1,
         artifact_id="art-" + "11" * 16,
         run_id=_RUN_ID,
-        stage_id=StageId.REVIEWED_SUBMISSION,
+        step_id=StepId.E_VERIFIED,
         producer_name="test-factory",
         producer_version="1.0.0",
         input_artifact_ids=input_artifact_ids or [],
@@ -70,8 +70,8 @@ def _envelope(
 
 
 def _manifest(*, artifact_id: str, artifact_hash: str) -> RunManifest:
-    stages = empty_stage_map()
-    state = stages[StageId.PRIVACY_APPROVED]
+    steps = empty_step_map()
+    state = steps[StepId.E_VERIFIED]
     state.current_artifact_id = artifact_id
     state.current_artifact_hash = artifact_hash
     return RunManifest(
@@ -82,7 +82,7 @@ def _manifest(*, artifact_id: str, artifact_hash: str) -> RunManifest:
         os_environment=OsEnvironment.MACOS,
         status=RunStatus.PROCESSING,
         consent=ConsentState(consent_policy_version="2026-01"),
-        stages=stages,
+        steps=steps,
         fingerprint=CompatibilityFingerprint(
             adapter_versions={},
             artifact_schema_version=1,

@@ -257,7 +257,7 @@ def profiles_differ(profile: TokenUsageProfile, *, runtime: str) -> bool:
 
     When they would not, asking the user to choose between them is a question
     with one real answer, and the honest move is to say which models will be
-    used rather than to stage a choice.
+    used rather than to step a choice.
     """
     return resolve_models(
         profile, runtime=runtime, processing_profile="recommended"

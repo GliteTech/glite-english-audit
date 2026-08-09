@@ -21,12 +21,30 @@ been tested, per adapter and per platform.
 2. You choose sources and a time period, see token, time, and cost estimates, and confirm.
 3. Only then is the selected text sent — through your own active agent runtime — to your current
    AI provider for analysis. Glite never receives your raw text.
-4. Every finding is verified by an independent second pass, turned into a privacy-safe record, and
-   checked again by an independent privacy audit.
+4. Findings are produced as privacy-safe records in the first place, with synthetic example
+   sentences, and a separate confidentiality pass confirms that before anything can be reviewed.
 5. A local review page (loopback only) lists the privacy-safe example from every record. Each info
    button shows the full record, and a closed disclosure holds the exact submission JSON. You can
    exclude any record and download the resulting package. When a compatible Glite endpoint is
    configured, the page can also submit anonymously.
+
+## The five steps
+
+One session is one file, and that file keeps its name through every step, so what any step did to
+any session is a line-by-line diff:
+
+```text
+runtime/runs/<run-id>/steps/
+├── a-collected/       your messages, exactly as the applications stored them   (script)
+├── b-deduplicated/    the same text said twice, kept once                      (script)
+├── c-authored/        everything you did not write yourself removed            (agent)
+├── d-mistakes/        privacy-safe mistake records                             (agent)
+└── e-verified/        confidentiality confirmed                                (agent)
+```
+
+Steps a and b are ordinary local scripts and never involve a model. Steps c, d and e run one agent
+per file, in parallel. Filenames are opaque sequence numbers — `session-0001.jsonl` — so no session
+identity reaches the model; the mapping stays in a local index that is never sent anywhere.
 
 ## Supported sources
 
@@ -94,12 +112,12 @@ not. You then pick a period and see an estimate before anything is sent to a pro
 `runtime/` directory: one place to inspect and one place to delete, identical on every
 platform. Deleting the checkout removes every trace of your audits with it. Say
 "Run an English audit" again and the agent offers any unfinished run. The resume decision is
-deterministic: matching versions continue from the next utterance; changed skills, prompts, or
-models recompute findings and later stages; changed adapter, artifact-schema, tokenizer, or consent
-versions require a new run. Unfinished runs keep their private artifacts for 30 days after the last
-checkpoint.
+deterministic: matching versions continue from the next session file; changed skills, prompts, or
+models recompute findings and every later step; changed adapter, artifact-schema, tokenizer, or
+consent versions require a new run. Unfinished runs keep their private artifacts for 30 days after
+the last checkpoint.
 
-**Review and submission.** The last stage starts a loopback review page and prints its address. The
+**Review and submission.** After step e, a loopback review page starts and prints its address. The
 page gives each record one compact row showing its privacy-safe submitted example; the example may
 be synthetic, and its info button reveals the complete record. You can include or exclude records,
 but not edit them. Excluding a record removes its details and still adds one to the anonymous
@@ -174,7 +192,7 @@ consent versions changed since the checkpoint.
 the token is part of the path, and any other path returns 404. Open it on the same machine, since
 the server binds only to loopback. It stops after 30 minutes without a request; restart it with
 `uv run python -m glite_english_audit.review_server --run-id <run-id>`. If it prints "This run has
-nothing to review yet," the run has not reached the review stage.
+nothing to review yet," the run has not finished step e.
 
 **A review checkbox will not stay changed.** A saved HTML copy cannot write decisions, and a live
 page loses that ability after its local server stops. Restart the command above and open the new

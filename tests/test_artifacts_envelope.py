@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 
 _HEX64 = "a" * 64
@@ -18,7 +18,7 @@ def _envelope(**overrides: Any) -> ArtifactEnvelope:
         "schema_version": 1,
         "artifact_id": "art-" + "0" * 32,
         "run_id": "run-" + "0" * 32,
-        "stage_id": StageId.SOURCE_INVENTORY,
+        "step_id": StepId.A_COLLECTED,
         "producer_name": "test-producer",
         "producer_version": "0.0.1",
         "created_at": datetime(2026, 8, 8, 12, 0, 0, tzinfo=UTC),

@@ -263,7 +263,8 @@ flagged `content_flags: ["unknown_wrapper"]` for normalization quarantine.
 
 ## 5. Sessions, timestamps, and deduplication
 
-- Session identity: the task directory name (`taskId`). Reported only as a salted local hash.
+- Session identity: the task directory name (`taskId`). Reported only as a local SHA-256 hash,
+  unsalted and never sent anywhere.
   One task = one session; delegation trees are separate sessions (children excluded by 4.1).
 - Timestamps: per-record `ts` (epoch ms) when present; fallback order: `history_item.json`
   `ts` (task start), min/max `ts` in `ui_messages.json` (structure-only read of the `ts`

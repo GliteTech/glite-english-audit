@@ -1,7 +1,7 @@
 """The review URL the skill tells the user must be the one the server serves.
 
 A skill that announces a different address sends the user to a 404 at the last
-step of the audit, after every other stage has already succeeded.
+step of the audit, after every other step has already succeeded.
 """
 
 import re

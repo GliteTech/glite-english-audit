@@ -3,7 +3,7 @@
 This is the defect this project keeps producing. Each time, a capability was
 built, tested, and left with no caller: the state machine no driver used, the
 privacy report nothing read, the consent fields nothing wrote, the choice-saving
-command no skill ran, the stage-3 corpus verifier nobody invoked. Every one had
+command no skill ran, the step-c corpus verifier nobody invoked. Every one had
 passing unit tests. Tests prove a function works; they cannot notice that the
 product never calls it.
 
@@ -33,12 +33,6 @@ NO_SKILL_CALLER: dict[str, str] = {
     "verification.generate_wrappers": (
         "maintainer tool: regenerates the .claude and .codex skill wrappers. A run "
         "reads the wrappers; it never rebuilds them."
-    ),
-    "normalization.filter_corpus": (
-        "the stage-3 fallback path, applying the pre-filter alone with no model "
-        "judgment. Used by tests and where no model is available. A real run uses "
-        "the model path, so no skill names it, and the fallback is documented as "
-        "understating every rate."
     ),
 }
 

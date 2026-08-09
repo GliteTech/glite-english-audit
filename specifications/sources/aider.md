@@ -272,7 +272,7 @@ handled by the downstream normalization and privacy stages, not by the adapter.
 ## 7. Sessions, timestamps, and deduplication
 
 - Sessions: the input history has no session markers; the adapter emits one pseudo-session per
-  file (`session_hash` = salted hash of the canonical file path). Chat-markdown fallback
+  file (`session_hash` = SHA-256 of the canonical file path, unsalted). Chat-markdown fallback
   sessions come from `# aider chat started` banners (banner index appended to the hash input).
 - Timestamps: naive local time in both files. The adapter stores them as timezone-unknown
   local timestamps; period filtering compares them against local-time period boundaries and

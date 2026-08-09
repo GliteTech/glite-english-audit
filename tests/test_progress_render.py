@@ -4,7 +4,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.progress.progress import (
+    STEP_TITLES,
+    STEP_TOTAL,
     EstimateRange,
     ProgressState,
     ProgressThrottle,
@@ -14,12 +17,34 @@ from glite_english_audit.progress.progress import (
 )
 
 
+def test_every_step_has_exactly_one_title() -> None:
+    """The user-visible step count is the pipeline's, not a number typed twice.
+
+    ``STEP_TOTAL`` was 8 under the nine-step layout and appeared as a literal
+    in the orchestration skill, so the two could disagree without anything
+    failing. Deriving it from the titles makes adding a step to the enum and
+    forgetting to name it a test failure instead.
+    """
+    assert set(STEP_TITLES) == set(StepId)
+    assert len(StepId) == STEP_TOTAL
+    assert len(set(STEP_TITLES.values())) == STEP_TOTAL
+
+
+def test_step_titles_say_what_happens_to_the_user_not_to_the_data() -> None:
+    # A person watching a run should not need the repository open to know what
+    # it is doing. Internal vocabulary in a progress line is the same defect as
+    # an internal word in a consent question.
+    internal = ("utterance", "corpus", "artifact", "adapter", "authorship", "jsonl")
+    for title in STEP_TITLES.values():
+        assert not any(word in title.lower() for word in internal), title
+
+
 def _state(**overrides: object) -> ProgressState:
     base: dict[str, object] = {
         "run_id": "run-test",
         "overall_percent": 23,
         "step_number": 3,
-        "step_title": "Filtering authored English",
+        "step_title": "Keeping only what you wrote",
         "per_source": [
             SourceProgress(label="Claude Code", done=120, total=400),
             SourceProgress(label="Codex", done=10, total=50),
@@ -37,7 +62,7 @@ def test_render_matches_spec_shape_exactly() -> None:
     expected = (
         "English audit — 23% complete\n"
         "\n"
-        "Step 3 of 8: Filtering authored English\n"
+        "Step 3 of 5: Keeping only what you wrote\n"
         "Claude Code: 120 of 400 sessions processed — 30%\n"
         "Codex: 10 of 50 sessions processed — 20%\n"
         "This step: 28% · Overall: 23%\n"
@@ -55,8 +80,8 @@ def test_render_matches_spec_shape_exactly() -> None:
 def test_render_single_source_percentages() -> None:
     state = _state(
         overall_percent=8,
-        step_number=2,
-        step_title="Collecting selected English",
+        step_number=1,
+        step_title="Collecting your messages",
         per_source=[SourceProgress(label="Claude Code", done=238, total=506)],
         collected_messages=1482,
         collected_words=31620,
@@ -65,7 +90,7 @@ def test_render_single_source_percentages() -> None:
     )
     rendered = render_progress(state)
     assert "English audit — 8% complete" in rendered
-    assert "Step 2 of 8: Collecting selected English" in rendered
+    assert "Step 1 of 5: Collecting your messages" in rendered
     assert "Claude Code: 238 of 506 sessions processed — 47%" in rendered
     assert "This step: 47% · Overall: 8%" in rendered
     assert "1,482 eligible messages" in rendered
@@ -176,7 +201,7 @@ def test_throttle_suppression_does_not_reset_the_clock() -> None:
 def test_throttle_stage_change_bypasses_minimum() -> None:
     throttle = ProgressThrottle()
     assert throttle.should_emit(_START)
-    assert throttle.should_emit(_START + timedelta(seconds=1), stage_changed=True)
+    assert throttle.should_emit(_START + timedelta(seconds=1), step_changed=True)
 
 
 def test_throttle_warning_bypasses_minimum() -> None:
@@ -210,7 +235,7 @@ def test_millions_of_tokens_read_as_millions() -> None:
 
 
 def test_the_work_unit_follows_the_step() -> None:
-    """Early steps walk sessions; from stage 3 on the unit is messages. Calling
+    """Early steps walk sessions; from step 3 on the unit is messages. Calling
     messages sessions understates a user's history by more than an order of
     magnitude."""
     state = _state()
