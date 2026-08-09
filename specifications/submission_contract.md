@@ -103,6 +103,16 @@ Reference implementation: `compute_payload_hash()` / `verify_payload_hash()` in 
 built on `model_canonical_hash()` in `artifacts/hashing.py`. The canonical form is deliberately
 simple so the TypeScript website reproduces it byte for byte.
 
+A golden vector pins those bytes, in `tests/test_canonical_hash_vector.py`: a fixed synthetic
+payload of 374 bytes whose SHA-256 is
+`0994bc4f6f82ab9fb2617bbdba0ce89c91a6839e0e8c855bce6ea80bb7b0d3c4`. A second implementation
+should reproduce that digest before it is trusted with a real upload. Every other hash test here
+round-trips against this same Python, so all of them would still pass if the canonical form
+changed — and the website, written against the old form, would begin rejecting every upload. The
+vector is deliberately awkward in the four ways a second implementation gets wrong: key order
+that differs from insertion order, no whitespace between tokens, non-ASCII left raw rather than
+escaped, and nested objects that must sort at every level.
+
 ## 5. Idempotency and conflict semantics
 
 - The server binds each `submission_id` to its canonical package hash on first acceptance.
