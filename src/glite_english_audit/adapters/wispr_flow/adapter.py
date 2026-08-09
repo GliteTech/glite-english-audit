@@ -51,6 +51,7 @@ from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
     SourceInstanceRecord,
+    safe_id_part,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery.base import (
@@ -614,7 +615,9 @@ class WisprFlowAdapter:
                 session_basis = f"{ADAPTER_ID}|transcript|{row.transcript_entity_id}"
             session_hash = _hash_text(session_basis)
             yield NormalizedUtterance(
-                utterance_id=f"{ADAPTER_ID}-{session_hash[:16]}-{row.transcript_entity_id}",
+                utterance_id=(
+                    f"{ADAPTER_ID}-{session_hash[:16]}-{safe_id_part(row.transcript_entity_id)}"
+                ),
                 source_adapter=ADAPTER_ID,
                 adapter_version=ADAPTER_VERSION,
                 session_hash=session_hash,

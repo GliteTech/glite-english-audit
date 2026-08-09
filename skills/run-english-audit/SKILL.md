@@ -233,6 +233,9 @@ runtime; naming both is confusing and wrong.
      null, which is the honest record of a question nobody asked — and it is also
      why a run whose flags you forgot cannot satisfy the consent line under Done
      When. Never pass a flag to make that line pass.
+     Forgetting one is not silent: the stages that read source files or prepare
+     provider-bound text refuse to run without the matching timestamp, so the run
+     stops and tells you which consent is missing.
    - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
      --run-id <run-id>`. It snapshots each selected instance under the safety gates,
      extracts candidates from the snapshot only, removes each snapshot as soon as its

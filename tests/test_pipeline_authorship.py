@@ -20,20 +20,17 @@ from glite_english_audit.artifacts.enums import (
     StageId,
     TextStatus,
 )
-from glite_english_audit.artifacts.io import (
-    ensure_private_dir,
-    read_jsonl_models,
-    write_jsonl_models,
-    write_model,
-)
+from glite_english_audit.artifacts.io import read_jsonl_models, write_jsonl_models, write_model
 from glite_english_audit.artifacts.manifest import (
+    MANIFEST_SCHEMA_VERSION,
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
     empty_stage_map,
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance
-from glite_english_audit.normalization.tokenizer import count_words
+from glite_english_audit.consent import CONSENT_POLICY_VERSION, MissingConsentError
+from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import stage_dir
 from glite_english_audit.pipeline.apply_authorship import apply_authorship
 from glite_english_audit.pipeline.authorship_batches import (
@@ -43,6 +40,7 @@ from glite_english_audit.pipeline.authorship_batches import (
     decisions_dir,
     prepare_authorship_batches,
 )
+from glite_english_audit.state.run_store import RUN_MANIFEST_FILENAME, RunStoreError
 from glite_english_audit.verification.verify_corpus import verify_corpus
 
 _RUN = "run-" + "2" * 32
@@ -74,41 +72,38 @@ def _utterance(index: int, text: str) -> NormalizedUtterance:
     )
 
 
-def _seed_manifest(runs_root: Path) -> None:
-    """A run this stage can record its progress in.
-
-    apply_authorship promotes stage 3 when the corpus is durable, and there is
-    nowhere to record that without a manifest. Seeding one here keeps these
-    tests exercising the real driver rather than a variant that skips its own
-    bookkeeping.
-    """
+def _write_manifest(runs_root: Path, *, provider_transfer_consent: bool) -> None:
+    moment = datetime(2026, 8, 1, tzinfo=UTC)
     manifest = RunManifest(
-        manifest_schema_version=1,
+        manifest_schema_version=MANIFEST_SCHEMA_VERSION,
         run_id=_RUN,
-        created_at=_NOW,
+        created_at=moment,
         runtime=AgentRuntime.CLAUDE_CODE,
         os_environment=OsEnvironment.MACOS,
-        status=RunStatus.AWAITING_PREFLIGHT,
-        consent=ConsentState(consent_policy_version="1", local_scan_confirmed_at=_NOW),
-        selection=None,
+        status=RunStatus.PROCESSING,
+        consent=ConsentState(
+            consent_policy_version=CONSENT_POLICY_VERSION,
+            local_scan_confirmed_at=moment,
+            provider_transfer_confirmed_at=moment if provider_transfer_consent else None,
+        ),
         stages=empty_stage_map(),
         fingerprint=CompatibilityFingerprint(
-            adapter_versions={"claude_code": "1.0.0"},
-            artifact_schema_version=1,
-            tokenizer_version="1.0.0",
-            skill_versions={"filter-authored-english": 1},
-            prompt_versions={"judge-authorship": 1},
-            model_ids={"judge-authorship": "example-model-1"},
-            consent_policy_version="1",
+            adapter_versions={},
+            artifact_schema_version=MANIFEST_SCHEMA_VERSION,
+            tokenizer_version=TOKENIZER_VERSION,
+            skill_versions={},
+            prompt_versions={},
+            model_ids={},
+            consent_policy_version=CONSENT_POLICY_VERSION,
         ),
-        last_checkpoint_at=None,
     )
-    ensure_private_dir(runs_root / _RUN)
-    write_model(runs_root / _RUN / "run-manifest.json", manifest)
+    run_directory = runs_root / _RUN
+    run_directory.mkdir(parents=True, exist_ok=True)
+    write_model(run_directory / RUN_MANIFEST_FILENAME, manifest)
 
 
-def _seed(runs_root: Path) -> None:
-    _seed_manifest(runs_root)
+def _seed(runs_root: Path, *, provider_transfer_consent: bool = True) -> None:
+    _write_manifest(runs_root, provider_transfer_consent=provider_transfer_consent)
     candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=runs_root)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(
@@ -164,6 +159,22 @@ def _all_retained(runs_root: Path) -> list[dict[str, object]]:
 
 
 # --- the batch driver ------------------------------------------------------
+
+
+def test_batching_refuses_a_run_without_provider_transfer_consent(tmp_path: Path) -> None:
+    _seed(tmp_path, provider_transfer_consent=False)
+    with pytest.raises(MissingConsentError):
+        prepare_authorship_batches(_RUN, runs_root=tmp_path)
+    assert not batch_dir(_RUN, runs_root=tmp_path).exists()
+
+
+def test_batching_refuses_a_run_with_no_manifest_at_all(tmp_path: Path) -> None:
+    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
+    candidates_dir.mkdir(parents=True)
+    write_jsonl_models(candidates_dir / "candidates.jsonl", [_utterance(1, _PLAIN)])
+    with pytest.raises(RunStoreError):
+        prepare_authorship_batches(_RUN, runs_root=tmp_path)
+    assert not batch_dir(_RUN, runs_root=tmp_path).exists()
 
 
 def test_batches_carry_pre_filtered_candidates_in_the_skill_shape(tmp_path: Path) -> None:

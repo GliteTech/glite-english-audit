@@ -16,9 +16,25 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import Modality, StageId, TextStatus
-from glite_english_audit.artifacts.io import write_jsonl_models
+from glite_english_audit.artifacts.enums import (
+    AgentRuntime,
+    Modality,
+    OsEnvironment,
+    RunStatus,
+    StageId,
+    TextStatus,
+)
+from glite_english_audit.artifacts.io import write_jsonl_models, write_model
+from glite_english_audit.artifacts.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    CompatibilityFingerprint,
+    ConsentState,
+    RunManifest,
+    empty_stage_map,
+)
 from glite_english_audit.artifacts.models import NormalizedUtterance
+from glite_english_audit.consent import CONSENT_POLICY_VERSION
+from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import repo_root, stage_dir
 from glite_english_audit.pipeline.authorship_batches import (
     BATCH_GLOB,
@@ -27,8 +43,10 @@ from glite_english_audit.pipeline.authorship_batches import (
     prepare_authorship_batches,
 )
 from glite_english_audit.pipeline.batches import AnalysisUtterance, prepare_batches
+from glite_english_audit.state.run_store import RUN_MANIFEST_FILENAME
 
 _RUN = "run-" + "3" * 32
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
 
 
 def _utterance(index: int, text: str) -> NormalizedUtterance:
@@ -60,7 +78,43 @@ def _skill_text(slug: str) -> str:
     return (repo_root() / "skills" / slug / "SKILL.md").read_text(encoding="utf-8")
 
 
+def _seed_consented_run(runs_root: Path) -> None:
+    """A run allowed to prepare provider-bound text.
+
+    Both batch writers refuse without this run's own provider-transfer consent,
+    which is the point of that guard: these files exist only to be handed to an
+    AI provider. The contract under test is the line shape, so the consent is
+    granted here rather than worked around.
+    """
+    manifest = RunManifest(
+        manifest_schema_version=MANIFEST_SCHEMA_VERSION,
+        run_id=_RUN,
+        created_at=_NOW,
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment=OsEnvironment.MACOS,
+        status=RunStatus.PROCESSING,
+        consent=ConsentState(
+            consent_policy_version=CONSENT_POLICY_VERSION,
+            local_scan_confirmed_at=_NOW,
+            provider_transfer_confirmed_at=_NOW,
+        ),
+        stages=empty_stage_map(),
+        fingerprint=CompatibilityFingerprint(
+            adapter_versions={},
+            artifact_schema_version=MANIFEST_SCHEMA_VERSION,
+            tokenizer_version=TOKENIZER_VERSION,
+            skill_versions={},
+            prompt_versions={},
+            model_ids={},
+            consent_policy_version=CONSENT_POLICY_VERSION,
+        ),
+    )
+    (runs_root / _RUN).mkdir(parents=True, exist_ok=True)
+    write_model(runs_root / _RUN / RUN_MANIFEST_FILENAME, manifest)
+
+
 def test_stage4_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path) -> None:
+    _seed_consented_run(tmp_path)
     corpus_dir = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=tmp_path)
     corpus_dir.mkdir(parents=True)
     write_jsonl_models(
@@ -82,6 +136,7 @@ def test_stage4_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path
 
 
 def test_stage3_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path) -> None:
+    _seed_consented_run(tmp_path)
     candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(

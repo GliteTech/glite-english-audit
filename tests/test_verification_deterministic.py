@@ -246,7 +246,9 @@ def test_verify_submission_package_empty_records() -> None:
     assert _codes(diagnostics) == ["SUBMISSION_NO_RECORDS"]
 
 
-@pytest.mark.parametrize("field", ["producer_version", "privacy_verifier_version"])
+@pytest.mark.parametrize(
+    "field", ["producer_version", "privacy_verifier_version", "client_version"]
+)
 def test_verify_submission_package_flags_free_form_version(field: str) -> None:
     # A package can reach the gate from disk or from another machine, so the
     # gate re-checks the version fields instead of trusting the materializer.

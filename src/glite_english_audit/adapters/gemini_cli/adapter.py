@@ -37,6 +37,7 @@ from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
     SourceInstanceRecord,
+    safe_id_part,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery.base import (
@@ -559,7 +560,9 @@ class GeminiCliAdapter:
             if scan.session_meta_missing:
                 flags.add("session_meta_missing")
             yield NormalizedUtterance(
-                utterance_id=f"{ADAPTER_ID}-{session_hash[:16]}-{message.message_id}",
+                utterance_id=(
+                    f"{ADAPTER_ID}-{session_hash[:16]}-{safe_id_part(message.message_id)}"
+                ),
                 source_adapter=ADAPTER_ID,
                 adapter_version=ADAPTER_VERSION,
                 session_hash=session_hash,

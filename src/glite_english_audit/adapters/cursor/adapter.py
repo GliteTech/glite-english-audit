@@ -56,6 +56,7 @@ from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
     SourceInstanceRecord,
+    safe_id_part,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery.base import (
@@ -770,7 +771,7 @@ class CursorAdapter:
         if emit and scan is not None:
             for bubble in scan.extracted:
                 session_hash = _hash_text(bubble.composer_id)
-                utterance_id = f"{ADAPTER_ID}-{session_hash[:16]}-{bubble.bubble_id}"
+                utterance_id = f"{ADAPTER_ID}-{session_hash[:16]}-{safe_id_part(bubble.bubble_id)}"
                 if utterance_id in digests:
                     # The same composer and bubble can be stored in more than
                     # one database of a Cursor installation, so the identical

@@ -203,6 +203,17 @@ def test_package_rejects_records_vs_shared_count_mismatch() -> None:
         _package([_record()], counts=_counts(shared=0))
 
 
+def test_package_rejects_a_free_form_client_version() -> None:
+    # client_version ships to Glite beside the other two version fields. A
+    # free-form string there is the same channel for a path, a session ID, or a
+    # raw sentence, so it carries the same constraint.
+    valid = _package()
+    with pytest.raises(ValidationError):
+        SubmissionPackage.model_validate(
+            {**valid.model_dump(mode="json"), "client_version": "/Users/alice/acme  raw text"}
+        )
+
+
 def test_package_rejects_malformed_identifiers() -> None:
     valid = _package()
     with pytest.raises(ValidationError):

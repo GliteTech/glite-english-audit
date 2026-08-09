@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 from glite_english_audit.artifacts.enums import Modality, StageId
 from glite_english_audit.artifacts.io import ensure_private_dir, read_jsonl_models
 from glite_english_audit.artifacts.models import NormalizedUtterance
+from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import stage_dir
 
@@ -57,6 +58,9 @@ def prepare_batches(
     if batch_size < 1:
         msg = "batch size must be at least 1"
         raise ValueError(msg)
+    # Stage 4 is the analysis send. Same gate as stage 3: the file is written
+    # for the provider, so the consent has to exist before the file does.
+    require_provider_transfer_consent(run_id, runs_root=runs_root)
     corpus_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
     corpus = list(read_jsonl_models(corpus_dir / CORPUS_NAME, NormalizedUtterance))
     batch_dir = ensure_private_dir(

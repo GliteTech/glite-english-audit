@@ -305,3 +305,69 @@ def test_record_diagnostics_never_echo_scanned_text() -> None:
     for diagnostic in diagnostics:
         assert secret not in diagnostic.message
         assert diagnostic.evidence_path is None
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["Acme.io", "ACME.io", "MyCompany.dev", "Acme.IO", "ACME.IO", "Acme.Io"],
+)
+def test_capitalized_bare_domain_is_flagged(domain: str) -> None:
+    # A shift key is not an obfuscation technique; a domain identifies its owner
+    # in whatever case it was typed.
+    assert "PRIVACY_URL_PRESENT" in _codes(scan_text(f"The team moved to {domain} last week."))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_code"),
+    [
+        # Cyrillic а, е, о, с, р, х and Greek ο look like their Latin twins and
+        # survive NFKC unchanged, so nothing else in the scanner sees them.
+        ("The team moved to аcme.io last week.", "PRIVACY_URL_PRESENT"),
+        ("Write to аlice@аcme.io today.", "PRIVACY_EMAIL_PRESENT"),
+        ("The log sat in /vаr/log/acme-app today.", "PRIVACY_PATH_PRESENT"),
+        ("The note held ѕk-FAKEFAKEFAKE0000 inside.", "PRIVACY_CREDENTIAL_PATTERN"),
+        ("Their site οnboarding.dev was mentioned.", "PRIVACY_URL_PRESENT"),
+    ],
+)
+def test_latin_lookalike_characters_do_not_defeat_the_patterns(
+    text: str, expected_code: str
+) -> None:
+    assert expected_code in _codes(scan_text(text))
+
+
+@pytest.mark.parametrize(
+    "blob",
+    [
+        # base64 and base32 of "https://acme-internal.example/team/roadmap".
+        "aHR0cHM6Ly9hY21lLWludGVybmFsLmV4YW1wbGUvdGVhbS9yb2FkbWFw",
+        "aHR0cHM6Ly9hY21lLWludGVybmFsLmV4YW1wbGUvdGVhbS9yb2FkbWFw=",
+        "NB2HI4DTHIXS443JNZTXI3TBNZUWK3TDPFZXIZLSOMXGC3LFOJUW4ZY",
+    ],
+)
+def test_an_encoded_blob_is_an_identifier(blob: str) -> None:
+    # Encoding a URL or a path defeats every shape-based pattern; the blob
+    # itself is the giveaway.
+    assert "PRIVACY_IDENTIFIER_PRESENT" in _codes(scan_text(f"The learner wrote {blob} once."))
+
+
+def test_ordinary_english_is_never_an_encoded_blob() -> None:
+    assert scan_text("The learner wrote a very long uncountable noun incorrectly.") == []
+
+
+def test_lookalike_characters_leave_the_record_untouched() -> None:
+    example = "The team moved to аcme.io last week."
+    record = _record(example=example)
+    assert "PRIVACY_URL_PRESENT" in _codes(scan_safe_record(record))
+    assert record.example == example
+
+
+def test_every_text_field_of_a_shipped_record_is_scanned() -> None:
+    # A seventh string field added to SafeMistakeRecord must be scanned by
+    # construction; a hand-maintained field list ships the new one unchecked.
+    text_fields = {
+        name for name, field in SafeMistakeRecord.model_fields.items() if field.annotation is str
+    }
+    for field_name in text_fields:
+        record = _record().model_copy(update={field_name: "Write to fake.person@example.com."})
+        codes = _codes(scan_safe_record(record))
+        assert "PRIVACY_EMAIL_PRESENT" in codes, f"{field_name} is not scanned"

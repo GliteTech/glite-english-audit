@@ -69,6 +69,14 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 # The tokenizer and its fixtures legitimately handle curly punctuation.
 allowed-confusables = ["’", "‘", "“", "”", "–", "—"]
 
+[tool.ruff.lint.per-file-ignores]
+# The confusable rules are the point of these two files: one folds Latin
+# lookalikes back before scanning, the other proves the fold works. Allowing
+# the characters globally would disable the warning everywhere else, which is
+# where it earns its keep.
+"src/glite_english_audit/verification/privacy_scanner.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_verification_privacy_scanner.py" = ["RUF001", "RUF002", "RUF003"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.13",
