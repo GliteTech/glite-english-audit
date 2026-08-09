@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from confidentiality_stub import write_confidentiality_report
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
 from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
@@ -318,7 +319,14 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     )
     write_jsonl_models(safe_dir / "candidates.jsonl", [good, leaky])
 
-    # Stage 7: the deterministic scanner promotes only the safe record.
+    # Stage 7, first half: the independent semantic verifier. It is a model in
+    # production and a stand-in here, but its report is not optional — promotion
+    # refuses any candidate it does not clear, so skipping it can no longer
+    # produce a package that claims two gates passed.
+    write_confidentiality_report(run_id, ["m-1", "m-2"], runs_root=runs_root)
+
+    # Stage 7, second half: the deterministic scanner promotes only the record
+    # that also survives its patterns.
     promoted = promote_records.promote(run_id, runs_root=runs_root)
     assert promoted["approved"] == 1
     assert promoted["withheld_for_privacy"] == 1

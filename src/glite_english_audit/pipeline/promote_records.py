@@ -32,6 +32,7 @@ from glite_english_audit.artifacts.io import (
 from glite_english_audit.artifacts.models import SafeRecordCandidate
 from glite_english_audit.paths import stage_dir
 from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.verification.confidentiality_report import load_report
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
 from glite_english_audit.verification.reports import VerificationReport
 
@@ -81,6 +82,13 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
     target_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVACY_APPROVED, root=runs_root))
     candidates = list(read_jsonl_models(source_dir / CANDIDATES_NAME, SafeRecordCandidate))
 
+    # The other half of the double protection (specification, 6.6). Loading it
+    # here rather than trusting it ran is the difference between an attestation
+    # and a claim: without this, skipping the semantic verifier produced a
+    # package byte-identical to one that passed both gates.
+    confidentiality = load_report(run_id, runs_root=runs_root)
+    cleared = confidentiality.passed_ids()
+
     approved: list[SafeRecordCandidate] = []
     withheld: dict[str, list[str]] = {}
     diagnostics = []
@@ -94,6 +102,11 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
         if found:
             withheld[candidate.mistake_id] = sorted({d.code for d in found})
             diagnostics.extend(found)
+        elif candidate.mistake_id not in cleared:
+            # Either the semantic verifier failed it, or the report never named
+            # it. Both are withheld: a candidate nobody judged is not a
+            # candidate that passed.
+            withheld[candidate.mistake_id] = ["WITHHELD_PRIVACY_UNSAFE"]
         else:
             approved.append(candidate)
 

@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from confidentiality_stub import write_confidentiality_report
 from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
 from glite_english_audit.adapters.claude_code.adapter import ClaudeCodeAdapter
@@ -435,6 +436,15 @@ def _write_safe_candidates(workspace: Workspace, run_id: str) -> None:
             )
         )
     write_jsonl_models(target / "candidates.jsonl", candidates)
+    # The independent semantic verifier is a model in production. Its report is
+    # written here because promotion refuses any candidate it does not clear,
+    # and a resume test that skipped it would be testing a path the product no
+    # longer has.
+    write_confidentiality_report(
+        run_id,
+        [candidate.mistake_id for candidate in candidates],
+        runs_root=workspace.runs_root,
+    )
 
 
 def _produce(

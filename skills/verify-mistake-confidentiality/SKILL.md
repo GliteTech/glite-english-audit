@@ -139,6 +139,13 @@ problem, not the private value itself.
    records or number 5 or more — the signal for the orchestrator to pause the privacy stage —
    and write the JSON report exactly as specified. Do not modify any candidate.
 
+   Write it to `confidentiality-report.json` in the run's stage-7 directory. That
+   exact path is what `pipeline/promote_records` reads, and it refuses to promote
+   any candidate this report does not name with a `pass`. A missing report is not
+   an empty one: without it nothing is promoted, because a record nobody judged is
+   not a record that passed. Add `"verifier_version"` with this skill's version so
+   the attestation that reaches Glite names the verifier that actually ran.
+
    The report is read by the orchestration, not by the user. If any of it is repeated to a
    person, say what the problem was in plain English — "one record named a company" — never the
    code. And leave out your own reading of the file: that every line parsed, that you checked
@@ -159,7 +166,8 @@ One JSON object for the batch:
                       "note": "<category of the problem, never the private value>"}]}
   ],
   "counts": {"checked": 0, "passed": 0, "failed": 0},
-  "systemic_failure": false
+  "systemic_failure": false,
+  "verifier_version": "<this skill's version>"
 }
 ~~~
 

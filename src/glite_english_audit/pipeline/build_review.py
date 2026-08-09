@@ -46,6 +46,7 @@ from glite_english_audit.pipeline.record_stage import (
     enter_review,
     require_promoted_through,
 )
+from glite_english_audit.verification.confidentiality_report import load_report
 
 CORPUS_NAME = "corpus.jsonl"
 CORPUS_MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -86,6 +87,14 @@ def build_review(
 
     mistakes_path = stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root) / MISTAKES_NAME
     mistakes = list(read_jsonl_models(mistakes_path, PrivateMistake))
+
+    # The version stamped on every shared record must name the verifier that
+    # actually cleared it. Taking it from the client meant the attestation was
+    # true of whatever built the package rather than of anything that read the
+    # records, so a run that skipped the semantic verifier produced the same
+    # claim as one that passed it.
+    confidentiality = load_report(run_id, runs_root=runs_root)
+    verifier_version = confidentiality.verifier_version or CLIENT_VERSION
 
     approved_dir = stage_dir(run_id, StageId.PRIVACY_APPROVED, root=runs_root)
     approved = list(read_jsonl_models(approved_dir / APPROVED_NAME, SafeRecordCandidate))
@@ -139,7 +148,7 @@ def build_review(
                 record=candidate.record,
                 included=True,
                 privacy_creator_version=candidate.creator_version,
-                privacy_verifier_version=CLIENT_VERSION,
+                privacy_verifier_version=verifier_version,
             )
             for candidate in approved
         ],
