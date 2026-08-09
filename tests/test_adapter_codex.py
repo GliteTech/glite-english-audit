@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
@@ -430,3 +431,56 @@ def test_discovery_is_identical_when_rollout_files_scan_in_parallel(
         return [record.model_dump(mode="json") for record in outcome.records]
 
     assert inventory("3") == inventory("1")
+
+
+def test_no_denylisted_file_is_ever_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex is the one adapter with no opened-path audit log.
+
+    Its enumeration is allowlist-only — a filename regex over two fixed
+    directory trees — so structurally it cannot reach the denylist. Eight
+    sibling adapters still keep a log and assert on it, because "structurally
+    cannot" is a property of today's code and the denylist protects the user's
+    credentials.
+
+    This test observes the property directly. It copies the fixture, plants a
+    denylisted file *inside* the session tree where a loosened enumerator would
+    find it, and records every real file open across a full discover, snapshot,
+    and extract cycle. Planting matters: without it, dropping the filename
+    filter still passes, because the real denylisted files sit one level above
+    the tree that gets walked.
+    """
+    home = tmp_path / "home"
+    shutil.copytree(FIXTURES / "success" / "home", home)
+    planted = home / ".codex" / "sessions" / "2026" / "01" / "15" / "auth.json"
+    planted.write_text('{"token": "FAKE-NOT-A-REAL-SECRET"}', encoding="utf-8")
+
+    opened: list[Path] = []
+    real_open = Path.open
+
+    def _recording_open(self: Path, *args: object, **kwargs: object) -> object:
+        opened.append(self)
+        return real_open(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(codex_adapter, "_WSL_MOUNT_BASE", home / "mnt")
+    monkeypatch.setattr(Path, "open", _recording_open)
+
+    outcome = CodexAdapter().discover(_context(home, os_environment=OsEnvironment.MACOS))
+    adapter = CodexAdapter()
+    for record in outcome.records:
+        source = outcome.instance_paths.get(record.instance_key)
+        if source is None:
+            continue
+        target = tmp_path / "snap" / record.instance_key[:12]
+        target.mkdir(parents=True, exist_ok=True)
+        adapter.snapshot(record, source, target)
+        list(adapter.extract(record, target))
+
+    monkeypatch.undo()
+    assert opened, "the cycle opened no files, so this test proves nothing"
+    forbidden = [path for path in opened if path.name in NEVER_OPEN_NAMES]
+    assert forbidden == [], f"opened a denylisted file: {[p.name for p in forbidden]}"
+
+    # The plant must also not be copied into the snapshot, which is the other
+    # way a credential file reaches a place it does not belong.
+    copied = [p.name for p in (tmp_path / "snap").rglob("*") if p.is_file()]
+    assert "auth.json" not in copied
