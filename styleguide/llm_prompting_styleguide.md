@@ -181,6 +181,12 @@ unmistakably fake (for example `sk-FAKEFAKEFAKE0000`).
 published. A "temporarily borrowed" real snippet is a confidentiality breach that survives in
 git history.
 
+**Scope.** This governs text committed to this repository, not text a run produces at execution
+time. A mistake record's `example` may be the learner's own words — see
+`specifications/privacy_model.md` Section 2.1 — and is governed by the safe-record rules there. The
+two are separate: a skill that illustrates the `verbatim` rung still has to invent the sentence it
+illustrates it with.
+
 **Do:** invent a learner sentence such as "Yesterday I have finished the report." and a fake
 company such as "Meridian Robotics" when an example needs a name.
 

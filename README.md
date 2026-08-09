@@ -21,8 +21,10 @@ been tested, per adapter and per platform.
 2. You choose sources and a time period, see token, time, and cost estimates, and confirm.
 3. Only then is the selected text sent — through your own active agent runtime — to your current
    AI provider for analysis. Glite never receives your raw text.
-4. Findings are produced as privacy-safe records in the first place, with synthetic example
-   sentences, and a separate confidentiality pass confirms that before anything can be reviewed.
+4. Findings are produced as privacy-safe records in the first place — each example is your own
+   sentence, your sentence with an identifying detail replaced, or an invented one, whichever is
+   the most of your own words that is safe to send — and a separate confidentiality pass confirms
+   that before anything can be reviewed.
 5. A local review page (loopback only) lists the privacy-safe example from every record. Each info
    button shows the full record, and a closed disclosure holds the exact submission JSON. You can
    exclude any record and download the resulting package. When a compatible Glite endpoint is
@@ -122,8 +124,9 @@ consent versions require a new run. Unfinished runs keep their private artifacts
 the last checkpoint.
 
 **Review and submission.** After step e, a loopback review page starts and prints its address. The
-page gives each record one compact row showing its privacy-safe submitted example; the example may
-be synthetic, and its info button reveals the complete record. You can include or exclude records,
+page gives each record one compact row showing its privacy-safe submitted example and whether that
+example is your own words, your words with a detail changed, or invented; its info button reveals
+the complete record. You can include or exclude records,
 but not edit them. Excluding a record removes its details and still adds one to the anonymous
 withheld count. When direct sending is available, two confirmations start unchecked: that you are
 at least 18, and that you accept permanent, irrevocable storage and the disclosed uses. A

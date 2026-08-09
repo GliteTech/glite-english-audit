@@ -1,6 +1,6 @@
 ---
 name: "find-english-mistakes"
-description: "Read one session's projected utterances and answer with the mistakes found in them: high-confidence non-native English only, each already privacy-clean, with a synthetic example and addressed by the index and span it was found at. Use during step d of an audit run, one agent per session file."
+description: "Read one session's projected utterances and answer with the mistakes found in them: high-confidence non-native English only, each already privacy-clean, with a privacy-safe example and addressed by the index and span it was found at. Use during step d of an audit run, one agent per session file."
 ---
 
 # find-english-mistakes wrapper

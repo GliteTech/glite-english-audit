@@ -35,6 +35,12 @@ strings), `example_type` (`verbatim | redacted | synthetic`), `source_type` (one
 such as `codex`, `claude_code`, `wispr_flow`), `modality` (`written | spoken_asr`; `unknown` is
 rejected).
 
+`example_type` states where the example's words came from, and nothing else: `verbatim` is the
+learner's own text unchanged, `redacted` is their text with an identifying value replaced by an
+unrelated one of the same kind, `synthetic` is invented. It is a provenance label, not a safety
+verdict — every value is subject to the same rules in `specifications/privacy_model.md` Section 2,
+and Section 2.1 governs which one a record may claim.
+
 ### SubmissionCounts
 
 | Field | Type | Constraint |
