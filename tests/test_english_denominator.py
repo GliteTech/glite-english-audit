@@ -12,6 +12,8 @@ says how much of it was English. Both are true, and this file is what keeps them
 that way.
 """
 
+from pathlib import Path
+
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.pipeline.authorship import english_words
 
@@ -52,3 +54,21 @@ def test_the_count_never_exceeds_the_plain_word_count() -> None:
         "12345 --- !!! 6789",
     ):
         assert english_words(text) <= count_words(text), text
+
+
+def test_the_verifier_counts_words_the_same_way_the_step_does(tmp_path: Path) -> None:
+    """Both sides of the check must agree on what a word is.
+
+    The verifier recounted with ``count_words`` while step c recorded
+    ``english_words``, so every run that kept any non-English text failed
+    deterministic verification with ARITHMETIC_INVARIANT_VIOLATION — the check
+    disagreeing with the step, and blaming the step. Nothing caught it because
+    every fixture corpus was pure English.
+    """
+    import inspect
+
+    from glite_english_audit.verification import verify_corpus as verifier
+
+    source = inspect.getsource(verifier.verify_corpus)
+    assert "english_words(" in source
+    assert "count_words(" not in source

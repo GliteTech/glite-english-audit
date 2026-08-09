@@ -23,12 +23,13 @@ from pathlib import Path
 from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.diagnostics.codes import Diagnostic, Severity
-from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
+from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline.authorship import (
     INDEX_NAME,
     AuthoredCorpusIndex,
     corpus_digest,
+    english_words,
 )
 from glite_english_audit.sessions import read_session, session_files
 from glite_english_audit.verification.deterministic import verify_file_hash
@@ -100,7 +101,13 @@ def verify_corpus(run_id: str, *, runs_root: Path | None = None) -> list[Diagnos
     for entry in index.sessions:
         session = read_session(out_dir / entry.file_name)
         utterances += len(session)
-        recounted = sum(count_words(utterance.text) for utterance in session)
+        # english_words, not count_words: step c records the English slice of
+        # what it retained, because a Russian sentence dictated between two
+        # English ones is not English the learner got wrong. Recounting with a
+        # different rule made this verifier fail every run that kept any
+        # non-English text — the check disagreeing with the step about what a
+        # word is, and blaming the step.
+        recounted = sum(english_words(utterance.text) for utterance in session)
         words += recounted
         if len(session) != entry.utterance_count:
             diagnostics.append(

@@ -112,12 +112,34 @@ _IDENTIFIER = re.compile(
 )
 _CODE = re.compile(
     # A single semicolon is ordinary English punctuation; braces, operators,
-    # fences, keywords, call shapes, and statement-final semicolons are code.
+    # fences, call shapes, and statement-final semicolons are code.
     r"[{}]"
     r"|;\s*$"
     r"|=>|==|!=|::|\+=|->"
     r"|```"
-    r"|\b(?:def|class|import|function|return|const|var|let)\s"
+    # Keywords that are not also ordinary English words. The bare word is
+    # enough, because nobody writes "def" or "const" in a sentence.
+    r"|\b(?:def|const|elif|func|var)\s"
+    # Keywords that ARE ordinary English words need a code shape around them.
+    # Measured on a real run: "The class is open to people with English native
+    # language." was flagged as source code and failed its whole session file,
+    # and "I will return the book" and "the function of the committee" flag the
+    # same way. Every shareable field in this product is an English sentence
+    # about English, so a bare-keyword rule fails records for writing English —
+    # and under the five-step pipeline that reads as a step-d defect, which
+    # makes the real defect signal worthless.
+    #
+    # Code puts these at the start of a line, or in a declaration or statement
+    # shape. Lowercase deliberately: a sentence opens with a capital.
+    r"|(?:^|\n)[ \t]*(?:class|import|from|function|return|let)\b"
+    # An import statement quoted mid-sentence, which is how a code fragment
+    # actually reaches a shareable example. The lookbehinds keep the English
+    # noun: "the import duties", "an import license".
+    r"|(?i:(?<!the )(?<!an )(?<!a )(?<!its )(?<!our )(?<!any )(?<!each ))"
+    r"\bimport\s+[a-z_][a-z0-9_.]*\b"
+    r"|\b(?:class|function)\s+\w+\s*[({:]"
+    r"|\breturn\s+\w+\s*;"
+    r"|\blet\s+\w+\s*="
     r"|\b\w+_\w+\("
     r"|\b\w+\.\w+\("
     r"|\)\s*;",
