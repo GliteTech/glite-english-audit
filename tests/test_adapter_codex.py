@@ -29,6 +29,7 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance, SourceInstanceRecord
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
+from glite_english_audit.discovery.parallel import WORKER_COUNT_ENV
 from glite_english_audit.verification.fixture_policy import load_fixture_meta
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -366,3 +367,19 @@ def test_never_opens_denylisted_files(monkeypatch: pytest.MonkeyPatch, tmp_path:
             if path.is_relative_to(root):
                 assert path.name.startswith("rollout-")
                 assert path.suffix == ".jsonl"
+
+
+def test_discovery_is_identical_when_rollout_files_scan_in_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker count changes the schedule, never the inventory."""
+    home = FIXTURES / "success" / "home"
+    monkeypatch.setattr(codex_adapter, "_WSL_MOUNT_BASE", home / "mnt")
+
+    def inventory(workers: str) -> list[dict[str, Any]]:
+        outcome = CodexAdapter().discover(
+            _context(home, {WORKER_COUNT_ENV: workers}, OsEnvironment.WSL)
+        )
+        return [record.model_dump(mode="json") for record in outcome.records]
+
+    assert inventory("3") == inventory("1")

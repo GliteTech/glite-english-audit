@@ -1,8 +1,8 @@
 ---
 name: "prepare-glite-submission"
-description: "Stage 8: build the reviewed submission artifact from privacy-approved
-records, start the loopback review page, and report the download or send outcome.
-Use after stage 7 is promoted, as the final audit stage."
+description: "Show the user every privacy-approved mistake on a local review page,
+wait while they decide, then report what was sent, what was saved, and what was
+withheld. Use as the last audit stage, after the privacy stage is promoted."
 ---
 
 # prepare-glite-submission wrapper

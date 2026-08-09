@@ -20,5 +20,10 @@ temp/
 # time someone runs an audit, and deleting it removes every trace of their runs.
 runtime/
 
+# Scratch git worktrees used to run parallel agents in isolation. They are
+# checkouts of this same repository, so committing them would nest the tree
+# inside itself.
+.claude/worktrees/
+
 # Operating system noise
 .DS_Store

@@ -1,6 +1,6 @@
 # LLM Prompting Style Guide
 
-**Version**: 1
+**Version**: 2
 
 This guide is normative for every `SKILL.md` and every prompt in this repository. It turns the
 prompting requirements of specification section 3.4 into concrete, testable rules. The
@@ -357,6 +357,11 @@ prompt executable on its own.
 
 **Don't:** paste all of section 7 into three different skills (fork risk), or write "apply the
 usual threshold we agreed on earlier" (depends on unstated context).
+
+**Don't:** open the prompt with a list of documents to read before step 1. That is the failure
+self-sufficiency exists to prevent, not a way of achieving it: the agent spends its first minute
+reading, the user watches a silent terminal, and a batch skill pays the same minute again on
+every batch. Name each reference at the step that needs it instead.
 
 ---
 

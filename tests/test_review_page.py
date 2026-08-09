@@ -1,6 +1,12 @@
-"""Review page rendering: records, confirmations, package bytes, and modes."""
+"""Review page rendering: records, confirmations, package bytes, modes, and access.
+
+The accessibility assertions here are the release gate for specification 12.4.
+Contrast is computed from the rendered palette, not asserted by eye, so a
+future color change cannot silently drop below WCAG 2.2 AA.
+"""
 
 import html
+import itertools
 import re
 
 from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId
@@ -107,6 +113,13 @@ def _state() -> ReviewSessionState:
     return ReviewSessionState(_artifact())
 
 
+def _confirmed_state() -> ReviewSessionState:
+    state = _state()
+    state.set_adult_confirmed(True)
+    state.set_storage_confirmed(True)
+    return state
+
+
 def _download_only() -> SubmissionCapability:
     return SubmissionCapability(
         direct_submission_available=False,
@@ -127,6 +140,153 @@ def _input_tag(page: str, element_id: str) -> str:
     match = re.search(rf'<input[^>]*id="{element_id}"[^>]*>', page)
     assert match is not None, f"no input with id {element_id!r}"
     return match.group(0)
+
+
+def _tag(page: str, name: str, element_id: str) -> str:
+    match = re.search(rf'<{name}[^>]*id="{element_id}"[^>]*>', page)
+    assert match is not None, f"no <{name}> with id {element_id!r}"
+    return match.group(0)
+
+
+def _page_direct() -> str:
+    return render_page(_state(), _direct(), _FAKE_TOKEN)
+
+
+def _style(page: str) -> str:
+    match = re.search(r"<style>(.*?)</style>", page, re.DOTALL)
+    assert match is not None, "the page has no style block"
+    return match.group(1)
+
+
+def _script(page: str) -> str:
+    match = re.search(r"<script>(.*?)</script>", page, re.DOTALL)
+    assert match is not None, "the page has no script block"
+    return match.group(1)
+
+
+def _rule_body(style: str, selector: str) -> str:
+    """The declaration block of one top-level rule, selected exactly."""
+    match = re.search(r"(?:^|\n)" + re.escape(selector) + r"\s*\{([^}]*)\}", style)
+    assert match is not None, f"no top-level rule for {selector!r}"
+    return match.group(1)
+
+
+def _declarations(style: str, selector: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in _rule_body(style, selector).split(";"):
+        name, separator, value = part.partition(":")
+        if separator:
+            out[name.strip()] = value.strip()
+    return out
+
+
+def _block_span(style: str, header: str) -> tuple[int, int]:
+    """Character span of a brace-balanced block starting at ``header``."""
+    start = style.index(header)
+    depth = 0
+    for index in range(style.index("{", start), len(style)):
+        if style[index] == "{":
+            depth += 1
+        elif style[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    raise AssertionError(f"unbalanced block for {header!r}")
+
+
+# --- color math (WCAG 2.x relative luminance and contrast) -------------------
+
+_HEX = re.compile(r"^#([0-9A-Fa-f]{6})$")
+_RGB = re.compile(
+    r"^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([0-9.]+)\s*)?\)$",
+)
+
+Rgb = tuple[int, int, int]
+
+
+def _parse_color(value: str) -> tuple[Rgb, float]:
+    value = value.strip()
+    hex_match = _HEX.match(value)
+    if hex_match is not None:
+        digits = hex_match.group(1)
+        return (int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16)), 1.0
+    rgb_match = _RGB.match(value)
+    assert rgb_match is not None, f"unparsable color {value!r}"
+    alpha = float(rgb_match.group(4)) if rgb_match.group(4) is not None else 1.0
+    return (
+        int(rgb_match.group(1)),
+        int(rgb_match.group(2)),
+        int(rgb_match.group(3)),
+    ), alpha
+
+
+def _composite(color: Rgb, alpha: float, backdrop: Rgb) -> Rgb:
+    return (
+        round(alpha * color[0] + (1.0 - alpha) * backdrop[0]),
+        round(alpha * color[1] + (1.0 - alpha) * backdrop[1]),
+        round(alpha * color[2] + (1.0 - alpha) * backdrop[2]),
+    )
+
+
+def _channel(value: float) -> float:
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+
+def _luminance(color: Rgb) -> float:
+    red, green, blue = (_channel(part / 255.0) for part in color)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _contrast(foreground: Rgb, background: Rgb) -> float:
+    first, second = _luminance(foreground), _luminance(background)
+    lighter, darker = max(first, second), min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _palettes(page: str) -> dict[str, dict[str, str]]:
+    """The light palette and the dark palette after its overrides are applied."""
+    blocks = re.findall(r":root\s*\{([^}]*)\}", _style(page))
+    assert len(blocks) == 2, "expected exactly one light :root block and one dark override"
+    light = dict(re.findall(r"(--[a-z-]+)\s*:\s*([^;]+);", blocks[0]))
+    dark = dict(light)
+    dark.update(re.findall(r"(--[a-z-]+)\s*:\s*([^;]+);", blocks[1]))
+    return {"light": light, "dark": dark}
+
+
+def _resolved(palette: dict[str, str], token: str, backdrop: Rgb | None = None) -> Rgb:
+    color, alpha = _parse_color(palette[token])
+    if alpha >= 1.0:
+        return color
+    assert backdrop is not None, f"{token} is translucent and needs a backdrop"
+    return _composite(color, alpha, backdrop)
+
+
+# Text pairs need 4.5:1; the page has no large text. Non-text pairs are borders,
+# surfaces, and focus rings, which need 3:1. --line is deliberately absent: the
+# row rules between records are decoration, and every record is identified by
+# its own labeled checkbox rather than by the line above it.
+_TEXT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("--ink", "--bg"),
+    ("--ink-soft", "--bg"),
+    ("--action-text", "--bg"),
+    ("--on-action", "--action"),
+    ("--ok", "--bg"),
+    ("--fail", "--bg"),
+    ("--ink", "--well"),
+    ("--ink-soft", "--well"),
+)
+_NON_TEXT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("--action", "--bg"),
+    ("--focus", "--bg"),
+    ("--line-strong", "--bg"),
+    ("--action-text", "--bg"),
+    ("--ink-soft", "--bg"),
+    ("--ok", "--bg"),
+    ("--fail", "--bg"),
+)
+
+
+# --- content ----------------------------------------------------------------
 
 
 def test_page_contains_every_record_field() -> None:
@@ -201,15 +361,14 @@ def test_download_only_page_has_no_send_button_and_save_sentence() -> None:
     assert re.search(r'<button[^>]*id="send-button"', page) is None
     assert "anonymously" not in page
     assert "upload it later on the Glite website" in page
-    assert "Download the package" in page
+    assert "Download the submission package" in page
 
 
-def test_direct_mode_send_button_disabled_and_labeled() -> None:
+def test_direct_mode_send_button_blocked_and_labeled() -> None:
     page = render_page(_state(), _direct(), _FAKE_TOKEN)
     assert "download-only-note" not in page
-    button_match = re.search(r"<button[^>]*id=\"send-button\"[^>]*>", page)
-    assert button_match is not None
-    assert "disabled" in button_match.group(0)
+    button = _tag(page, "button", "send-button")
+    assert 'aria-disabled="true"' in button
     assert 'id="send-count">2<' in page
     assert "mistakes anonymously" in page
 
@@ -230,7 +389,7 @@ def test_zero_included_shows_empty_package_message() -> None:
     state.set_included("m-2", False)
     page = render_page(state, _download_only(), _FAKE_TOKEN)
     assert "there is no package to send" in page
-    assert "Download the package" in page
+    assert "Download the submission package" in page
 
 
 def test_single_style_block_and_both_themes() -> None:
@@ -257,3 +416,379 @@ def test_token_is_embedded_for_the_csrf_header() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
     assert f'data-token="{_FAKE_TOKEN}"' in page
     assert "X-Glite-Review" in page
+
+
+def test_record_text_is_never_written_as_markup_by_the_script() -> None:
+    script = _script(render_page(_state(), _direct(), _FAKE_TOKEN))
+    assert "innerHTML" not in script
+    assert "insertAdjacentHTML" not in script
+    assert "document.write" not in script
+
+
+# --- structure and semantics (specification 12.4) ---------------------------
+
+
+def test_document_has_one_main_landmark_and_a_language() -> None:
+    page = render_page(_state(), _direct(), _FAKE_TOKEN)
+    assert '<html lang="en">' in page
+    assert page.count("<main>") == 1
+    assert page.count("</main>") == 1
+    assert "<title>Glite English audit review</title>" in page
+
+
+def test_heading_levels_start_at_one_and_never_skip() -> None:
+    page = render_page(_state(), _direct(), _FAKE_TOKEN)
+    levels = [int(level) for level in re.findall(r"<h([1-6])\b", page)]
+    assert levels, "the page has no headings"
+    assert levels.count(1) == 1
+    assert levels[0] == 1
+    for previous, current in itertools.pairwise(levels):
+        assert current <= previous + 1, f"heading level jumps from {previous} to {current}"
+
+
+def test_record_list_keeps_list_semantics_despite_list_style_none() -> None:
+    page = render_page(_state(), _direct(), _FAKE_TOKEN)
+    assert "list-style: none" in _style(page)
+    assert '<ul class="records" role="list">' in page
+    assert page.count('<li class="record">') == 2
+
+
+def test_description_lists_are_not_laid_out_directly_as_grids() -> None:
+    # Grid or flex applied to a <dl> element drops description-list semantics
+    # in some browsers, so the layout lives on row wrappers instead.
+    style = _style(_page_direct())
+    for selector in ("dl.summary", "dl.record-fields"):
+        assert "display" not in _declarations(style, selector)
+    assert "display: flex" in _rule_body(style, "dl.summary .row")
+    assert "display: grid" in _rule_body(style, "dl.record-fields .row")
+
+
+def test_every_checkbox_has_a_unique_programmatic_label() -> None:
+    page = _page_direct()
+    inputs = re.findall(r"<input[^>]*>", page)
+    assert len(inputs) == 4
+    labels: list[str] = []
+    for tag in inputs:
+        assert 'type="checkbox"' in tag
+        identifier = re.search(r'id="([^"]+)"', tag)
+        assert identifier is not None, f"checkbox without an id: {tag}"
+        label = re.search(rf'<label for="{identifier.group(1)}">(.*?)</label>', page, re.DOTALL)
+        assert label is not None, f"no label bound to {identifier.group(1)!r}"
+        assert label.group(1).strip(), "an empty label names nothing"
+        labels.append(label.group(1))
+    assert len(set(labels)) == len(labels), "two controls share the same label text"
+
+
+def test_record_checkbox_is_described_by_its_own_mistake_sentence() -> None:
+    page = _page_direct()
+    for index, sentence in enumerate(
+        (
+            "Wrote &#x27;more easy&#x27; instead of &#x27;easier&#x27;.",
+            "Wrote &#x27;informations&#x27; instead of &#x27;information&#x27;.",
+        )
+    ):
+        toggle = _input_tag(page, f"include-{index}")
+        assert f'aria-describedby="record-{index}-mistake"' in toggle
+        assert f'<dd id="record-{index}-mistake">{sentence}</dd>' in page
+    assert "Include mistake 1 of 2 in the submission" in page
+    assert "Include mistake 2 of 2 in the submission" in page
+
+
+def test_every_aria_and_label_reference_resolves() -> None:
+    for page in (_page_direct(), render_page(_state(), _download_only(), _FAKE_TOKEN)):
+        known = set(re.findall(r'\bid="([^"]+)"', page))
+        references: list[str] = []
+        for attribute in ("aria-labelledby", "aria-describedby", "for"):
+            for value in re.findall(rf'\b{attribute}="([^"]+)"', page):
+                references.extend(value.split())
+        references.extend(re.findall(r'href="#([^"]+)"', page))
+        assert references
+        missing = sorted(name for name in references if name not in known)
+        assert not missing, f"dangling references: {missing}"
+
+
+def test_live_count_region_announces_the_whole_sentence() -> None:
+    page = _page_direct()
+    region = _tag(page, "p", "will-send")
+    assert 'aria-live="polite"' in region
+    assert 'aria-atomic="true"' in region
+    assert 'id="will-send-count"' in page
+    # The atomic region is what makes a bare number meaningful when it changes.
+    assert re.search(r'id="will-send"[^>]*>Will send <span id="will-send-count">', page)
+
+
+def test_status_region_stays_in_the_accessibility_tree() -> None:
+    page = _page_direct()
+    assert '<p id="submit-status" role="status"></p>' in page
+    style = _style(page)
+    assert "#submit-status:empty" not in style
+    declarations = _declarations(style, "#submit-status")
+    assert declarations.get("display") != "none"
+    assert "min-height" in declarations
+
+
+def test_status_outcomes_are_worded_and_shaped_not_only_colored() -> None:
+    page = _page_direct()
+    script = _script(page)
+    assert '"Sent. Submission ID: "' in script
+    assert '"Not sent. ' in script
+    style = _style(page)
+    borders = {
+        name: _declarations(style, f".{name}")["border-left-style"]
+        for name in ("status-note", "status-ok", "status-fail")
+    }
+    assert len(set(borders.values())) == 3, f"status styles differ only by color: {borders}"
+
+
+def test_send_button_blocked_state_is_exposed_without_relying_on_color() -> None:
+    page = _page_direct()
+    button = _tag(page, "button", "send-button")
+    assert 'aria-disabled="true"' in button
+    # The disabled attribute would drop the button out of the tab order, so the
+    # reason for the block could never be reached by keyboard.
+    assert re.search(r"(?<![-\w])disabled(?![-\w=])", button) is None
+    assert 'aria-describedby="send-requirements"' in button
+    assert "Check both confirmations to send." in page
+    blocked = _declarations(_style(page), '.button[aria-disabled="true"]')
+    assert "dashed" in blocked["border"]
+    assert "opacity" not in blocked
+
+
+def test_send_button_unblocks_only_with_both_confirmations_and_a_record() -> None:
+    ready = render_page(_confirmed_state(), _direct(), _FAKE_TOKEN)
+    assert 'aria-disabled="false"' in _tag(ready, "button", "send-button")
+
+    state = _confirmed_state()
+    state.set_included("m-1", False)
+    state.set_included("m-2", False)
+    empty = render_page(state, _direct(), _FAKE_TOKEN)
+    assert 'aria-disabled="true"' in _tag(empty, "button", "send-button")
+
+
+def test_download_link_states_its_purpose_and_its_blocked_state() -> None:
+    page = _page_direct()
+    link = _tag(page, "a", "download-link")
+    assert 'download="glite-submission-package.json"' in link
+    assert 'aria-disabled="false"' in link
+    assert 'aria-describedby="download-note"' in link
+    assert ">Download the submission package</a>" in page
+
+    state = _confirmed_state()
+    state.set_included("m-1", False)
+    state.set_included("m-2", False)
+    blocked = render_page(state, _direct(), _FAKE_TOKEN)
+    assert 'aria-disabled="true"' in _tag(blocked, "a", "download-link")
+
+
+def test_scrollable_package_box_is_named_and_keyboard_reachable() -> None:
+    page = _page_direct()
+    box = _tag(page, "pre", "package-view")
+    assert 'tabindex="0"' in box
+    assert 'role="region"' in box
+    assert 'aria-labelledby="package-heading"' in box
+    assert "overflow-x: auto" in _rule_body(_style(page), "pre")
+
+
+# --- keyboard ---------------------------------------------------------------
+
+
+def _focus_order(page: str) -> list[str]:
+    names = {
+        'class="skip-link"': "skip",
+        'class="record-toggle"': "record",
+        'id="package-view"': "package",
+        'id="adult-confirmed"': "adult",
+        'id="storage-confirmed"': "storage",
+        'id="download-link"': "download",
+        'id="send-button"': "send",
+    }
+    body = page.split("<body", 1)[1].split("<script>", 1)[0]
+    pattern = re.compile(r'<(?:a|button|input)\b[^>]*>|<[a-z]+\b[^>]*\btabindex="0"[^>]*>')
+    order: list[str] = []
+    for match in pattern.finditer(body):
+        tag = match.group(0)
+        for marker, name in names.items():
+            if marker in tag:
+                order.append(name)
+                break
+        else:  # pragma: no cover - a new control must be added to the map
+            raise AssertionError(f"unmapped interactive element: {tag}")
+    return order
+
+
+def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
+    assert _focus_order(_page_direct()) == [
+        "skip",
+        "record",
+        "record",
+        "package",
+        "adult",
+        "storage",
+        "download",
+        "send",
+    ]
+    assert _focus_order(render_page(_state(), _download_only(), _FAKE_TOKEN)) == [
+        "skip",
+        "record",
+        "record",
+        "package",
+        "adult",
+        "storage",
+        "download",
+    ]
+
+
+def test_no_positive_tabindex_overrides_the_document_order() -> None:
+    page = _page_direct()
+    assert re.search(r'tabindex="[1-9]', page) is None
+
+
+def test_skip_link_targets_the_send_section_and_shows_itself_on_focus() -> None:
+    page = _page_direct()
+    assert '<a class="skip-link" href="#send-section">Skip to send or save</a>' in page
+    section = _tag(page, "section", "send-section")
+    assert 'tabindex="-1"' in section
+    focused = _declarations(_style(page), ".skip-link:focus")
+    assert focused["left"] == "0.75rem"
+
+
+def test_focus_is_visible_and_never_removed() -> None:
+    style = _style(_page_direct())
+    focus = _declarations(style, ":focus-visible")
+    assert focus["outline"] == "3px solid var(--focus)"
+    assert focus["outline-offset"] == "2px"
+    assert "@supports not selector(:focus-visible)" in style
+    assert "outline: none" not in style
+    assert "outline: 0" not in style
+
+
+def test_pointer_targets_meet_the_minimum_size() -> None:
+    style = _style(_page_direct())
+    checkbox = _declarations(style, 'input[type="checkbox"]')
+    assert checkbox["width"] == "1.5rem"
+    assert checkbox["height"] == "1.5rem"
+    button = _declarations(style, ".button")
+    assert button["padding"] == "0.55rem 1.1rem"
+
+
+# --- motion, hover, and print ----------------------------------------------
+
+
+def test_reduced_motion_is_honored() -> None:
+    style = _style(_page_direct())
+    start, end = _block_span(style, "@media (prefers-reduced-motion: reduce)")
+    block = style[start:end]
+    for declaration in (
+        "animation-duration: 0.01ms !important",
+        "animation-iteration-count: 1 !important",
+        "transition-duration: 0.01ms !important",
+        "scroll-behavior: auto !important",
+    ):
+        assert declaration in block
+
+
+def test_nothing_is_revealed_or_explained_by_hover() -> None:
+    page = _page_direct()
+    assert ":hover" not in _style(page)
+    assert "mouseover" not in _script(page)
+    assert "mouseenter" not in _script(page)
+    assert "title=" not in page
+
+
+def test_print_output_keeps_the_package_readable_without_color() -> None:
+    style = _style(_page_direct())
+    start, end = _block_span(style, "@media print")
+    block = style[start:end]
+    assert "white-space: pre-wrap" in block
+    assert "overflow: visible" in block
+
+
+# --- narrow widths ----------------------------------------------------------
+
+
+def test_narrow_width_never_scrolls_the_body_sideways() -> None:
+    page = _page_direct()
+    style = _style(page)
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in page
+    assert "box-sizing: border-box" in _rule_body(style, "*")
+    body = _declarations(style, "body")
+    assert body["max-width"] == "46rem"
+    assert "min-width" not in body
+    # A fieldset defaults to min-content width, which is what forces a sideways
+    # scroll on a phone when a long confirmation sentence is inside it.
+    assert _declarations(style, "fieldset.confirmations")["min-width"] == "0"
+    assert _declarations(style, "dl.record-fields dd")["overflow-wrap"] == "anywhere"
+    assert _declarations(style, "dl.summary dd")["overflow-wrap"] == "anywhere"
+    assert "white-space: nowrap" not in style
+    start, end = _block_span(style, "@media (max-width: 30rem)")
+    narrow = style[start:end]
+    assert "grid-template-columns: 1fr" in narrow
+    assert "width: 100%" in narrow
+
+
+def test_wide_content_scrolls_inside_its_own_box() -> None:
+    style = _style(_page_direct())
+    pre = _declarations(style, "pre")
+    assert pre["overflow-x"] == "auto"
+    assert pre["max-width"] == "100%"
+    assert _declarations(style, ".button")["max-width"] == "100%"
+    assert _declarations(style, ".actions")["flex-wrap"] == "wrap"
+
+
+# --- contrast ---------------------------------------------------------------
+
+
+def test_every_color_is_a_palette_token() -> None:
+    """No literal color may escape the two :root blocks, or contrast is unchecked."""
+    style = _style(_page_direct())
+    remainder = re.sub(r":root\s*\{[^}]*\}", "", style)
+    start, end = _block_span(remainder, "@media print")
+    remainder = remainder[:start] + remainder[end:]
+    literals = re.findall(
+        r"#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{3})(?![0-9A-Za-z_-])",
+        remainder,
+    )
+    assert not literals, f"hard-coded colors outside the palette: {literals}"
+    assert not re.findall(r"\brgba?\(", remainder)
+
+
+def test_palette_meets_wcag_aa_contrast_in_both_themes() -> None:
+    palettes = _palettes(_page_direct())
+    assert set(palettes) == {"light", "dark"}
+    failures: list[str] = []
+    for theme, palette in palettes.items():
+        page_background = _resolved(palette, "--bg")
+        for foreground, background, minimum in (
+            *((pair[0], pair[1], 4.5) for pair in _TEXT_PAIRS),
+            *((pair[0], pair[1], 3.0) for pair in _NON_TEXT_PAIRS),
+        ):
+            backdrop = _resolved(palette, background, page_background)
+            ratio = _contrast(_resolved(palette, foreground, backdrop), backdrop)
+            if ratio + 1e-9 < minimum:
+                failures.append(
+                    f"{theme}: {foreground} on {background} is {ratio:.2f}:1, needs {minimum}"
+                )
+    assert not failures, "; ".join(failures)
+
+
+def test_contrast_helper_matches_known_reference_ratios() -> None:
+    """Guards the math itself: black on white is 21:1 and mid gray is 3.95:1."""
+    assert round(_contrast((0, 0, 0), (255, 255, 255)), 2) == 21.0
+    assert round(_contrast((255, 255, 255), (255, 255, 255)), 2) == 1.0
+    assert round(_contrast((119, 119, 119), (255, 255, 255)), 2) == 4.48
+    assert _composite((255, 255, 255), 0.5, (0, 0, 0)) == (128, 128, 128)
+
+
+def test_verification_state_is_never_carried_by_color_alone() -> None:
+    page = _page_direct()
+    script = _script(page)
+    # Every state the page can be in names itself in words.
+    for wording in (
+        "Sending.",
+        "Sent. Submission ID: ",
+        "Not sent. ",
+        "Nothing to download. Include at least one record.",
+    ):
+        assert wording in script
+    assert "Check both confirmations to send." in page
+    assert 'aria-disabled="true"' in page

@@ -64,10 +64,9 @@ text the learner never wrote, so it inflates the denominator and makes the learn
 better than it is. A sentence you drop costs a little coverage, which the report states honestly.
 
 Adapters already attributed whole records structurally (specification 4.5). This stage judges the
-words themselves. A record carrying a `user` role routinely contains injected skill bodies,
-slash-command wrappers, system reminders, task notifications, local-command output, image
-placeholders, and tool results — none of which the learner composed. `source_adapter` tells you
-which machinery shapes to expect; it is context, not evidence of authorship.
+words themselves. A record carrying a `user` role routinely holds material the learner never
+composed; the exclusion list under Judgment Rules names every kind of it. `source_adapter` tells
+you which machinery shapes to expect; it is context, not evidence of authorship.
 
 ## Judgment Rules
 

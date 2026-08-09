@@ -20,6 +20,9 @@ Adapted from the `glite-arf` agent instructions style guide (Apache-2.0).
 4. List forbidden actions explicitly — "NEVER read files outside the snapshot directory" is clearer
    than hoping the agent infers boundaries
 5. Include concrete examples — at least one Do/Don't pair per non-trivial judgment rule
+6. Keep skills self-sufficient — a Context section that must be read before step 1 buys nothing
+   and costs the user a minute of silence
+7. Speak before acting — a skill a person can invoke opens with a sentence, never a tool call
 
 * * *
 
@@ -132,7 +135,8 @@ provides.
 Every instruction file or skill should contain four elements:
 
 1. Goal — one sentence stating what the agent must accomplish
-2. Context — what to read first, what inputs exist, where outputs go
+2. Context — what the agent needs to know, what inputs exist, where outputs go, and which
+   references to consult at the step that needs them
 3. Constraints — numbered rules, forbidden patterns, format specs
 4. Done when — explicit completion criteria with verification steps
 
@@ -573,13 +577,17 @@ description: "State what the skill does and when it should be used."
 
 ## Context
 
-Read before starting:
-* `specifications/<relevant_spec>.md`
+This skill is self-sufficient: everything needed to run it is below. Do not read
+specifications or source files before starting, and do not explore the repository.
+
+Consult a reference only when the step you are on needs it:
+* `specifications/<relevant_spec>.md` — <the question it settles>
 * <run artifact the skill consumes>
 
 ## Steps
 
-1. <First action.>
+1. <First action. In a skill a person can invoke, this is a sentence to the user,
+   never a tool call.>
 2. <Second action.>
 3. ...
 
@@ -633,6 +641,13 @@ the shared baseline format. See `specifications/agent_skills_specification.md`.
 | No verification step | Silent failures go undetected | Add done-when with concrete checks |
 | No version number | Cannot track format changes | Add `**Version**: N` to specs and skills |
 | Missing skill frontmatter | Tool discovery lacks metadata | Add YAML `name` + `description` |
+| Context as required reading | Minutes of file reads before the first sentence | Keep the skill self-sufficient; reference at the step that needs it |
+| Step 1 is a tool call | The user's first sight of the product is a spinner | Speak first, then act |
+| Internal words at the user ("adapter", "instance", artifact names, diagnostic codes) | The reader must decode this project's vocabulary | Say app, project, plain English |
+| Facts run together as prose | No single claim is separable enough to check | List facts; keep prose for a recommendation |
+| Reporting own validation to the user ("all 61 rows parsed") | The audit trail crowds out the answer | Fix the defect or log it for the maintainer |
+| Claiming a save that did not happen | The user returns to find the choice gone | Say what was written and where, or that nothing was |
+| Picker named only for Claude Code | The Codex path is undefined at run time | Define both, or reference the plain-text pattern |
 
 * * *
 
@@ -654,3 +669,7 @@ When writing or reviewing an instruction file:
 11. Runtime-specific behavior isolated and documented (or absent)
 12. Version number present (specifications and skills)
 13. Wrappers regenerated and `verify_skills` green after any skill change
+14. Context is self-sufficient; references are consulted at the step that needs them
+15. A skill a person can invoke speaks before its first tool call
+16. User-facing text uses the reader's words, lists its facts, reports no self-validation, and
+    claims no save that did not happen

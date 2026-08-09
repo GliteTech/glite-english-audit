@@ -188,6 +188,9 @@ attempts.
 
    Leave the step-6 self-check out of that report. A check that passed is your job, not a
    result, and the orchestration relays these numbers to a reader who wants the answer.
+
+   Those numbers reach the user in plain words: a unit is a message and a finding is a mistake.
+   Send the counts in a shape that survives being repeated.
 8. If a verifier report later rejects a file, regenerate only the affected findings file and its
    sidecar from the original utterances, addressing each reported diagnostic. Repair attempts
    are bounded by the orchestrator; when diagnostics remain after the allowed attempts, report

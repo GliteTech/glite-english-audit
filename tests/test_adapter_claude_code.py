@@ -23,6 +23,7 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
+from glite_english_audit.discovery.parallel import WORKER_COUNT_ENV
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.verification.fixture_policy import load_fixture_meta
 
@@ -370,3 +371,14 @@ def test_never_opens_denylisted_files(tmp_path: Path, monkeypatch: pytest.Monkey
     opened_names = {path.name for path in opened}
     assert f"{SESSION_1}.jsonl" in opened_names
     assert f"{SESSION_2}.jsonl" in opened_names
+
+
+def test_discovery_is_identical_when_projects_scan_in_parallel() -> None:
+    """Worker count changes the schedule, never the inventory."""
+    home = FIXTURES / "success" / "home"
+
+    def inventory(workers: str) -> list[dict[str, Any]]:
+        outcome = create_adapter().discover(_context(home, {WORKER_COUNT_ENV: workers}))
+        return [record.model_dump(mode="json") for record in outcome.records]
+
+    assert inventory("2") == inventory("1")
