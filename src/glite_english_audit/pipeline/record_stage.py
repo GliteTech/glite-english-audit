@@ -138,9 +138,13 @@ def require_promoted_through(
     ]
     if unfinished:
         names = ", ".join(str(int(stage)) for stage in unfinished)
+        # The list length decides the noun and the verb. "stage 2, 3, 4 is not
+        # promoted" was a plural subject with a singular verb.
+        subject = f"stage {names} is" if len(unfinished) == 1 else f"stages {names} are"
         msg = (
-            f"this run cannot build a review yet: stage {names} is not promoted. "
-            "Its counts would describe part of the audit while claiming to describe all of it."
+            f"this run cannot build a review yet: {subject} not promoted. "
+            "The review's counts would describe part of the audit while claiming to "
+            "describe all of it."
         )
         raise ValueError(msg)
 

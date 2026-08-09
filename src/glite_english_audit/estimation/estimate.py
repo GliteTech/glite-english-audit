@@ -369,6 +369,19 @@ def saturated_presets(rows: Sequence[PresetRow]) -> tuple[str, ...]:
     )
 
 
+def _and_list(items: Sequence[str]) -> str:
+    """Join items the way English does, with "and" before the last one.
+
+    ``", ".join`` produces "A, B, C", which is a column of data rather than a
+    sentence. These lists are read inside sentences the user is shown.
+    """
+    if len(items) <= 1:
+        return "".join(items)
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
 def build_notes(
     *,
     steps: RuntimeSteps,
@@ -389,14 +402,22 @@ def build_notes(
         verb = "matches" if len(saturated) == 1 else "match"
         rows = "row is" if len(saturated) == 1 else "rows are"
         notes.append(
-            f"{', '.join(saturated)} {verb} Everything because your history does not reach "
+            f"{_and_list(saturated)} {verb} Everything because your history does not reach "
             f"back that far. The {rows} identical on purpose."
         )
     if undated_instances:
-        notes.append(
-            f"{undated_instances} source instances report no date range, so they count in "
-            "full in every period and overstate the short ones."
-        )
+        # One source takes a singular noun, verb, and pronoun. The count drives
+        # the whole sentence, so nothing here may be left in the plural.
+        if undated_instances == 1:
+            notes.append(
+                "1 source reports no dates, so it counts in full in every period and "
+                "overstates the short ones."
+            )
+        else:
+            notes.append(
+                f"{undated_instances} sources report no dates, so they count in full in "
+                "every period and overstate the short ones."
+            )
     notes.append(
         "Most estimated tokens are cached input re-read on each turn, not fresh input, "
         "so the totals are large and are not billed at the fresh-input rate."
@@ -414,13 +435,17 @@ def build_notes(
     ]
     if uncalibrated:
         notes.append(
-            f"Never measured for {runtime}: {', '.join(uncalibrated)}. Those numbers are "
+            f"Never measured for {runtime}: {_and_list(uncalibrated)}. Those numbers are "
             "extrapolated, not measured, so the range is widened and marked low confidence."
         )
     if low:
+        # "Fewer than 10 measured batches for X, so ..." had no main verb. The
+        # subject is the batches, so the verb is plural however many steps the
+        # list names.
         notes.append(
-            f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} measured batches for {', '.join(low)}, "
-            "so the total stays low confidence and its upper bound is widened."
+            f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} batches have been measured for "
+            f"{_and_list(low)}, so the total stays low confidence and its upper bound "
+            "is widened."
         )
     notes.append(QUOTA_UNAVAILABLE_NOTE)
     if concurrent_batches == 1:
@@ -480,7 +505,7 @@ def build_report(
     )
     records = [record for record in inventory.records if record.instance_key in selected]
     if not records:
-        msg = "no eligible source instance was selected; nothing to estimate"
+        msg = "no source was selected, so there is nothing to estimate"
         raise ValueError(msg)
     profile = load_token_usage_profile(profile_path)
     runtime_id = profile_runtime_id(runtime)
@@ -530,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
         "--inventory-dir",
         type=Path,
         default=None,
-        help="defaults to the inventory discovery left pending",
+        help="defaults to the inventory that discovery left pending",
     )
     parser.add_argument(
         "--include-source",

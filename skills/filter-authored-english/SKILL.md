@@ -181,7 +181,7 @@ messages, which are the ones most likely to contain pastes.
    — command output, pasted text, someone else's words — and keep the codes for the decisions
    file. Leave the step-8 self-check out: a check that passed is your job, not a result.
 
-   Do: "Kept 412 utterances whole, kept part of 88, dropped 210 — mostly command output and
+   Do: "Kept 412 messages whole, kept part of 88, dropped 210 — mostly command output and
    pasted text."
    Don't: "AUTHORSHIP_TOOL_OUTPUT: 154, AUTHORSHIP_PASTED_MATERIAL: 56", which asks the reader
    to decode this project's internal words to find out what happened to their writing.

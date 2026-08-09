@@ -58,12 +58,12 @@ def submit_once(endpoint_base_url: str, request: NewSubmissionRequest) -> Submis
             return SubmissionOutcome(
                 accepted=None,
                 rejected=None,
-                transport_error=f"the server returned HTTP {error.code}",
+                transport_error=f"The server returned HTTP {error.code}",
             )
         return SubmissionOutcome(accepted=None, rejected=rejected, transport_error=None)
     except (urllib.error.URLError, TimeoutError, ValueError) as error:
         return SubmissionOutcome(
             accepted=None,
             rejected=None,
-            transport_error=f"the request could not be completed: {error.__class__.__name__}",
+            transport_error=f"The request could not be completed: {error.__class__.__name__}",
         )

@@ -325,7 +325,7 @@ Resume policy (deterministic, applied in step 2 and after interruptions):
 
 Mid-run behavior examples:
 
-Do: "Spend ceiling reached. I saved a checkpoint after utterance 1,204 of 1,890.
+Do: "Spend ceiling reached. I saved a checkpoint after message 1,204 of 1,890.
 Run 'Run an English audit' again to resume with a new preflight." Then stop.
 Don't: "We are about to exceed the budget. Continue anyway?" — a mid-run question
 breaks the confirmed autonomous policy.
@@ -400,23 +400,23 @@ Exact output (one progress update during stage 4), as `render_progress` emits it
 English audit — 38% complete
 
 Step 4 of 8: Finding English mistakes
-Claude Code: 205 of 512 sessions processed — 40%
+Claude Code: 205 of 512 messages processed — 40%
 This step: 40% · Overall: 38%
 
 Collected so far:
 512 eligible messages
 14,900 English words
 
-Estimated remaining: 14000K–31000K tokens
+Estimated remaining: 14M–31M tokens
 Estimated time: 42–115 minutes
 ```
 
 The step numbering is the module's, not this file's stage numbering: discovery
 happens during setup, so the eight steps the user is shown are stages 1-8 and stage
 4 is step 4. Render the block; do not retype it. Every detail above is the
-renderer's — the en dashes, the two-line estimate, the word "sessions", and the
-thousands-only token unit — and a hand-written update that differs is a defect in
-the update, not an improvement.
+renderer's — the en dashes, the two-line estimate, the word "messages" (the unit
+is sessions only before stage 3), and the scaled token unit — and a hand-written
+update that differs is a defect in the update, not an improvement.
 
 Verification result: every stage passes its deterministic verifier; stages 4-7 also
 pass their independent verifiers; the manifest marks stages 0-8 `promoted`; the run

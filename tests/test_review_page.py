@@ -328,7 +328,7 @@ def test_counts_summary_lines() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
     assert "Eligible English words analyzed" in page
     assert "1100 of 1200" in page
-    assert "Eligible utterances analyzed" in page
+    assert "Eligible messages analyzed" in page
     assert "80 of 90" in page
     assert "Verified mistakes" in page
     assert "Could not be made safe to share" in page
@@ -344,6 +344,31 @@ def test_will_send_line_shows_included_count() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
     assert "Will send" in page
     assert 'id="will-send-count">2<' in page
+
+
+def test_record_count_and_its_noun_agree_in_the_plural() -> None:
+    page = _page_direct()
+    assert '<span id="will-send-count">2</span> <span id="will-send-noun">mistakes</span>.' in page
+    assert '<span id="send-count">2</span> <span id="send-noun">mistakes</span> anonymously' in page
+
+
+def test_record_count_and_its_noun_agree_in_the_singular() -> None:
+    """One record is a mistake. A tool that grades agreement must get this right."""
+    state = _state()
+    state.set_included("m-1", False)
+    page = render_page(state, _direct(), _FAKE_TOKEN)
+    assert '<span id="will-send-count">1</span> <span id="will-send-noun">mistake</span>.' in page
+    assert '<span id="send-count">1</span> <span id="send-noun">mistake</span> anonymously' in page
+    assert "mistakes</span>." not in page
+    assert "mistakes</span> anonymously" not in page
+
+
+def test_the_script_changes_the_noun_whenever_it_changes_the_count() -> None:
+    """The server's agreement is worthless if a checkbox restores '1 mistakes'."""
+    script = _script(_page_direct())
+    assert 'count === 1 ? "mistake" : "mistakes"' in script
+    assert 'setNoun("will-send-noun", data.will_send)' in script
+    assert 'setNoun("send-noun", data.will_send)' in script
 
 
 def test_page_shows_package_bytes_matching_state() -> None:
@@ -370,7 +395,7 @@ def test_direct_mode_send_button_blocked_and_labeled() -> None:
     button = _tag(page, "button", "send-button")
     assert 'aria-disabled="true"' in button
     assert 'id="send-count">2<' in page
-    assert "mistakes anonymously" in page
+    assert '<span id="send-noun">mistakes</span> anonymously' in page
 
 
 def test_excluded_record_renders_unchecked_and_lowers_count() -> None:

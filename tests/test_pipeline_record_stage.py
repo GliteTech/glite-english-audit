@@ -170,7 +170,18 @@ def test_a_review_cannot_be_built_from_a_partial_run(run: str, tmp_path: Path) -
 
     for stage in (StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS):
         advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
-    with pytest.raises(ValueError, match="stage 2, 3, 4, 5, 6, 7 is not promoted"):
+    with pytest.raises(ValueError, match="stages 2, 3, 4, 5, 6, 7 are not promoted"):
+        require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
+
+
+def test_one_unfinished_stage_is_named_in_the_singular(run: str, tmp_path: Path) -> None:
+    """A count-driven subject has to agree with its verb in both directions."""
+    from glite_english_audit.pipeline.record_stage import require_promoted_through
+
+    for stage in StageId:
+        if int(stage) < int(StageId.PRIVACY_APPROVED):
+            advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
+    with pytest.raises(ValueError, match="stage 7 is not promoted"):
         require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
 
 
