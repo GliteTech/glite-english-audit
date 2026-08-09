@@ -27,6 +27,7 @@ from glite_english_audit.artifacts.models import (
     SafeMistakeRecord,
 )
 from glite_english_audit.artifacts.submission import NewSubmissionRequest
+from glite_english_audit.review_server.report_handoff import REPORT_PAGE_ORIGIN
 from glite_english_audit.review_server.server import (
     CSRF_HEADER,
     ReviewServerHandle,
@@ -244,12 +245,13 @@ def test_security_headers_present_on_every_response() -> None:
             assert status == status_expected
             csp = headers.get("Content-Security-Policy")
             assert csp is not None and "default-src 'none'" in csp
+            assert f"form-action {REPORT_PAGE_ORIGIN}" in csp
             assert headers.get("Cache-Control") == "no-store"
             assert headers.get("X-Content-Type-Options") == "nosniff"
             assert headers.get("Referrer-Policy") == "no-referrer"
 
 
-def test_download_only_page_over_http_contains_examples_without_confirmations() -> None:
+def test_download_only_page_contains_examples_and_report_confirmations() -> None:
     with _running() as handle:
         status, body, headers = _request(handle.url)
         assert status == 200
@@ -258,8 +260,11 @@ def test_download_only_page_over_http_contains_examples_without_confirmations() 
         page = body.decode("utf-8")
         assert "This route is easier than the old one." in page
         assert "She gave me useful information about the city." in page
-        assert 'id="adult-confirmed"' not in page
-        assert 'id="storage-confirmed"' not in page
+        adult = re.search(r'<input[^>]*id="adult-confirmed"[^>]*>', page)
+        storage = re.search(r'<input[^>]*id="storage-confirmed"[^>]*>', page)
+        assert adult is not None and " checked" not in adult.group(0)
+        assert storage is not None and " checked" not in storage.group(0)
+        assert 'id="report-button"' in page
 
 
 def test_direct_page_over_http_contains_unchecked_confirmations() -> None:

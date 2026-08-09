@@ -24,6 +24,7 @@ from glite_english_audit.artifacts.models import (
     SafeMistakeRecord,
 )
 from glite_english_audit.review_server.page import render_page
+from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
 
@@ -324,11 +325,13 @@ def test_confirmations_are_present_and_unchecked() -> None:
     assert "external AI processing" in page
 
 
-def test_download_only_page_omits_send_only_confirmations() -> None:
+def test_report_handoff_page_includes_unchecked_confirmations() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert 'id="adult-confirmed"' not in page
-    assert 'id="storage-confirmed"' not in page
-    assert "Required confirmations" not in page
+    adult = _input_tag(page, "adult-confirmed")
+    storage = _input_tag(page, "storage-confirmed")
+    assert " checked" not in adult
+    assert " checked" not in storage
+    assert "Required confirmations" in page
 
 
 def test_counts_summary_lines() -> None:
@@ -391,12 +394,52 @@ def test_exact_json_is_inside_a_closed_disclosure() -> None:
     assert page.index('id="download-link"') < page.index('id="package-heading"')
 
 
-def test_download_only_page_has_no_send_button_and_save_sentence() -> None:
+def test_download_only_page_has_report_and_download_but_no_direct_send() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
     assert re.search(r'<button[^>]*id="send-button"', page) is None
     assert "anonymously" not in page
-    assert "upload it on the Glite website" in page
+    assert "Create report" in page
+    assert "upload it later" in page
     assert "Download package" in page
+
+
+def test_report_form_posts_the_exact_package_and_consent_outside_it() -> None:
+    state = _state()
+    page = render_page(state, _download_only(), _FAKE_TOKEN)
+    package = state.current_package_bytes()
+    assert package is not None
+
+    form = _tag(page, "form", "report-form")
+    assert f'action="{REPORT_PAGE_URL}"' in form
+    assert 'method="post"' in form
+    assert 'accept-charset="UTF-8"' in form
+    assert "target=" not in form
+
+    submission = _input_tag(page, "report-submission")
+    package_text = package.decode("utf-8")
+    assert 'name="submission"' in submission
+    assert f'value="{html.escape(package_text, quote=True)}"' in submission
+    for name in (
+        "adult_attested",
+        "permanent_storage_and_uses_accepted",
+        "external_ai_processing_accepted",
+    ):
+        assert re.search(rf'<input[^>]*name="{name}"[^>]*value="true"[^>]*>', page)
+    assert re.search(r'<input[^>]*name="consent_policy_version"[^>]*value="1"[^>]*>', page)
+    assert 'name="client_confirmation_at" value=""' in page
+
+
+def test_report_button_is_the_primary_action_and_starts_blocked() -> None:
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    report = _tag(page, "button", "report-button")
+    assert 'type="submit"' in report
+    assert 'class="button primary"' in report
+    assert 'aria-disabled="true"' in report
+    assert page.index('id="report-button"') < page.index('id="download-link"')
+
+    ready = render_page(_confirmed_state(), _download_only(), _FAKE_TOKEN)
+    assert 'aria-disabled="false"' in _tag(ready, "button", "report-button")
+    assert _page_direct().count('class="button primary"') == 1
 
 
 def test_direct_mode_send_button_blocked_and_labeled() -> None:
@@ -437,9 +480,10 @@ def test_single_style_block_and_both_themes() -> None:
     assert "#005BFF" in page
 
 
-def test_no_external_references_or_editing_controls() -> None:
+def test_only_the_fixed_report_form_is_external() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "https://" not in page
+    assert page.count("https://") == 1
+    assert REPORT_PAGE_URL in page
     assert "http://" not in page
     assert "src=" not in page
     assert "<textarea" not in page
@@ -500,7 +544,7 @@ def test_description_lists_are_not_laid_out_directly_as_grids() -> None:
 
 def test_every_checkbox_has_a_unique_programmatic_label() -> None:
     page = _page_direct()
-    inputs = re.findall(r"<input[^>]*>", page)
+    inputs = re.findall(r'<input[^>]*type="checkbox"[^>]*>', page)
     assert len(inputs) == 4
     labels: list[str] = []
     for tag in inputs:
@@ -612,6 +656,29 @@ def test_send_button_unblocks_only_with_both_confirmations_and_a_record() -> Non
     assert 'aria-disabled="true"' in _tag(empty, "button", "send-button")
 
 
+def test_report_button_unblocks_only_with_both_confirmations_and_a_record() -> None:
+    ready = render_page(_confirmed_state(), _download_only(), _FAKE_TOKEN)
+    assert 'aria-disabled="false"' in _tag(ready, "button", "report-button")
+
+    state = _confirmed_state()
+    state.set_included("m-1", False)
+    state.set_included("m-2", False)
+    empty = render_page(state, _download_only(), _FAKE_TOKEN)
+    assert 'aria-disabled="true"' in _tag(empty, "button", "report-button")
+    assert 'id="report-submission" name="submission" value=""' in empty
+
+
+def test_script_keeps_report_payload_current_and_prevents_blocked_submit() -> None:
+    script = _script(render_page(_state(), _download_only(), _FAKE_TOKEN))
+    assert "reportSubmission.value = text" in script
+    assert 'reportSubmission.value = ""' in script
+    assert "packageReady = false" in script
+    assert 'reportForm.addEventListener("submit"' in script
+    assert "blocked(reportButton)" in script
+    assert "event.preventDefault()" in script
+    assert "new Date().toISOString()" in script
+
+
 def test_download_link_states_its_purpose_and_its_blocked_state() -> None:
     page = _page_direct()
     link = _tag(page, "a", "download-link")
@@ -648,6 +715,7 @@ def _focus_order(page: str) -> list[str]:
         'id="package-view"': "package",
         'id="adult-confirmed"': "adult",
         'id="storage-confirmed"': "storage",
+        'id="report-button"': "report",
         'id="download-link"': "download",
         'id="send-button"': "send",
     }
@@ -656,6 +724,8 @@ def _focus_order(page: str) -> list[str]:
     order: list[str] = []
     for match in pattern.finditer(body):
         tag = match.group(0)
+        if 'type="hidden"' in tag:
+            continue
         for marker, name in names.items():
             if marker in tag:
                 order.append(name)
@@ -674,6 +744,7 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "info",
         "adult",
         "storage",
+        "report",
         "download",
         "send",
         "package-toggle",
@@ -685,6 +756,9 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "info",
         "record",
         "info",
+        "adult",
+        "storage",
+        "report",
         "download",
         "package-toggle",
         "package",

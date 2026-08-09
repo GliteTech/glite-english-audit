@@ -30,6 +30,7 @@ from glite_english_audit.artifacts.models import ReviewedSubmissionArtifact
 from glite_english_audit.artifacts.submission import NewSubmissionRequest
 from glite_english_audit.pipeline.record_consent import record_consent
 from glite_english_audit.review_server.page import CONSENT_POLICY_VERSION, render_page
+from glite_english_audit.review_server.report_handoff import REPORT_PAGE_ORIGIN
 from glite_english_audit.review_server.session import ReviewSessionState, UnknownMistakeError
 from glite_english_audit.submission.capability import SubmissionCapability
 from glite_english_audit.submission.client import SubmissionOutcome, submit_once
@@ -45,7 +46,8 @@ _SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     (
         "Content-Security-Policy",
         "default-src 'none'; style-src 'unsafe-inline'; "
-        "script-src 'unsafe-inline'; connect-src 'self'",
+        "script-src 'unsafe-inline'; connect-src 'self'; "
+        f"form-action {REPORT_PAGE_ORIGIN}",
     ),
     ("Cache-Control", "no-store"),
     ("X-Content-Type-Options", "nosniff"),

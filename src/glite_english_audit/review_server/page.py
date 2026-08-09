@@ -1,8 +1,9 @@
 """Server-rendered HTML for the final local review page.
 
 One self-contained document: a single inline style block, a small inline
-script, and no request to anything except the loopback server itself. Light
-and dark themes are both first-class through CSS custom properties and
+script, loopback requests for current state, and one deliberate native form
+handoff to the fixed Glite report website. Light and dark themes are both
+first-class through CSS custom properties and
 ``prefers-color-scheme``, so the first paint is correct without a theme flash
 (specification, 12.3, 12.4).
 
@@ -17,6 +18,7 @@ import html
 
 from glite_english_audit.artifacts.models import ReviewedRecord
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
+from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
 
@@ -30,9 +32,8 @@ STORAGE_CONFIRMATION_TEXT = (
     "submitted records for report and flashcard generation. Glite cannot "
     "delete these records later."
 )
-DOWNLOAD_ONLY_TEXT = (
-    "Nothing will be sent now. Download the package and upload it on the "
-    "Glite website when you are ready."
+DOWNLOAD_FALLBACK_TEXT = (
+    "If you do not want to create the report now, download the same package and upload it later."
 )
 EXCLUSION_EXPLANATION_TEXT = (
     "Uncheck any example you do not want to share. Its complete record will be "
@@ -44,6 +45,9 @@ PACKAGE_NOTE_TEXT = (
 DOWNLOAD_LINK_TEXT = "Download package"
 DOWNLOAD_NOTE_TEXT = "Downloads the same exact JSON available below."
 SEND_REQUIREMENTS_TEXT = "Check both confirmations to send. At least one record must stay included."
+REPORT_REQUIREMENTS_TEXT = (
+    "Check both confirmations to create your report. At least one record must stay included."
+)
 SKIP_LINK_TEXT = "Skip to send or save"
 
 _SKIP_TARGET_ID = "send-section"
@@ -258,6 +262,7 @@ legend { font-weight: 600; padding: 0 0.35rem; }
   align-items: center;
   margin: 1.25rem 0 0.5rem;
 }
+.report-form { margin: 0; }
 .button {
   display: inline-block;
   border-radius: 6px;
@@ -325,6 +330,7 @@ a.button.secondary:visited { color: var(--action-text); }
   }
   dl.record-fields .row { grid-template-columns: 1fr; }
   dl.record-fields dd { margin-bottom: 0.25rem; }
+  .report-form { width: 100%; }
   .button { width: 100%; }
 }
 @media print {
@@ -341,10 +347,16 @@ _SCRIPT = """
   "use strict";
   var token = document.body.getAttribute("data-token") || "";
   var sendButton = document.getElementById("send-button");
+  var reportForm = document.getElementById("report-form");
+  var reportButton = document.getElementById("report-button");
+  var reportSubmission = document.getElementById("report-submission");
+  var reportConfirmationAt = document.getElementById("report-confirmation-at");
   var downloadLink = document.getElementById("download-link");
   var statusLine = document.getElementById("submit-status");
   var sent = false;
   var disconnected = false;
+  var packageReady = !!(reportSubmission && reportSubmission.value);
+  var latestCounts = null;
   var openInfoButton = null;
   var closeInfoTimer = null;
 
@@ -373,6 +385,7 @@ _SCRIPT = """
     disconnected = true;
     setDecisionControlsDisabled(true);
     setBlocked(downloadLink, true);
+    setBlocked(reportButton, true);
     setBlocked(sendButton, true);
     setStatus("status-fail", message);
   }
@@ -385,6 +398,7 @@ _SCRIPT = """
   }
 
   function applyCounts(data) {
+    latestCounts = data;
     var willSend = document.getElementById("will-send-count");
     if (willSend) { willSend.textContent = String(data.will_send); }
     var sendCount = document.getElementById("send-count");
@@ -392,7 +406,12 @@ _SCRIPT = """
     setNoun("send-noun", data.will_send);
     var withheld = document.getElementById("withheld-user-count");
     if (withheld) { withheld.textContent = String(data.withheld_by_user); }
-    setBlocked(downloadLink, data.will_send === 0);
+    setBlocked(downloadLink, !packageReady || data.will_send === 0);
+    setBlocked(
+      reportButton,
+      !packageReady ||
+        !(data.adult_confirmed && data.storage_confirmed && data.will_send > 0)
+    );
     setBlocked(
       sendButton,
       sent || !(data.adult_confirmed && data.storage_confirmed && data.will_send > 0)
@@ -414,7 +433,10 @@ _SCRIPT = """
   function showEmptyPackage(view, empty) {
     if (view) { view.textContent = ""; view.parentElement.hidden = true; }
     if (empty) { empty.hidden = false; }
+    if (reportSubmission) { reportSubmission.value = ""; }
+    packageReady = false;
     setBlocked(downloadLink, true);
+    setBlocked(reportButton, true);
   }
 
   function refreshPackage() {
@@ -428,7 +450,9 @@ _SCRIPT = """
       if (text === null) { showEmptyPackage(view, empty); return; }
       if (view) { view.textContent = text; view.parentElement.hidden = false; }
       if (empty) { empty.hidden = true; }
-      setBlocked(downloadLink, false);
+      if (reportSubmission) { reportSubmission.value = text; }
+      packageReady = true;
+      if (latestCounts) { applyCounts(latestCounts); }
     }).catch(function () {
       markDisconnected(
         "The local review server is no longer available. Restart the review command " +
@@ -526,7 +550,12 @@ _SCRIPT = """
         postDecision({
           mistake_id: box.getAttribute("data-mistake-id"),
           included: box.checked
-        }).then(function () { refreshPackage(); }).catch(function (error) { revert(box, error); });
+        }).then(function () {
+          packageReady = false;
+          setBlocked(downloadLink, true);
+          setBlocked(reportButton, true);
+          refreshPackage();
+        }).catch(function (error) { revert(box, error); });
       });
     }
   );
@@ -549,6 +578,22 @@ _SCRIPT = """
         event.preventDefault();
         setStatus("status-note", "Nothing to download. Include at least one record.");
       }
+    });
+  }
+
+  if (reportForm) {
+    reportForm.addEventListener("submit", function (event) {
+      if (blocked(reportButton) || !reportSubmission || !reportSubmission.value) {
+        event.preventDefault();
+        setStatus(
+          "status-note",
+          "Report not created. Check both confirmations and keep at least one record."
+        );
+        return;
+      }
+      if (reportConfirmationAt) { reportConfirmationAt.value = new Date().toISOString(); }
+      setBlocked(reportButton, true);
+      setStatus("status-note", "Opening your report on the Glite website.");
     });
   }
 
@@ -771,33 +816,57 @@ def _actions(
         f'aria-describedby="download-note" aria-disabled="{download_blocked}">'
         f"{_escape(DOWNLOAD_LINK_TEXT)}</a>"
     )
-    notes = f'<p id="download-note" class="muted">{_escape(DOWNLOAD_NOTE_TEXT)}</p>'
+    ready = state.adult_confirmed and state.storage_confirmed and state.included_count > 0
+    report_blocked = "false" if ready else "true"
+    package_text = ""
+    if package_available:
+        package_bytes = state.current_package_bytes()
+        if package_bytes is not None:
+            package_text = package_bytes.decode("utf-8")
+    report = (
+        f'<form class="report-form" id="report-form" action="{_escape(REPORT_PAGE_URL)}" '
+        'method="post" accept-charset="UTF-8">'
+        '<input type="hidden" id="report-submission" name="submission" '
+        f'value="{_escape(package_text)}">'
+        '<input type="hidden" name="adult_attested" value="true">'
+        '<input type="hidden" name="permanent_storage_and_uses_accepted" value="true">'
+        '<input type="hidden" name="external_ai_processing_accepted" value="true">'
+        f'<input type="hidden" name="consent_policy_version" '
+        f'value="{_escape(CONSENT_POLICY_VERSION)}">'
+        '<input type="hidden" id="report-confirmation-at" '
+        'name="client_confirmation_at" value="">'
+        '<button type="submit" class="button primary" id="report-button" '
+        f'aria-describedby="report-requirements" aria-disabled="{report_blocked}">'
+        "Create report</button>"
+        "</form>"
+    )
+    notes = (
+        f'<p id="report-requirements" class="muted">{_escape(REPORT_REQUIREMENTS_TEXT)}</p>'
+        f'<p id="download-note" class="muted">{_escape(DOWNLOAD_NOTE_TEXT)}</p>'
+        f'<p id="download-fallback-note">{_escape(DOWNLOAD_FALLBACK_TEXT)}</p>'
+    )
     if capability.direct_submission_available:
         # aria-disabled, not the disabled attribute: the button stays focusable
         # so a keyboard or screen-reader user can reach it and read why it is
         # blocked. The server refuses the submission independently.
-        ready = state.adult_confirmed and state.storage_confirmed and state.included_count > 0
         send_blocked = "false" if ready else "true"
         action = (
-            '<button type="button" class="button primary" id="send-button" '
+            '<button type="button" class="button secondary" id="send-button" '
             f'aria-describedby="send-requirements" aria-disabled="{send_blocked}">'
             f'Send <span id="send-count">{state.included_count}</span> '
             f'<span id="send-noun">{mistake_noun(state.included_count)}</span> '
             "anonymously</button>"
         )
         notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
-        confirmations = _confirmations(state)
-        heading = "Send or save"
+        heading = "Create report, send, or save"
     else:
         action = ""
-        notes += f'<p id="download-only-note">{_escape(DOWNLOAD_ONLY_TEXT)}</p>'
-        confirmations = ""
-        heading = "Save package"
+        heading = "Create report or save"
     return (
         f'<section id="{_SKIP_TARGET_ID}" tabindex="-1" aria-labelledby="send-heading">'
         f'<h2 id="send-heading">{heading}</h2>'
-        + confirmations
-        + f'<div class="actions">{download}{action}</div>'
+        + _confirmations(state)
+        + f'<div class="actions">{report}{download}{action}</div>'
         + notes
         + '<p id="submit-status" role="status"></p>'
         "</section>"
