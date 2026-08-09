@@ -103,12 +103,16 @@ cd glite-english-audit
 uv sync --locked --all-groups
 ```
 
-Then, in Codex or Claude Code opened on this directory, say:
+Then, in Claude Code opened on this directory, type:
+
+> /audit
+
+Or in either Claude Code or Codex, just say:
 
 > Run an English audit.
 
-The agent follows `skills/run-english-audit/SKILL.md` from there: consent, discovery, selection,
-preflight, processing, and the final local review.
+Both start the same procedure. The agent follows `skills/run-english-audit/SKILL.md` from there:
+consent, discovery, selection, preflight, processing, and the final local review.
 
 ## How a run works
 
