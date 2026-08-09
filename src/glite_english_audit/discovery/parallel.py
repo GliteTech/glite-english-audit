@@ -1,11 +1,13 @@
 """Bounded parallel execution for local discovery.
 
-Discovery time is dominated by JSON parsing, which holds the GIL. Measured on
-the reference machine (14 cores) over the real Codex corpus of 6,436 rollout
-files: 21.5 s with one thread, 22.0 s with fourteen threads, 3.8 s with
-fourteen worker processes. Parsing therefore fans out over processes, and
-threads are used only where the work is a filesystem walk or a wait on the
-process pool.
+Discovery time is dominated by parsing and by the Python around a filesystem
+walk, both of which hold the GIL. Measured on the reference machine (14 cores)
+over the real Codex corpus of 6,436 rollout files: 21.5 s with one thread,
+22.0 s with fourteen threads, 3.8 s with fourteen worker processes. The same
+holds for a walk, where the syscalls are too short to pay for the contention:
+the real home directory walks in 1.0 s single-threaded and 2.9 s on fourteen
+threads. Work therefore fans out over processes, and threads carry only the
+adapters themselves, each of which spends its time waiting on that pool.
 
 Two rules keep the fan-out safe:
 

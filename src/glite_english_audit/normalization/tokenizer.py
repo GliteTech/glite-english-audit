@@ -24,30 +24,28 @@ TOKENIZER_VERSION = "1.0.0"
 # A word: Unicode letter runs joined by single internal apostrophes or hyphens.
 _WORD = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
 
-_URL_TOKEN = re.compile(r"://|^www\.", re.IGNORECASE)
-_EMAIL_TOKEN = re.compile(r"@[\w-]+\.")
-_PATH_TOKEN = re.compile(r"^(?:/|~|\.{1,2}/|[A-Za-z]:[\\/])|[\\/].*[\\/]")
-_FILENAME_TOKEN = re.compile(r"^[\w-]+\.[A-Za-z]\w{0,3}$")
+# The exclusion rules above, in one pattern. Exclusion is a boolean OR, so one
+# alternation decides it in a single call instead of six. Tokens come from
+# ``str.split()`` and so contain no whitespace: ``^`` and ``$`` are the ends of
+# the token, which is what makes the bare-filename branch a ``fullmatch``.
+_EXCLUDED_TOKEN = re.compile(
+    r"://"  # URL scheme
+    r"|^[Ww][Ww][Ww]\."  # bare www host, case-insensitively
+    r"|@[\w-]+\."  # email address
+    r"|^(?:/|~|\.{1,2}/|[A-Za-z]:[\\/])"  # leading path
+    r"|[\\/].*[\\/]"  # embedded path
+    r"|^[\w-]+\.[A-Za-z]\w{0,3}$"  # bare filename
+    r"|[a-z][A-Z][a-z]"  # camelCase identifier
+    r"|[_{}()\[\];=<>`$#|&*%^]"  # code punctuation
+)
+
+# The only rule above an all-letter token can trip: every other one needs a
+# character that is not a letter.
 _CAMEL_CASE_TOKEN = re.compile(r"[a-z][A-Z][a-z]")
-_CODE_CHARS = frozenset("_{}()[];=<>`$#|&*%^")
 
 # Punctuation commonly attached to a word in prose; stripped before the token
 # is classified so "time." or "(really)" is judged as its inner word.
 _STRIP_CHARS = "\"'“”‘’.,!?;:()[]{}<>…«»—–-*`~"
-
-
-def _token_is_excluded(token: str) -> bool:
-    if _URL_TOKEN.search(token):
-        return True
-    if _EMAIL_TOKEN.search(token):
-        return True
-    if _PATH_TOKEN.search(token):
-        return True
-    if _FILENAME_TOKEN.fullmatch(token):
-        return True
-    if _CAMEL_CASE_TOKEN.search(token):
-        return True
-    return any(char in _CODE_CHARS for char in token)
 
 
 def words(text: str) -> list[str]:
@@ -56,7 +54,15 @@ def words(text: str) -> list[str]:
     found: list[str] = []
     for raw_token in normalized.split():
         token = raw_token.strip(_STRIP_CHARS)
-        if not token or _token_is_excluded(token):
+        if not token:
+            continue
+        if token.isalpha():
+            # Every character of an all-letter token matches the word class,
+            # so the token is exactly one letter run and needs no scan for it.
+            if not _CAMEL_CASE_TOKEN.search(token):
+                found.append(token)
+            continue
+        if _EXCLUDED_TOKEN.search(token):
             continue
         found.extend(_WORD.findall(token))
     return found

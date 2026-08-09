@@ -7,6 +7,8 @@ learner's English so the adapters keep them, but no real user data appears.
 import json
 import multiprocessing
 import os
+import pickle
+import sqlite3
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -14,8 +16,21 @@ from pathlib import Path
 
 import pytest
 
+from glite_english_audit.adapters.aider.adapter import (
+    INPUT_HISTORY_NAME,
+    AiderAdapter,
+    _SubtreeJob,
+    _walk_subtree,
+)
 from glite_english_audit.adapters.claude_code.adapter import ClaudeCodeAdapter
 from glite_english_audit.adapters.codex.adapter import CodexAdapter
+from glite_english_audit.adapters.cursor.adapter import CursorAdapter
+from glite_english_audit.adapters.cursor.store import (
+    BubbleChunkJob,
+    ComposerClass,
+    ComposerRecord,
+    scan_bubble_chunk,
+)
 from glite_english_audit.artifacts.enums import OsEnvironment, Stability
 from glite_english_audit.artifacts.models import NormalizedUtterance, SourceInstanceRecord
 from glite_english_audit.diagnostics.codes import Diagnostic
@@ -122,6 +137,91 @@ def _claude_home(root: Path, *, projects: int, sentinel_in: int | None = None) -
         (project / f"{session_id}.jsonl").write_text(
             "\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8"
         )
+    return home
+
+
+def _cursor_home(root: Path, *, composers: int, sentinel_in: int | None = None) -> Path:
+    """A Cursor home whose global store holds ``composers`` G4 conversations."""
+    home = root / "cursor-home"
+    global_storage = home / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage"
+    global_storage.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(global_storage / "state.vscdb")
+    connection.execute("CREATE TABLE ItemTable (key TEXT UNIQUE, value BLOB)")
+    connection.execute("CREATE TABLE cursorDiskKV (key TEXT UNIQUE, value BLOB)")
+    base = datetime(2026, 2, 1, 10, 0, tzinfo=UTC)
+    for index in range(composers):
+        composer_id = f"{index:08d}-aaaa-4aaa-8aaa-{index:012d}"
+        created = base + timedelta(days=index)
+        bubble_ids = [f"{index:08d}-bbbb-4bbb-8bbb-{position:012d}" for position in range(4)]
+        connection.execute(
+            "INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)",
+            (
+                f"composerData:{composer_id}",
+                json.dumps(
+                    {
+                        "_v": 12,
+                        "composerId": composer_id,
+                        "createdAt": int(created.timestamp() * 1000),
+                        "fullConversationHeadersOnly": [
+                            {"bubbleId": bubble_id, "type": 1} for bubble_id in bubble_ids
+                        ],
+                        "isBestOfNSubcomposer": False,
+                        "subComposerIds": [],
+                    }
+                ),
+            ),
+        )
+        for position, bubble_id in enumerate(bubble_ids):
+            text = _SENTENCES[position]
+            if sentinel_in is not None and index == sentinel_in and position == 0:
+                text = f"{text} {SENTINEL}"
+            rich = json.dumps(
+                {
+                    "root": {
+                        "children": [
+                            {"children": [{"text": text, "type": "text"}], "type": "paragraph"}
+                        ],
+                        "type": "root",
+                    }
+                }
+            )
+            connection.execute(
+                "INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)",
+                (
+                    f"bubbleId:{composer_id}:{bubble_id}",
+                    json.dumps(
+                        {
+                            "_v": 3,
+                            "createdAt": (created + timedelta(minutes=position))
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                            "richText": rich,
+                            "text": text,
+                            "type": 1,
+                        }
+                    ),
+                ),
+            )
+    connection.commit()
+    connection.close()
+    return home
+
+
+def _aider_home(root: Path, *, branches: int, sentinel_in: int | None = None) -> Path:
+    """A home whose projects sit three levels down, one history file each."""
+    home = root / "aider-home"
+    for index in range(branches):
+        project = home / f"branch-{index:03d}" / "work" / f"project-{index:03d}"
+        project.mkdir(parents=True, exist_ok=True)
+        lines = []
+        for position, sentence in enumerate(_SENTENCES):
+            text = sentence
+            if sentinel_in is not None and index == sentinel_in and position == 0:
+                text = f"{sentence} {SENTINEL}"
+            stamp = datetime(2026, 4, 1, 9, position, tzinfo=UTC) + timedelta(days=index)
+            lines.append(f"# {stamp:%Y-%m-%d %H:%M:%S.%f}")
+            lines.append(f"+{text}")
+        (project / INPUT_HISTORY_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return home
 
 
@@ -263,6 +363,110 @@ def test_parallel_scanning_keeps_the_opened_path_audit(tmp_path: Path) -> None:
     opened = adapter._opened_paths
     assert len(opened) == 30
     assert all(path.suffix == ".jsonl" for path in opened)
+
+
+def test_cursor_inventory_is_identical_at_every_worker_count(tmp_path: Path) -> None:
+    home = _cursor_home(tmp_path, composers=40)
+    sequential = CursorAdapter().discover(_context(home, workers=1))
+    assert sequential.records[0].candidate_messages == 40 * len(_SENTENCES)
+    for workers in (2, 5, 14):
+        parallel_outcome = CursorAdapter().discover(_context(home, workers=workers))
+        assert _dump(parallel_outcome.records) == _dump(sequential.records)
+
+
+def test_cursor_key_audit_is_the_same_whoever_read_the_key(tmp_path: Path) -> None:
+    """Keys a worker reads on the adapter's behalf reach the same audit log."""
+    home = _cursor_home(tmp_path, composers=40)
+    sequential = CursorAdapter()
+    sequential.discover(_context(home, workers=1))
+    parallel_adapter = CursorAdapter()
+    parallel_adapter.discover(_context(home, workers=5))
+    assert parallel_adapter.opened_key_audit() == sequential.opened_key_audit()
+    assert parallel_adapter.opened_paths() == sequential.opened_paths()
+
+
+def test_cursor_workers_return_counts_and_keys_but_never_bubble_text(tmp_path: Path) -> None:
+    """The pickled worker result is what crosses; it must hold no prompt."""
+    home = _cursor_home(tmp_path, composers=2, sentinel_in=0)
+    database = (
+        home
+        / "Library"
+        / "Application Support"
+        / "Cursor"
+        / "User"
+        / "globalStorage"
+        / "state.vscdb"
+    )
+    composer_id = f"{0:08d}-aaaa-4aaa-8aaa-{0:012d}"
+    job = BubbleChunkJob(
+        database_path=str(database),
+        composers=(
+            ComposerRecord(
+                composer_id=composer_id,
+                classification=ComposerClass.G4,
+                version=12,
+                user_bubble_ids=tuple(
+                    f"{0:08d}-bbbb-4bbb-8bbb-{position:012d}" for position in range(4)
+                ),
+            ),
+        ),
+    )
+    result = scan_bubble_chunk(job)
+
+    assert result.scan.candidate_messages == len(_SENTENCES)
+    assert result.scan.candidate_words > 0
+    assert result.scan.extracted == []
+    assert SENTINEL not in pickle.dumps(result).decode("utf-8", errors="replace")
+    assert [kind for kind, _key in result.key_audit] == ["kv_get"] * 4
+
+
+# -- aider: one walk rather than N items -------------------------------------
+
+
+def test_aider_inventory_is_identical_at_every_worker_count(tmp_path: Path) -> None:
+    home = _aider_home(tmp_path, branches=40)
+    sequential = AiderAdapter().discover(_context(home, workers=1))
+    assert len(sequential.records) == 40
+    for workers in (2, 5, 14):
+        parallel_outcome = AiderAdapter().discover(_context(home, workers=workers))
+        assert _dump(parallel_outcome.records) == _dump(sequential.records)
+
+
+def test_aider_walk_visits_in_the_same_order_at_every_worker_count(tmp_path: Path) -> None:
+    """Order decides which directory claims a doubly-reachable history file."""
+    home = _aider_home(tmp_path, branches=40)
+    adapter = AiderAdapter()
+    expected = [
+        (str(directory), names)
+        for directory, names in adapter._walk(
+            home, OsEnvironment.MACOS, environ={parallel.WORKER_COUNT_ENV: "1"}
+        )
+    ]
+    assert len(expected) == 40
+    for workers in (2, 5, 14, 16):
+        walked = [
+            (str(directory), names)
+            for directory, names in adapter._walk(
+                home, OsEnvironment.MACOS, environ={parallel.WORKER_COUNT_ENV: str(workers)}
+            )
+        ]
+        assert walked == expected
+
+
+def test_aider_workers_return_paths_but_never_history_text(tmp_path: Path) -> None:
+    home = _aider_home(tmp_path, branches=2, sentinel_in=0)
+    job = _SubtreeJob(
+        root=str(home / "branch-000"),
+        base_depth=1,
+        max_depth=6,
+        os_environment=OsEnvironment.MACOS,
+        audit_roots=(),
+    )
+    hits = _walk_subtree(job)
+
+    assert [hit.names for hit in hits] == [(INPUT_HISTORY_NAME,)]
+    assert hits[0].depth == 3
+    assert SENTINEL not in pickle.dumps(hits).decode("utf-8", errors="replace")
 
 
 # -- adapter isolation inside run_discovery ----------------------------------

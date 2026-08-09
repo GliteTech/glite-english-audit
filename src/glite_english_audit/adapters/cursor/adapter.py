@@ -27,7 +27,7 @@ import shutil
 import sqlite3
 import stat
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -338,7 +338,7 @@ class CursorAdapter:
             probe = self._wsl_probe(context)
         else:
             root = self._user_data_root(context)
-            probe = self._probe_root(root, context.home)
+            probe = self._probe_root(root, context.home, environ=context.environ)
         record = self._build_record(context, probe, position=1)
         self._inventory_stats[record.instance_key] = probe.stats
         return DiscoveryOutcome(records=[record], instance_paths={record.path_hash: probe.root})
@@ -418,7 +418,9 @@ class CursorAdapter:
             ),
         )
 
-    def _probe_root(self, root: Path, home: Path) -> _Probe:
+    def _probe_root(
+        self, root: Path, home: Path, *, environ: Mapping[str, str] | None = None
+    ) -> _Probe:
         global_db = root / "globalStorage" / "state.vscdb"
         # A symlink here would be a path out of the allowlisted tree, the same
         # check the workspace databases already get below.
@@ -466,7 +468,9 @@ class CursorAdapter:
                     diagnostic_code="SOURCE_UNSUPPORTED_SCHEMA",
                     fingerprint="missing-tables",
                 )
-            scan = scan_global_store(database)
+            # The path is already through _assert_allowed_file above, which is
+            # what makes it safe to hand to a worker that reopens it read-only.
+            scan = scan_global_store(database, parallel_over=global_db, environ=environ)
         except sqlite3.DatabaseError:
             return self._degenerate_probe(
                 root,
