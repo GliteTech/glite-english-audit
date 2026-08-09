@@ -84,6 +84,18 @@ and requires no new storage attestation.
 |---|---|
 | `package` | `SubmissionPackage` |
 
+### HTML report handoff
+
+The final local review page may initiate a new website submission through the native form transport
+specified in `specifications/report_handoff.md`. The form carries the exact current package as JSON
+text in a `submission` field. Consent fields remain separate form fields and never become part of
+the reusable package.
+
+This first handoff is not a `ReportLookupRequest`: the website has not accepted the package before.
+It therefore requires the same adult, permanent-storage/use, and external-AI affirmations as any
+other new upload. A later resubmission of an already accepted package may use
+`ReportLookupRequest` without collecting a new storage attestation.
+
 ### Responses
 
 `SubmissionAccepted`: `submission_id`, `state` (`received | processing | report_ready`),

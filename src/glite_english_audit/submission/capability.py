@@ -1,9 +1,9 @@
-"""Content-free capability detection for direct submission.
+"""Content-free capability detection for optional direct API submission.
 
-Before the website milestone exists, or when no compatible endpoint is
-configured, the review page is download-only (specification, 2.7). Detection
-reads configured contract metadata; it never probes arbitrary endpoints and
-never sends package content.
+The fixed website report form and package download do not depend on this
+configuration. Detection controls only the additional direct API action. It
+reads configured contract metadata; it never probes arbitrary endpoints or
+sends package content.
 """
 
 from pathlib import Path
@@ -25,7 +25,7 @@ class EndpointConfig(BaseModel):
 
 
 class SubmissionCapability(BaseModel):
-    """What the review page may offer for this run."""
+    """Whether the review page may add its optional direct API action."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
