@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 9
+**Version**: 10
 
 ## Goal
 
@@ -78,36 +78,26 @@ runtime; naming both is confusing and wrong.
    migration or restart. If a required private input expired under the 30-day rule,
    say the run cannot resume and offer a new audit. Resume decisions follow the
    deterministic policy in the resume section below.
-3. First-run explanation. Before the first local scan, tell the user how this
-   works. This is the message their consent rests on, so it has to be readable,
-   not merely complete: a lead line, then short bullets in three groups. Eleven
-   facts in one paragraph is a wall nobody reads, and consent to a wall is not
-   consent.
+3. First-run explanation. Before the first local scan, say in one line what that
+   scan does. The scan reads app data on this machine and hands back counts and
+   dates, and that is the whole of what the user agrees to here.
 
-   Cover every point below. Name the active runtime where marked; never name
-   both. Keep each bullet to one line. Distinguish local deterministic work from
-   model processing, and never claim the audit is entirely local.
+   Do:
+   ```text
+   I'll scan this computer for English you wrote or dictated. I'll see counts and
+   dates — never your messages.
+   ```
+   Don't: the eleven facts this used to open with — provider transfer, anonymity,
+   permanent storage, the disclosed uses. Every one of them belongs to a consent
+   moment the user has not reached, is asked again there with the decision in
+   front of them, and costs attention here that the decision being made now
+   needs. A briefing is not consent, and eleven facts delivered an hour early are
+   a briefing.
 
-   On this machine:
-   - trusted local scripts read your app data to find records and count volume
-   - they send nothing to a model or over the network
-   - what comes back is counts and dates, never your messages
-
-   Sent for analysis, only after you agree:
-   - the text you select goes through <active runtime> to your current AI
-     provider — this is the step that is not local
-   - Glite never receives your raw text
-
-   If you choose to submit at the end:
-   - you see every record first, and nothing is sent until you say so
-   - submission is anonymous: no name, no email, no account
-   - Glite stores the submitted records and counts permanently
-   - Glite may use them to improve the product, build an English-learning
-     knowledge graph, train models, and publish aggregated research
-
-   Do: the grouped bullets above, in your own words.
-   Don't: one paragraph listing all eleven facts in sequence, which reads as
-   something to get past rather than something to agree to.
+   Say what the scan hands back rather than that it stays local. The user is
+   talking to a model and is about to point it at their message history, so what
+   this conversation sees is the fact they cannot infer and might object to. "It
+   sends nothing to a model" is also not quite true: the counts reach you.
 
 4. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
    local scripts may inspect supported source data to calculate an inventory without
@@ -201,6 +191,11 @@ runtime; naming both is confusing and wrong.
 7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
    Ask this on every audit. A confirmation stored by a previous run does not count.
+
+   Two facts belong with this question, because this is where they are decided:
+   the selected text goes through <active runtime> to their current AI provider,
+   and that is the step which is not local; and Glite never receives their raw
+   text. Name the active runtime only.
 8. Preflight. Take the numbers from the same command, re-run with the final
    selection: `uv run python -m glite_english_audit.estimation.estimate` with the
    chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
