@@ -125,23 +125,43 @@ Omit — "Discussed the requirements with team."
 Why: the dropped article before "team" could be a non-native pattern, but article dropping is
 also common in native note-style writing. The case is ambiguous, so it is omitted.
 
-### Five ways a careful reader still overreaches
+### Where careful readers go wrong, in both directions
 
-A measured run of this skill on real writing retained 62 findings, and independent verifiers
-rejected 10 of them. Every rejection fell into one of the patterns below, and none of them was
-caught by the native-plausibility question alone. Check each one before you retain.
+A measured run retained 62 findings and independent verifiers rejected 10 of them, so the
+patterns below were written to stop over-flagging. Re-measured against three independent readers
+on the same corpus, one of those patterns was wrong and was suppressing real findings; it is now
+the first entry and it flags rather than omits.
 
-**A slip that lands on a real word is still a slip.** "hvae" is obviously a typo. "built" for
-"build" is not obviously anything — it reads as a tense error, so it gets explained as one. Ask
-whether the writer produces the correct form elsewhere in the batch. If they do, it is a slip.
-Adjacent typos are corroborating evidence: a sentence already containing one is a sentence typed
-fast.
+Read them as calibration in both directions, not as a list of reasons to stay silent. This skill
+has no verifier behind it: nothing downstream re-reads a finding to catch an invention, and
+nothing re-reads the text to catch a miss. Precision and recall are both settled here.
 
-Don't — flag: "Let's think how to built a similar report" in a message that also says "just thin
-about it".
-Why: two substitutions in one sentence, and the same batch contains "Is it build correctly?" —
-the reverse swap. A writer who makes an error in both directions is slipping, not misapplying a
-rule they lack.
+A pattern that appears more than once in the batch is *stronger* evidence, not weaker. Repetition
+is what separates a habit from an accident, and a habit is what a learner can act on.
+
+**A slip lands on a non-word; an unstable form lands on the wrong real word.** "hvae" is a
+typo — no such word exists, and nothing was chosen. "built" where "build" belongs is different:
+both are real words, both are grammatical somewhere, and one was picked over the other. That is a
+choice, and a wrong one.
+
+The test is *bidirectionality*, and it points the opposite way from intuition. A writer who only
+ever writes "built" for "build" might be repeating one typo. A writer who writes "how to built"
+AND "is it build" has confused the pair in both directions — which no keyboard slip produces,
+because a slip is random and this is systematic. That the same writer also uses both forms
+correctly elsewhere is not exoneration: it is what an unstable form looks like. A form the writer
+does not have would be wrong every time; a form they have not stabilized is wrong sometimes.
+
+Do — flag: "Let's think how to built similar reports", when the same corpus also contains "Is it
+build just on publicly available content?"
+Why: the pair is confused in both directions. The writer has both forms and has not settled which
+goes where, which is a real gap worth telling them about, and exactly the kind a learner can fix
+once it is named.
+
+Don't — flag: "I hvae finished the report."
+Why: not a word. Nothing was chosen, so there is no rule to teach.
+
+Adjacent typos are weak evidence at best. A sentence typed fast can carry both a slip and a real
+mistake, and treating one as proof the other is innocent discards findings that were correct.
 
 **Prompt register is not broken English.** A one-line instruction typed at a coding agent is its
 own register, like a headline or a commit message. It drops articles, auxiliaries, and subjects
