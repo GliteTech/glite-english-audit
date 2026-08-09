@@ -99,9 +99,11 @@ runtime; naming both is confusing and wrong.
    this conversation sees is the fact they cannot infer and might object to. "It
    sends nothing to a model" is also not quite true: the counts reach you.
 
-4. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
-   local scripts may inspect supported source data to calculate an inventory without
-   sending text to a model or network. This consent may be remembered until the
+4. Consent moment 1 — local scan. On first use, ask the user to confirm that local
+   scripts may read the supported apps on this computer to count what is there.
+   Do not call the scripts trusted: that is a label the user cannot check, and
+   asking them to accept it is asking them to take on trust the one thing the
+   question exists to establish. This consent may be remembered until the
    consent version changes (`ConsentState.consent_policy_version`).
 5. Discovery. Run local discovery by following
    `skills/discover-english-sources/SKILL.md`. Present only the aggregate inventory

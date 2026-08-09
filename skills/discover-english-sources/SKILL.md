@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 10
+**Version**: 11
 
 ## Goal
 
@@ -45,31 +45,17 @@ agent sees only the derived `InstanceInventorySummary`.
 
 ## Steps
 
-1. Speak first, before any tool call. The user has just asked for a scan of their
-   own computer and deserves to know what is about to happen before it does.
+1. Run the scan. Say nothing first.
 
-   Write one line saying what you are about to look for, then the commitments as
-   short bullets. A promise the reader can check is easier to trust as its own
-   line than buried in a sentence with three others, and each bullet is something
-   they can hold you to. Name the active runtime if you name one at all — "Claude
-   Code" in Claude Code, "Codex" in Codex, never both.
+   The orchestration has just asked whether local scripts may scan this computer
+   and the user has just said yes, so an announcement here restates the question
+   they answered a second ago. The scan takes seconds; a line explaining that a
+   wait is coming costs more of the reader's attention than the wait does.
 
-   Do:
-   ```text
-   I'll look for apps on this computer that hold English you wrote or dictated —
-   Claude Code, Codex, Cursor, and others.
+   Don't: repeating the privacy promises. They were made where the user agreed to
+   them, and repeating them here reads as a product reassuring itself.
 
-   - Runs entirely on your machine
-   - Nothing goes to a model or over the network
-   - I get back counts and dates only, never your messages
-   - Usually finishes in a few seconds
-   ```
-   Don't: the same four promises run together in one paragraph, where the reader
-   has to take them on trust because none is separable enough to check.
-   Don't: starting with a tool call, so the first thing the user sees is file
-   reads and a spinner.
-
-2. Run the discovery inventory command:
+2. The command:
    `uv run python -m glite_english_audit.discovery.inventory`.
    It runs `discover()` for every registered adapter and writes the private inventory
    artifact. Its stdout is the agent-facing summary JSON described in Output Format.
@@ -77,9 +63,7 @@ agent sees only the derived `InstanceInventorySummary`.
    chooses sources from this output and `pipeline.start_run` creates the run from
    that choice. The private artifact waits in the pending inventory location until
    `start_run` adopts it. It is fast — a few seconds even on millions of words, because
-   the scan runs across every core. Do not promise minutes; a user who is told to
-   expect a wait and gets an answer immediately learns the estimates are guesses.
-   starting rather than leaving the user with a silent terminal.
+   the scan runs across every core.
 3. Read the summary JSON. Do not open the private artifact or any source path.
 4. Report what was found as a list, then judge it in prose. A list is faster to
    scan than a sentence containing the same facts; prose is better for the
