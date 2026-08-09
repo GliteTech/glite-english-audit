@@ -14,6 +14,8 @@ from glite_english_audit.estimation.profile import (
     TokenUsageProfileEntry,
     default_profile_path,
     load_token_usage_profile,
+    profiles_differ,
+    resolve_models,
 )
 
 EXPECTED_STEPS = {
@@ -215,3 +217,50 @@ def test_judge_authorship_cell_reproduces_the_run_it_was_measured_from() -> None
         f"{measured_tokens:,}"
     )
     assert entry.messages_measured == measured_utterances
+
+
+def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
+    """Specification 10.8 requires the resolved models in the manifest.
+
+    They were an empty dict, which cost two things: the manifest did not record
+    what ran, and resume compares this field to decide whether a model change
+    invalidates the semantic stages, so the check could never fire.
+    """
+    profile = load_token_usage_profile()
+    resolved = resolve_models(profile, runtime="claude-code", processing_profile="recommended")
+    assert set(resolved) == {
+        "judge-authorship",
+        "find-mistakes",
+        "verify-findings",
+        "create-safe-records",
+    }
+    assert all(model for model in resolved.values())
+
+
+def test_both_profiles_resolve_the_same_while_one_model_is_measured() -> None:
+    """Specification 10.8: "both profiles may resolve to the same model".
+
+    That is the state today, and it is why the setup must not stage a choice
+    between them. If this starts failing, a second model has been measured and
+    the profile question becomes a real one again.
+    """
+    profile = load_token_usage_profile()
+    for runtime in ("claude-code", "codex"):
+        assert profiles_differ(profile, runtime=runtime) is False
+
+
+def test_an_unknown_processing_profile_is_refused() -> None:
+    with pytest.raises(ValueError, match="unknown processing profile"):
+        resolve_models(
+            load_token_usage_profile(), runtime="claude-code", processing_profile="economical"
+        )
+
+
+def test_the_manifest_records_the_resolved_models() -> None:
+    # The end the whole chain exists for: what a run says it used.
+    from glite_english_audit.estimation.profile import resolve_models as _resolve
+
+    expected = _resolve(
+        load_token_usage_profile(), runtime="claude-code", processing_profile="recommended"
+    )
+    assert expected, "a claude-code run must resolve at least one model"

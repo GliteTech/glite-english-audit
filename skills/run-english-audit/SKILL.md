@@ -140,15 +140,42 @@ runtime; naming both is confusing and wrong.
       that quota and price are unavailable. Warn when a preset is unlikely to fit the
       remaining allowance. These are calibrated estimates, not guarantees, and a
       range the command marks low confidence stays a range when you repeat it.
-   3. Processing profile: offer Recommended (lowest-cost models inside the measured
-      top-quality band, with strong independent verification) and Maximum assurance
-      (highest measured eligible models regardless of cost). Both may resolve to the
-      same models. Record the resolved models in the manifest.
+   3. Processing profile. First find out whether there is a choice to offer:
+
+      ```
+      uv run python -c "from glite_english_audit.estimation.profile import
+      load_token_usage_profile, profiles_differ, resolve_models;
+      p=load_token_usage_profile(); r='claude-code';
+      print(profiles_differ(p, runtime=r), resolve_models(p, runtime=r,
+      processing_profile='recommended'))"
+      ```
+
+      Use the runtime you are running in. It prints whether the two profiles
+      resolve to different models, and which models Recommended resolves to.
+
+      When they do NOT differ — which is the case today, because only one model
+      per step has been measured — do not ask. A question with one real answer
+      wastes the user's attention and implies a control they do not have. Say
+      which model will run the work and move on:
+
+      Do: "All four model steps run on Claude Fable 5, the only model measured
+      for this runtime, so there is nothing to choose between here."
+      Don't: offering "Recommended" and "Maximum assurance" as alternatives when
+      both resolve to the same model, with option text describing a cost tradeoff
+      that does not exist in this run.
+
+      When they DO differ, offer both and name the actual models in each option,
+      not the policy that picked them. "Recommended" tells the user nothing;
+      "Claude Fable 5 for every step" tells them what will read their writing.
+
+      Either way `start_run` records the resolved models in the manifest, so the
+      preflight can state them and a later model change invalidates the semantic
+      stages instead of passing unnoticed.
    4. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
    In Claude Code, ask through `AskUserQuestion`: multi-select for which apps to
    include, pre-selected to the default rule; single-select for the period, with
-   each preset's words and estimated time in its description; single-select for
-   the profile.
+   each preset's words and estimated time in its description; and a single-select
+   for the profile only when the profiles actually differ.
 
    In Codex, ask in plain text, following
    `skills/discover-english-sources/SKILL.md` under "Asking a Choice Question in
@@ -202,6 +229,17 @@ runtime; naming both is confusing and wrong.
    smaller period now or accept that the run may checkpoint for later resumption.
 9. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
    confirm the preflight. This is the final question before processing.
+
+   When they confirm, record it:
+   `uv run python -m glite_english_audit.pipeline.record_consent
+   --run-id <run-id> --moment preflight`. Asking without recording leaves the
+   manifest saying this consent never happened, and afterwards nobody can tell a
+   consent that was never sought from one that was given and never written down.
+   That distinction is the only reason a consent record exists.
+
+   Record it only if they actually confirmed. A timestamp is evidence that a
+   person was asked and agreed at a moment; writing one for a question you
+   skipped is worse than leaving it empty.
 10. Autonomous stage execution. Run stages 0-8 in order. Every semantic stage follows:
    producer, then deterministic verifier, then independent verifier in a fresh
    context, then bounded repair, then promotion only after both verifiers pass.
@@ -250,7 +288,12 @@ runtime; naming both is confusing and wrong.
      `uv run python -m glite_english_audit.pipeline.apply_authorship
      --run-id <run-id>`, which checks every retained span against its candidate,
      quarantines the decisions that fail, and writes the stage-3 `corpus.jsonl` and
-     its `EligibleCorpusManifest`.
+     its `EligibleCorpusManifest`. Then
+     `uv run python -m glite_english_audit.verification.verify_corpus
+     --run-id <run-id>`, which re-derives the word count from the corpus and checks
+     it against the manifest, the tokenizer version, and the deduplication
+     invariants. This is the number every reported rate divides by, so it is
+     checked by code rather than trusted from the step that produced it.
 
      When it exits non-zero, some judgments failed their span check and their
      utterances are out of the corpus. Repair them once before moving on:

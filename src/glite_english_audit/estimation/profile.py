@@ -203,3 +203,62 @@ class CalibrationRecord(BaseModel):
     def is_compatible_with(self, other: "CalibrationRecord") -> bool:
         """Whether two records share the same calibration partition."""
         return self.partition_key() == other.partition_key()
+
+
+def resolve_models(
+    profile: TokenUsageProfile, *, runtime: str, processing_profile: str
+) -> dict[str, str]:
+    """Which model each semantic step will use, per specification 10.8.
+
+    Recommended takes the cheapest model measured inside the top-quality band;
+    maximum assurance takes the highest measured eligible one. Both are read
+    from the committed calibration profile, because a model this project has
+    not measured is a model it cannot honestly offer.
+
+    Today every runtime has exactly one measured model per step, so the two
+    processing profiles resolve identically. Specification 10.8 anticipates
+    that: "If no cheaper model meets that band, both profiles may resolve to
+    the same model." Callers should ask :func:`profiles_differ` before offering
+    the user a choice between them.
+
+    Ordering within a step is by measured p90 cost per message, which is the
+    only cost signal this project has actually measured. It is a proxy for
+    price, not a price.
+    """
+    if processing_profile not in ("recommended", "maximum-assurance"):
+        msg = f"unknown processing profile: {processing_profile!r}"
+        raise ValueError(msg)
+    cheapest = processing_profile == "recommended"
+    chosen: dict[str, str] = {}
+    for entry in profile.entries:
+        if entry.runtime != runtime:
+            continue
+        current = chosen.get(entry.step)
+        if current is None:
+            chosen[entry.step] = entry.model
+            continue
+        rival = next(
+            e
+            for e in profile.entries
+            if e.runtime == runtime and e.step == entry.step and e.model == current
+        )
+        better = (
+            entry.p90_total_tokens_per_message < rival.p90_total_tokens_per_message
+            if cheapest
+            else entry.p90_total_tokens_per_message > rival.p90_total_tokens_per_message
+        )
+        if better:
+            chosen[entry.step] = entry.model
+    return chosen
+
+
+def profiles_differ(profile: TokenUsageProfile, *, runtime: str) -> bool:
+    """Whether the two processing profiles would resolve to different models.
+
+    When they would not, asking the user to choose between them is a question
+    with one real answer, and the honest move is to say which models will be
+    used rather than to stage a choice.
+    """
+    return resolve_models(
+        profile, runtime=runtime, processing_profile="recommended"
+    ) != resolve_models(profile, runtime=runtime, processing_profile="maximum-assurance")

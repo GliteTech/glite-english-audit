@@ -150,21 +150,34 @@ agent sees only the derived `InstanceInventorySummary`.
    Report an app whose data could not be read separately and plainly: that one
    is actionable, because English exists on this machine the audit cannot see.
 
-8. Say plainly where the answers went, and never claim more than happened.
-   Discovery writes only the inventory. The user's choice of apps and period is
-   not saved by this skill: it lives in the conversation until
-   `pipeline.start_run` records it in the run manifest, which is the moment a run
-   exists at all.
+8. Write the choice down, then say what you wrote.
 
-   So do not say "recorded", "saved", or "stored" about their choice. Say what is
-   true: you have their answer, nothing is on disk yet, and starting the audit is
-   what writes it down. If the conversation ends here, the choice is gone and
-   only the inventory remains.
+   `uv run python -m glite_english_audit.pipeline.save_choice --period <preset>`
+   plus the same `--include-source`, `--exclude-source`, and `--exclude-label`
+   flags you would pass to `start_run`, in the user's own words. It stores the
+   answer beside the inventory, so a user who closes the terminal and comes back
+   does not answer these questions twice. `start_run` adopts it, and an explicit
+   argument there overrides it.
 
-   Do: "Got it — Claude Code only, last week. That is not saved yet; starting the
-   audit is what records it. Shall I start now?"
-   Don't: "Recorded: Claude Code only, last week." Nothing was recorded, and a
-   user who comes back tomorrow will find their choice gone.
+   It holds the answer only: the periods and app names the user said. No paths,
+   no counts, no instance keys. It expires after seven days, because a stale map
+   of this machine is both a privacy liability and probably wrong.
+
+   Only then describe it, and describe it exactly. The choice is saved; the run
+   is not. Those are different, and a user who hears "saved" may reasonably think
+   the audit has begun.
+
+   Do: "Saved: Claude Code only, last 7 days. That is remembered if you come back
+   later. No run exists yet — starting the audit is what creates one. Shall I
+   start now?"
+   Don't: "Recorded: Claude Code only, last week." — if you did not run the
+   command, nothing was recorded, and a user who comes back tomorrow finds their
+   choice gone.
+   Don't: "Your audit is set up." No run exists until `start_run`.
+
+   If the command fails, say the choice was not saved and continue. Losing a
+   remembered answer costs one repeated question; stopping the setup over it
+   costs the whole run.
 
    Then hand the summary and the choice to the orchestration
    (`skills/run-english-audit/SKILL.md`), which asks the remaining questions and

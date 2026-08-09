@@ -40,6 +40,7 @@ from glite_english_audit.discovery.pending_expiry import (
     PENDING_INVENTORY_MAX_AGE_DAYS,
     is_stale,
 )
+from glite_english_audit.estimation.profile import load_token_usage_profile, resolve_models
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import pending_inventory_dir, run_dir, stage_dir
 from glite_english_audit.pipeline.save_choice import load_choice
@@ -246,7 +247,16 @@ def start_run(
             tokenizer_version=TOKENIZER_VERSION,
             skill_versions={},
             prompt_versions={},
-            model_ids={},
+            # The models this profile resolves to, per specification 10.8. They
+            # were empty, which cost two things: the manifest did not record
+            # what ran, and resume compares this field to decide whether a
+            # model change invalidates the semantic stages — an empty dict is
+            # equal to an empty dict forever, so that check could never fire.
+            model_ids=resolve_models(
+                load_token_usage_profile(),
+                runtime=runtime.value.replace("_", "-"),
+                processing_profile=processing_profile,
+            ),
             consent_policy_version=CONSENT_POLICY_VERSION,
         ),
     )
