@@ -457,9 +457,9 @@ def test_no_denylisted_file_is_ever_opened(tmp_path: Path, monkeypatch: pytest.M
     opened: list[Path] = []
     real_open = Path.open
 
-    def _recording_open(self: Path, *args: object, **kwargs: object) -> object:
+    def _recording_open(self: Path, *args: Any, **kwargs: Any) -> Any:
         opened.append(self)
-        return real_open(self, *args, **kwargs)  # type: ignore[arg-type]
+        return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(codex_adapter, "_WSL_MOUNT_BASE", home / "mnt")
     monkeypatch.setattr(Path, "open", _recording_open)
