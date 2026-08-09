@@ -41,8 +41,9 @@ from glite_english_audit.discovery.pending_expiry import (
 )
 from glite_english_audit.estimation.profile import load_token_usage_profile, resolve_models
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.paths import inventory_path, pending_inventory_dir, run_dir
+from glite_english_audit.paths import inventory_path, pending_inventory_dir, repo_root, run_dir
 from glite_english_audit.pipeline.save_choice import load_choice
+from glite_english_audit.verification.skills import skill_versions
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
@@ -244,7 +245,16 @@ def start_run(
             adapter_versions=adapter_versions,
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
             tokenizer_version=TOKENIZER_VERSION,
-            skill_versions={},
+            # The skills that will run this audit, by declared version. This was
+            # an empty dict, with the same consequence the model_ids comment
+            # below describes: resume compares this field to decide whether a
+            # changed skill invalidates the semantic steps, and an empty dict is
+            # equal to an empty dict forever, so that check could never fire.
+            skill_versions=skill_versions(repo_root()),
+            # Deliberately empty. In this project the skill file IS the prompt,
+            # so its version is the skill version already recorded above. A
+            # second dict tracking the same thing would drift from it and give
+            # resume two answers to one question.
             prompt_versions={},
             # The models this profile resolves to, per specification 10.8. They
             # were empty, which cost two things: the manifest did not record

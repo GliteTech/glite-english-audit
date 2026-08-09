@@ -48,6 +48,7 @@ STEP = StepId.E_VERIFIED
 SOURCE_STEP = StepId.D_MISTAKES
 DROPPED_NAME = "dropped.json"
 PRODUCER_NAME = "pipeline.verify"
+SKILL_NAME = "verify-mistake-confidentiality"
 
 
 class VerificationOutcome(BaseModel):
@@ -174,6 +175,7 @@ def apply_verification(run_id: str, *, runs_root: Path | None = None) -> Verific
         run_id,
         STEP,
         verifier_name=PRODUCER_NAME,
+        skill_name=SKILL_NAME,
         artifact_id=artifact_id,
         artifact_hash=step_digest(target),
         diagnostics=diagnostics,

@@ -49,16 +49,19 @@ from glite_english_audit.artifacts.models import MistakeRecord
 from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import count_words
-from glite_english_audit.paths import step_dir
+from glite_english_audit.paths import repo_root, step_dir
 from glite_english_audit.pipeline.record_stage import advance_to, mark_failed
 from glite_english_audit.sessions import read_index, read_session, session_files, write_index
+from glite_english_audit.state.run_store import load_manifest
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
 from glite_english_audit.verification.reports import VerificationReport
+from glite_english_audit.verification.skills import skill_versions
 
 STEP = StepId.D_MISTAKES
 SOURCE_STEP = StepId.C_AUTHORED
 REPORT_NAME = "verification-report.json"
 PRODUCER_NAME = "pipeline.mistakes"
+SKILL_NAME = "find-english-mistakes"
 
 
 class SessionAssignment(BaseModel):
@@ -219,11 +222,42 @@ def step_digest(directory: Path) -> str:
     return sha256_hex("\n".join(lines).encode("utf-8"))
 
 
+def _judged_by(run_id: str, skill_name: str, *, runs_root: Path | None = None) -> str:
+    """The version of the skill whose judgment this report is about.
+
+    The attestation this feeds claims which check cleared a record. It read
+    ``CLIENT_VERSION``, which names whatever built the package — equally true of
+    a run that skipped the check and one that passed it, so it distinguished
+    nothing. The skill file is the check, so its declared version is the answer.
+
+    Preferred source is the run manifest, which froze it at selection: that is
+    the version resume compares, so a skill edited mid-run invalidates the step
+    rather than being attested as if it had always been there. Runs started
+    before the manifest recorded skill versions fall back to the version on
+    disk, which for a run in progress is the same file the agents just read.
+
+    There is deliberately no fall back to the client version. A missing
+    attestation is recoverable; a wrong one is believed.
+    """
+    manifest = load_manifest(run_id, root=runs_root)
+    version = manifest.fingerprint.skill_versions.get(skill_name)
+    if version is None:
+        version = skill_versions(repo_root()).get(skill_name)
+    if version is None:
+        msg = (
+            f"no version is recorded for the {skill_name} skill, in the run manifest or on "
+            "disk, so the attestation cannot say which check cleared these records"
+        )
+        raise ValueError(msg)
+    return f"{skill_name}@{version}"
+
+
 def write_step_report(
     run_id: str,
     step: StepId,
     *,
     verifier_name: str,
+    skill_name: str,
     artifact_id: str,
     artifact_hash: str,
     diagnostics: list[Diagnostic],
@@ -242,7 +276,7 @@ def write_step_report(
         artifact_id=artifact_id,
         artifact_hash=artifact_hash,
         verifier_name=verifier_name,
-        verifier_version=CLIENT_VERSION,
+        verifier_version=_judged_by(run_id, skill_name, runs_root=runs_root),
         kind="deterministic",
         passed=VerificationReport.passed_matches(diagnostics),
         diagnostics=diagnostics,
@@ -364,6 +398,7 @@ def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOut
         run_id,
         STEP,
         verifier_name=PRODUCER_NAME,
+        skill_name=SKILL_NAME,
         artifact_id=artifact_id,
         artifact_hash=step_digest(target),
         diagnostics=diagnostics,
