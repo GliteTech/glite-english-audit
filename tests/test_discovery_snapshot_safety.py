@@ -1,6 +1,7 @@
 """Snapshot safety gates and manifest-bounded cleanup against a real Git repo."""
 
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -271,3 +272,31 @@ def test_cleanup_refuses_non_directory_base(tmp_path: Path) -> None:
     with pytest.raises(SnapshotSafetyError) as excinfo:
         cleanup_snapshot(manifest, _RUN_ID, repo=repo)
     assert excinfo.value.diagnostic.code == "SOURCE_SNAPSHOT_UNSAFE_PATH"
+
+
+def test_the_snapshot_directory_and_its_run_directory_are_owner_only(tmp_path: Path) -> None:
+    """The snapshot holds verbatim copies of the user's application data.
+
+    Every other gate in this module decides WHERE the directory may be: inside
+    the checkout, Git-ignored, not under a synced root, no symlink in the path.
+    None of them decided who may read it once it existed, and a plain mkdir
+    under the default umask left it world-readable — along with the run
+    directory created on the way, which later holds the user's own sentences
+    and every finding about them.
+    """
+    repo = _git_repo(tmp_path / "checkout")
+    target = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700, (
+        "the run directory is created by this call and outlives the snapshot"
+    )
+
+
+def test_asking_twice_keeps_the_directory_and_its_mode(tmp_path: Path) -> None:
+    # A resumed run reaches this a second time; it must neither fail nor loosen.
+    repo = _git_repo(tmp_path / "checkout")
+    first = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    second = ensure_safe_snapshot_dir(_RUN_ID, repo=repo)
+    assert first == second
+    assert stat.S_IMODE(second.stat().st_mode) == 0o700

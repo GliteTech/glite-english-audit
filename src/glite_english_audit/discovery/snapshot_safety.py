@@ -11,6 +11,7 @@ snapshot directory, and never follows a path outside it.
 import subprocess
 from pathlib import Path
 
+from glite_english_audit.artifacts.io import ensure_private_dir
 from glite_english_audit.artifacts.models import SnapshotManifest
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.paths import RUNTIME_DIR_NAME, repo_root, snapshot_dir
@@ -118,7 +119,13 @@ def ensure_safe_snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:
     root, target = _gated_snapshot_dir(run_id, repo)
     _check_not_synced_root(root)
     _check_git_ignored(root, target)
-    target.mkdir(parents=True, exist_ok=True)
+    # Owner-only, not the umask default. Everything above this line guards
+    # where the directory may be; this guards who may read it once it exists.
+    # It holds verbatim copies of the user's application data, and a plain
+    # mkdir left it world-readable — along with the run directory it creates
+    # on the way, which later holds their sentences and every finding about
+    # them.
+    ensure_private_dir(target)
     _check_no_symlink_components(root, target)
     return target
 
