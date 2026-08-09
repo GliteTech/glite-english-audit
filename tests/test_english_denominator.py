@@ -56,6 +56,34 @@ def test_the_count_never_exceeds_the_plain_word_count() -> None:
         assert english_words(text) <= count_words(text), text
 
 
+def test_every_module_that_counts_the_denominator_uses_the_same_rule() -> None:
+    """Three modules count it, and fixing two of three is how this survived.
+
+    Step c records the English slice, verify_corpus re-derives it, and
+    build_review publishes it. build_review was still using count_words after
+    the other two moved — so the one number that reaches the user and the
+    submission package was the only one computed by a different rule, larger
+    than the verified corpus by however much non-English the learner wrote, and
+    larger in a way no check compared.
+
+    Checked by reading the source rather than by running a mixed-language run,
+    because a fixture corpus that is all English makes all three agree and
+    proves nothing.
+    """
+    import inspect
+
+    from glite_english_audit.pipeline import build_review
+    from glite_english_audit.verification import verify_corpus as verifier
+
+    for name, source in (
+        ("verify_corpus", inspect.getsource(verifier.verify_corpus)),
+        ("build_review._modality_counts", inspect.getsource(build_review._modality_counts)),
+        ("build_review.build_review", inspect.getsource(build_review.build_review)),
+    ):
+        assert "english_words(" in source, name
+        assert "count_words(" not in source, name
+
+
 def test_the_verifier_counts_words_the_same_way_the_step_does(tmp_path: Path) -> None:
     """Both sides of the check must agree on what a word is.
 
