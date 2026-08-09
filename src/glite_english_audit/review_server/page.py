@@ -31,19 +31,18 @@ STORAGE_CONFIRMATION_TEXT = (
     "delete these records later."
 )
 DOWNLOAD_ONLY_TEXT = (
-    "Direct sending is not available in this run. Save the package now and "
-    "upload it later on the Glite website."
+    "Nothing will be sent now. Download the package and upload it on the "
+    "Glite website when you are ready."
 )
 EXCLUSION_EXPLANATION_TEXT = (
-    "Excluding a record removes its details from the submission. The record "
-    "still counts as one withheld mistake in the anonymous counts."
+    "Uncheck any example you do not want to share. Its complete record will be "
+    "removed, and the anonymous withheld count will increase by one."
 )
 PACKAGE_NOTE_TEXT = (
-    "This JSON is byte for byte what Glite would receive. The box below "
-    "scrolls sideways for long lines."
+    "This JSON is byte for byte what Glite would receive. Long lines scroll sideways."
 )
-DOWNLOAD_LINK_TEXT = "Download the submission package"
-DOWNLOAD_NOTE_TEXT = "The file is the exact JSON shown above."
+DOWNLOAD_LINK_TEXT = "Download package"
+DOWNLOAD_NOTE_TEXT = "Downloads the same exact JSON available below."
 SEND_REQUIREMENTS_TEXT = "Check both confirmations to send. At least one record must stay included."
 SKIP_LINK_TEXT = "Skip to send or save"
 
@@ -57,7 +56,12 @@ _STYLE = """
   --ink-soft: #1E1F22;
   --line: rgba(2, 3, 6, 0.18);
   --line-strong: rgba(2, 3, 6, 0.45);
-  --well: rgba(2, 3, 6, 0.05);
+  --well: #F1F4FA;
+  --well-hover: #E8EDF7;
+  --note-bg: #EFF4FF;
+  --ok-bg: #EAF8F0;
+  --fail-bg: #FFF0F2;
+  --z-popover: 20;
   --action: #005BFF;
   --action-text: #005BFF;
   --on-action: #FBFCFF;
@@ -72,7 +76,11 @@ _STYLE = """
     --ink-soft: rgba(251, 252, 255, 0.72);
     --line: rgba(251, 252, 255, 0.2);
     --line-strong: rgba(251, 252, 255, 0.38);
-    --well: #1E1F22;
+    --well: #151820;
+    --well-hover: #1E2430;
+    --note-bg: #101B33;
+    --ok-bg: #0B2518;
+    --fail-bg: #2D1117;
     --action-text: #7DA6FF;
     --focus: #7DA6FF;
     --ok: #4CC583;
@@ -83,18 +91,37 @@ _STYLE = """
 [hidden] { display: none !important; }
 body {
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
-  max-width: 46rem;
+  padding: 2rem 1.25rem 4rem;
+  max-width: 52rem;
   background: var(--bg);
   color: var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 1rem;
   line-height: 1.55;
 }
-h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 0.5rem; }
-h2 { font-size: 1.125rem; margin: 2rem 0 0.5rem; }
+h1 {
+  max-width: 25ch;
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+h2 { margin: 2rem 0 0.5rem; font-size: 1.125rem; line-height: 1.3; text-wrap: balance; }
 p { margin: 0.5rem 0; }
 .muted { color: var(--ink-soft); }
+.intro { max-width: 66ch; color: var(--ink-soft); text-wrap: pretty; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .skip-link {
   position: absolute;
   left: -100vw;
@@ -109,55 +136,101 @@ p { margin: 0.5rem 0; }
   text-decoration: none;
 }
 .skip-link:focus { left: 0.75rem; top: 0.75rem; }
-dl.summary { margin: 0.75rem 0; }
+dl.summary { margin: 0.65rem 0 0; }
 dl.summary .row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 1rem;
-  padding: 0.1rem 0;
+  display: inline-flex;
+  gap: 0.35rem;
+  margin: 0.15rem 1rem 0.15rem 0;
 }
 dl.summary dt { color: var(--ink-soft); }
 dl.summary dd {
   margin: 0;
-  text-align: right;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-ul.records { list-style: none; margin: 1rem 0; padding: 0; border-top: 1px solid var(--line); }
-li.record { border-bottom: 1px solid var(--line); padding: 0.85rem 0; }
-.record-include {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  font-weight: 600;
-  margin: 0 0 0.5rem;
+ul.records {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
 }
+li.record {
+  position: relative;
+  border-bottom: 1px solid var(--line);
+  padding: 0.45rem 0;
+}
+.record-line {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) 2.75rem;
+  gap: 0.75rem;
+  align-items: start;
+  min-height: 2.75rem;
+}
+.record-example {
+  align-self: center;
+  padding: 0.3rem 0;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+  cursor: pointer;
+}
+.record:has(.record-toggle:not(:checked)) .record-example {
+  color: var(--ink-soft);
+  font-weight: 450;
+}
+.record-info {
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--action-text);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.record-info:hover,
+.record-info[aria-expanded="true"] { background: var(--well-hover); }
+.record-popover {
+  position: absolute;
+  z-index: var(--z-popover);
+  top: calc(100% - 0.2rem);
+  right: 0;
+  width: min(34rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.popover-heading { margin: 0 0 0.55rem; font-weight: 700; }
 dl.record-fields { margin: 0; }
 dl.record-fields .row {
   display: grid;
-  grid-template-columns: 7.5rem 1fr;
-  gap: 0 1rem;
-  padding: 0.1rem 0;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0 0.8rem;
+  padding: 0.2rem 0;
 }
-dl.record-fields dt { color: var(--ink-soft); font-size: 0.875rem; padding-top: 0.1rem; }
+dl.record-fields dt { color: var(--ink-soft); font-size: 0.875rem; }
 dl.record-fields dd { margin: 0; overflow-wrap: anywhere; }
-@media (max-width: 30rem) {
-  body { padding: 1.25rem 1rem 3rem; }
-  dl.record-fields .row { grid-template-columns: 1fr; }
-  dl.record-fields dd { margin-bottom: 0.35rem; }
-  dl.summary .row { display: block; }
-  dl.summary dd { text-align: left; }
-  .button { width: 100%; }
-}
 input[type="checkbox"] {
   width: 1.5rem;
   height: 1.5rem;
-  margin: 0;
+  margin: 0.6rem 0 0;
   accent-color: var(--action);
   flex-shrink: 0;
 }
-.will-send { font-weight: 600; }
+.will-send { margin-top: 0.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.package-disclosure { margin-top: 2rem; }
+.package-disclosure summary {
+  width: fit-content;
+  color: var(--action-text);
+  font-weight: 650;
+  cursor: pointer;
+}
+.package-content { margin-top: 0.75rem; }
 pre {
   background: var(--well);
   border: 1px solid var(--line-strong);
@@ -215,22 +288,20 @@ a.button.secondary:visited { color: var(--action-text); }
 }
 #submit-status {
   margin: 1rem 0 0;
-  padding-left: 0.6rem;
-  border-left: 4px solid transparent;
+  border-radius: 8px;
   min-height: 1.55em;
 }
-.status-note { border-left-style: dotted; border-left-color: var(--ink-soft); font-weight: 600; }
+.status-message { padding: 0.7rem 0.8rem; border: 1px solid; font-weight: 650; }
+.status-note { border-color: var(--ink-soft); background: var(--note-bg); }
 .status-ok {
-  border-left-style: solid;
-  border-left-color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-bg);
   color: var(--ok);
-  font-weight: 600;
 }
 .status-fail {
-  border-left-style: dashed;
-  border-left-color: var(--fail);
+  border-color: var(--fail);
+  background: var(--fail-bg);
   color: var(--fail);
-  font-weight: 600;
 }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 @supports not selector(:focus-visible) {
@@ -244,9 +315,22 @@ a.button.secondary:visited { color: var(--action-text); }
     scroll-behavior: auto !important;
   }
 }
+@media (max-width: 40rem) {
+  body { padding: 1.25rem 1rem 3rem; }
+  .record-line { grid-template-columns: 1.5rem minmax(0, 1fr) 2.75rem; gap: 0.6rem; }
+  .record-popover {
+    position: static;
+    width: auto;
+    margin: 0.35rem 0 0.4rem 2.1rem;
+  }
+  dl.record-fields .row { grid-template-columns: 1fr; }
+  dl.record-fields dd { margin-bottom: 0.25rem; }
+  .button { width: 100%; }
+}
 @media print {
   body { max-width: none; background: #FBFCFF; color: #020306; }
-  .skip-link, .actions, #send-requirements, #submit-status { display: none; }
+  .skip-link, .record-info, .record-popover, .actions,
+  #send-requirements, #submit-status { display: none; }
   pre { white-space: pre-wrap; overflow: visible; border-color: #020306; }
   ul.records, li.record, fieldset.confirmations { border-color: #020306; }
 }
@@ -260,6 +344,9 @@ _SCRIPT = """
   var downloadLink = document.getElementById("download-link");
   var statusLine = document.getElementById("submit-status");
   var sent = false;
+  var disconnected = false;
+  var openInfoButton = null;
+  var closeInfoTimer = null;
 
   function blocked(element) {
     return !element || element.getAttribute("aria-disabled") === "true";
@@ -271,8 +358,23 @@ _SCRIPT = """
 
   function setStatus(kind, message) {
     if (!statusLine) { return; }
-    statusLine.className = kind;
+    statusLine.className = "status-message " + kind;
     statusLine.textContent = message;
+  }
+
+  function setDecisionControlsDisabled(value) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".record-toggle, .confirm-toggle"),
+      function (control) { control.disabled = value; }
+    );
+  }
+
+  function markDisconnected(message) {
+    disconnected = true;
+    setDecisionControlsDisabled(true);
+    setBlocked(downloadLink, true);
+    setBlocked(sendButton, true);
+    setStatus("status-fail", message);
   }
 
   function setNoun(id, count) {
@@ -285,7 +387,6 @@ _SCRIPT = """
   function applyCounts(data) {
     var willSend = document.getElementById("will-send-count");
     if (willSend) { willSend.textContent = String(data.will_send); }
-    setNoun("will-send-noun", data.will_send);
     var sendCount = document.getElementById("send-count");
     if (sendCount) { sendCount.textContent = String(data.will_send); }
     setNoun("send-noun", data.will_send);
@@ -296,6 +397,7 @@ _SCRIPT = """
       sendButton,
       sent || !(data.adult_confirmed && data.storage_confirmed && data.will_send > 0)
     );
+    return data;
   }
 
   function postDecision(payload) {
@@ -304,43 +406,127 @@ _SCRIPT = """
       headers: { "Content-Type": "application/json", "X-Glite-Review": token },
       body: JSON.stringify(payload)
     }).then(function (response) {
-      if (!response.ok) { throw new Error("decision refused"); }
+      if (!response.ok) { throw new Error("decision-refused"); }
       return response.json();
     }).then(applyCounts);
+  }
+
+  function showEmptyPackage(view, empty) {
+    if (view) { view.textContent = ""; view.parentElement.hidden = true; }
+    if (empty) { empty.hidden = false; }
+    setBlocked(downloadLink, true);
   }
 
   function refreshPackage() {
     var view = document.querySelector("#package-view code");
     var empty = document.getElementById("package-empty");
     fetch("package.json").then(function (response) {
-      if (!response.ok) { throw new Error("no package"); }
+      if (response.status === 409) { return null; }
+      if (!response.ok) { throw new Error("package-unavailable"); }
       return response.text();
     }).then(function (text) {
+      if (text === null) { showEmptyPackage(view, empty); return; }
       if (view) { view.textContent = text; view.parentElement.hidden = false; }
       if (empty) { empty.hidden = true; }
       setBlocked(downloadLink, false);
     }).catch(function () {
-      if (view) { view.textContent = ""; view.parentElement.hidden = true; }
-      if (empty) { empty.hidden = false; }
-      setBlocked(downloadLink, true);
+      markDisconnected(
+        "The local review server is no longer available. Restart the review command " +
+        "and open its new 127.0.0.1 address."
+      );
     });
   }
 
-  function revert(box) {
+  function revert(box, error) {
     // The server owns the decision. A box that shows a change the server never
     // accepted would let the user send something they did not choose.
     box.checked = !box.checked;
-    setStatus("status-fail", "Not saved. The change did not reach the local server.");
+    if (error && error.message === "decision-refused") {
+      setStatus("status-fail", "Not saved. The local server refused this change.");
+      return;
+    }
+    markDisconnected(
+      "The local review server is no longer available. Restart the review command " +
+      "and open its new 127.0.0.1 address."
+    );
   }
+
+  function infoPanel(button) {
+    return document.getElementById(button.getAttribute("aria-controls"));
+  }
+
+  function closeInfo(button, force) {
+    if (!button) { return; }
+    if (!force && button.getAttribute("data-pinned") === "true") { return; }
+    var panel = infoPanel(button);
+    if (panel) { panel.hidden = true; }
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("data-pinned", "false");
+    if (openInfoButton === button) { openInfoButton = null; }
+  }
+
+  function showInfo(button, pin) {
+    if (closeInfoTimer) { window.clearTimeout(closeInfoTimer); }
+    if (openInfoButton && openInfoButton !== button) { closeInfo(openInfoButton, true); }
+    var panel = infoPanel(button);
+    if (panel) { panel.hidden = false; }
+    button.setAttribute("aria-expanded", "true");
+    if (pin) { button.setAttribute("data-pinned", "true"); }
+    openInfoButton = button;
+  }
+
+  function scheduleInfoClose(button) {
+    if (closeInfoTimer) { window.clearTimeout(closeInfoTimer); }
+    closeInfoTimer = window.setTimeout(function () { closeInfo(button, false); }, 120);
+  }
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll(".record-info"),
+    function (button) {
+      var panel = infoPanel(button);
+      button.addEventListener("mouseenter", function () { showInfo(button, false); });
+      button.addEventListener("mouseleave", function () { scheduleInfoClose(button); });
+      button.addEventListener("focus", function () { showInfo(button, false); });
+      button.addEventListener("blur", function () { scheduleInfoClose(button); });
+      button.addEventListener("click", function () {
+        if (button.getAttribute("data-pinned") === "true") {
+          closeInfo(button, true);
+        } else {
+          showInfo(button, true);
+        }
+      });
+      if (panel) {
+        panel.addEventListener("mouseenter", function () {
+          if (closeInfoTimer) { window.clearTimeout(closeInfoTimer); }
+        });
+        panel.addEventListener("mouseleave", function () { scheduleInfoClose(button); });
+      }
+    }
+  );
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && openInfoButton) {
+      var button = openInfoButton;
+      closeInfo(button, true);
+      button.focus();
+    }
+  });
+
+  document.addEventListener("pointerdown", function (event) {
+    if (!openInfoButton) { return; }
+    var record = openInfoButton.closest(".record");
+    if (record && !record.contains(event.target)) { closeInfo(openInfoButton, true); }
+  });
 
   Array.prototype.forEach.call(
     document.querySelectorAll(".record-toggle"),
     function (box) {
       box.addEventListener("change", function () {
+        if (disconnected) { return; }
         postDecision({
           mistake_id: box.getAttribute("data-mistake-id"),
           included: box.checked
-        }).then(refreshPackage).catch(function () { revert(box); });
+        }).then(function () { refreshPackage(); }).catch(function (error) { revert(box, error); });
       });
     }
   );
@@ -349,9 +535,10 @@ _SCRIPT = """
     document.querySelectorAll(".confirm-toggle"),
     function (box) {
       box.addEventListener("change", function () {
+        if (disconnected) { return; }
         var payload = {};
         payload[box.getAttribute("data-confirm")] = box.checked;
-        postDecision(payload).catch(function () { revert(box); });
+        postDecision(payload).catch(function (error) { revert(box, error); });
       });
     }
   );
@@ -397,10 +584,20 @@ _SCRIPT = """
           setBlocked(sendButton, false);
         }
       }).catch(function () {
-        setStatus("status-fail", "Not sent. The request failed. Nothing was retried.");
-        setBlocked(sendButton, false);
+        markDisconnected(
+          "Not sent. The local review server is no longer available. Restart the review " +
+          "command and open its new 127.0.0.1 address. Nothing was retried."
+        );
       });
     });
+  }
+
+  if (window.location.protocol === "file:" || !token ||
+      token === "STATIC-SNAPSHOT-NO-LIVE-TOKEN") {
+    markDisconnected(
+      "This saved copy is read-only. Restart the review command and open the new " +
+      "127.0.0.1 address it prints."
+    );
   }
 })();
 """
@@ -434,10 +631,13 @@ def _definition_row(term: str, value: str, *, value_id: str | None = None) -> st
 def _record_row(index: int, total: int, entry: ReviewedRecord) -> str:
     record = entry.record
     checkbox_id = f"include-{index}"
-    mistake_id = f"record-{index}-mistake"
+    example_id = f"record-{index}-example"
+    info_id = f"record-{index}-info"
+    details_id = f"record-{index}-details"
+    heading_id = f"record-{index}-details-heading"
     checked = " checked" if entry.included else ""
     fields = (
-        _definition_row("Mistake", _escape(record.mistake), value_id=mistake_id)
+        _definition_row("Mistake", _escape(record.mistake))
         + _definition_row("Rule", _escape(record.rule))
         + _definition_row("Example", _escape(record.example))
         + _definition_row("Example type", _escape(record.example_type.value))
@@ -446,14 +646,23 @@ def _record_row(index: int, total: int, entry: ReviewedRecord) -> str:
     )
     return (
         '<li class="record">'
-        '<div class="record-include">'
+        '<div class="record-line">'
         f'<input type="checkbox" id="{checkbox_id}" class="record-toggle" '
         f'data-mistake-id="{_escape(entry.mistake_id)}" '
-        f'aria-describedby="{mistake_id}"{checked}> '
-        f'<label for="{checkbox_id}">Include mistake {index + 1} of {total} '
-        "in the submission</label>"
+        f"{checked}>"
+        f'<label class="record-example" id="{example_id}" for="{checkbox_id}">'
+        f'<span class="visually-hidden">Include mistake {index + 1} of {total}: </span>'
+        f"{_escape(record.example)}</label>"
+        f'<button type="button" class="record-info" id="{info_id}" '
+        f'aria-label="Show all fields for mistake {index + 1} of {total}" '
+        f'aria-expanded="false" aria-controls="{details_id}" data-pinned="false">'
+        '<span aria-hidden="true">i</span></button>'
         "</div>"
+        f'<div class="record-popover" id="{details_id}" role="region" '
+        f'aria-labelledby="{heading_id}" hidden>'
+        f'<p class="popover-heading" id="{heading_id}">Mistake {index + 1} of {total}</p>'
         f'<dl class="record-fields">{fields}</dl>'
+        "</div>"
         "</li>"
     )
 
@@ -462,24 +671,24 @@ def _summary_section(state: ReviewSessionState) -> str:
     counts = state.counts
     rows = (
         _definition_row(
-            "Eligible English words analyzed",
+            "Words analyzed",
             f"{counts.analyzed_english_words} of {counts.eligible_english_words}",
         )
         + _definition_row(
-            "Eligible messages analyzed",
+            "Messages analyzed",
             f"{counts.analyzed_utterances} of {counts.eligible_utterances}",
         )
         + _definition_row("Verified mistakes", str(counts.verified_total_mistakes))
-        + _definition_row("Could not be made safe to share", str(counts.withheld_for_privacy))
+        + _definition_row("Withheld for privacy", str(counts.withheld_for_privacy))
         + _definition_row(
-            "Withheld by you",
+            "Excluded by you",
             str(counts.withheld_by_user),
             value_id="withheld-user-count",
         )
     )
     return (
         '<section aria-labelledby="summary-heading">'
-        '<h2 id="summary-heading">What this audit covered</h2>'
+        '<h2 id="summary-heading">Audit summary</h2>'
         f'<dl class="summary">{rows}</dl>'
         "</section>"
     )
@@ -493,14 +702,13 @@ def _records_section(state: ReviewSessionState) -> str:
     # WebKit; the count of records is the point of the list here.
     return (
         '<section aria-labelledby="records-heading">'
-        f'<h2 id="records-heading">Mistake records ({total})</h2>'
-        "<p>Each record below is shown exactly as it would be sent. "
-        "You can include or exclude records; you cannot edit them.</p>"
+        f'<h2 id="records-heading">Mistakes to include ({total})</h2>'
+        "<p>Each checked sentence is the privacy-safe example Glite will receive. "
+        "Examples may be synthetic. Use the info button to see the complete record.</p>"
         f"<p>{_escape(EXCLUSION_EXPLANATION_TEXT)}</p>"
         f'<ul class="records" role="list">{rows}</ul>'
-        '<p class="will-send" id="will-send" aria-live="polite" aria-atomic="true">Will send '
-        f'<span id="will-send-count">{state.included_count}</span> '
-        f'<span id="will-send-noun">{mistake_noun(state.included_count)}</span>.</p>'
+        '<p class="will-send" id="will-send" aria-live="polite" aria-atomic="true">'
+        f'<span id="will-send-count">{state.included_count}</span> of {total} selected.</p>'
         "</section>"
     )
 
@@ -517,15 +725,16 @@ def _package_section(package_bytes: bytes | None) -> str:
     # The package box scrolls on its own, so it needs a role, a name, and a tab
     # stop; a scrollable box with none of those is unreachable by keyboard.
     return (
-        '<section aria-labelledby="package-heading">'
-        '<h2 id="package-heading">Exact submission package</h2>'
+        '<section class="package-disclosure" aria-label="Exact submission package">'
+        '<details><summary id="package-heading">View exact submission JSON</summary>'
+        '<div class="package-content">'
         f'<p id="package-note">{_escape(PACKAGE_NOTE_TEXT)}</p>'
         '<pre id="package-view" tabindex="0" role="region" '
         'aria-labelledby="package-heading" aria-describedby="package-note"'
         f"{pre_hidden}><code>{body}</code></pre>"
         f'<p id="package-empty" class="muted"{empty_hidden}>'
         "Every record is excluded, so there is no package to send.</p>"
-        "</section>"
+        "</div></details></section>"
     )
 
 
@@ -577,13 +786,17 @@ def _actions(
             "anonymously</button>"
         )
         notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
+        confirmations = _confirmations(state)
+        heading = "Send or save"
     else:
         action = ""
         notes += f'<p id="download-only-note">{_escape(DOWNLOAD_ONLY_TEXT)}</p>'
+        confirmations = ""
+        heading = "Save package"
     return (
         f'<section id="{_SKIP_TARGET_ID}" tabindex="-1" aria-labelledby="send-heading">'
-        '<h2 id="send-heading">Send or save</h2>'
-        + _confirmations(state)
+        f'<h2 id="send-heading">{heading}</h2>'
+        + confirmations
         + f'<div class="actions">{download}{action}</div>'
         + notes
         + '<p id="submit-status" role="status"></p>'
@@ -612,13 +825,13 @@ def render_page(
         f'<body data-token="{_escape(token)}">\n'
         f'<a class="skip-link" href="#{_SKIP_TARGET_ID}">{_escape(SKIP_LINK_TEXT)}</a>\n'
         "<main>\n"
-        "<h1>Final review before anything leaves this computer</h1>\n"
-        "<p>Nothing has been sent yet. Review each record below. "
-        "Only what you see on this page can go to Glite.</p>\n"
+        "<h1>Choose which mistakes to share</h1>\n"
+        '<p class="intro">Nothing has been sent. Review the checked examples below. '
+        "Only their privacy-safe records can go to Glite.</p>\n"
         + _summary_section(state)
         + _records_section(state)
-        + _package_section(package_bytes)
         + _actions(state, capability, package_available=package_bytes is not None)
+        + _package_section(package_bytes)
         + "\n</main>\n"
         f"<script>{_SCRIPT}</script>\n"
         "</body>\n"
