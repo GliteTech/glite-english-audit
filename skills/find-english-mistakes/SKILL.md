@@ -5,7 +5,7 @@ description: "Read one session's projected utterances and answer with the mistak
 
 # Find English Mistakes
 
-**Version**: 2
+**Version**: 3
 
 ## Goal
 
@@ -452,9 +452,14 @@ record for it and count it as withheld. A borderline record is never salvaged.
    `src/glite_english_audit/diagnostics/codes.py`. Skipping a line changes no other line's `i`,
    which each line carries for itself.
 
-   A file whose every line is skipped is a defect in this pipeline, not a session without
-   mistakes. Say so and stop, rather than writing an empty file that reports the learner made
-   none.
+   Two skips, and they mean opposite things. A line skipped because its `text` is empty is the
+   pipeline working: step c empties an utterance the learner wrote none of, and a session whose
+   only message was a pasted stack trace is empty all the way through. Write the empty file — it
+   says this session held nothing to judge, which is true.
+
+   A line skipped because it failed to validate is a defect in the driver. If every line of the
+   file failed that way, say so and stop rather than writing an empty file, because then the file
+   reports no mistakes when what happened is that nothing was read.
 2. Delimit every utterance text with the project's untrusted-data convention before analyzing it,
    using that line's `i` as the id — an integer identifies the unit here and cannot forge the
    closing sentinel:
