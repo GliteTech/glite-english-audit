@@ -518,3 +518,62 @@ def test_stage_eight_reports_the_utterances_it_could_not_judge(
     build_review.main(["--run-id", run_id, "--runs-root", str(runs_root)])
     reported = json.loads(capsys.readouterr().out)
     assert reported["unjudged_utterances"] == 7
+
+
+def test_a_source_that_fails_verification_is_reported_once(
+    tmp_path: Path, only_claude_code: None
+) -> None:
+    """One instance, one exclusion entry.
+
+    The failure path deletes the snapshot and then records the exclusion. An
+    earlier ordering recorded it first, so a cleanup that raised produced two
+    entries for the same instance and a count that overstated how many sources
+    were lost.
+    """
+    from glite_english_audit.diagnostics.codes import Diagnostic as _Diagnostic
+
+    runs_root = tmp_path / "runs"
+    repo = _repo_with_ignored_temp(tmp_path)
+    run_id = _seeded_run(tmp_path, runs_root)
+    real = claude_code_adapter()
+
+    class _AlwaysFails:
+        @property
+        def adapter_id(self) -> str:
+            return real.adapter_id
+
+        @property
+        def adapter_version(self) -> str:
+            return real.adapter_version
+
+        @property
+        def stability(self) -> Stability:
+            return real.stability
+
+        def discover(self, context: DiscoveryContext) -> DiscoveryOutcome:
+            return real.discover(context)
+
+        def snapshot(
+            self, instance: SourceInstanceRecord, source_path: Path, target_dir: Path
+        ) -> SnapshotCapture:
+            return real.snapshot(instance, source_path, target_dir)
+
+        def extract(
+            self, instance: SourceInstanceRecord, snapshot_dir: Path
+        ) -> Iterator[NormalizedUtterance]:
+            return real.extract(instance, snapshot_dir)
+
+        def verify(
+            self, instance: SourceInstanceRecord, utterances: list[NormalizedUtterance]
+        ) -> list[_Diagnostic]:
+            return [_Diagnostic.from_code("SOURCE_SNAPSHOT_UNSAFE_PATH", "denylisted path")]
+
+    registry._FACTORIES["claude_code"] = lambda: _AlwaysFails()
+    try:
+        collected = collect.collect(run_id, runs_root=runs_root, repo=repo)
+    finally:
+        registry._FACTORIES["claude_code"] = claude_code_adapter
+
+    entries = cast(list[dict[str, str]], collected["excluded_instances"])
+    instances = [entry["instance"] for entry in entries]
+    assert len(instances) == len(set(instances)), f"an instance was excluded twice: {instances}"

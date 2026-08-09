@@ -156,8 +156,13 @@ def collect(
             findings = adapter.verify(record, extracted)
             fatal = sorted({d.code for d in findings if d.severity is Severity.ERROR})
             if fatal:
-                excluded.append({"instance": instance_key[:12], "reason": ",".join(fatal)})
+                # Delete the snapshot before recording the exclusion. If cleanup
+                # raises, the handler below records this instance once, with the
+                # cleanup failure as the reason — which is the more urgent fact,
+                # because a snapshot left behind is a copy of the user's own
+                # application data still on disk.
                 cleanup_snapshot(snapshot_manifest, run_id, repo=repo)
+                excluded.append({"instance": instance_key[:12], "reason": ",".join(fatal)})
                 continue
             warnings.extend(sorted({d.code for d in findings}))
 
