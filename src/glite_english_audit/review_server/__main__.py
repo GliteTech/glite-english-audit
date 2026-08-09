@@ -44,7 +44,12 @@ def main(argv: list[str] | None = None) -> int:
     config_dir = arguments.config_dir if arguments.config_dir is not None else endpoint_config_dir()
     capability = detect_capability(config_dir)
 
-    handle = start_review_server(reviewed, capability)
+    handle = start_review_server(
+        reviewed,
+        capability,
+        run_id=arguments.run_id,
+        runs_root=arguments.runs_root,
+    )
     thread = handle.serve_forever_in_thread()
     sys.stdout.write(
         "Review page ready. Open this address in your browser:\n"

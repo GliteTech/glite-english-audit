@@ -36,6 +36,16 @@ class ConsentState(BaseModel):
     local_scan_confirmed_at: datetime | None = None
     provider_transfer_confirmed_at: datetime | None = None
     preflight_confirmed_at: datetime | None = None
+    adult_confirmed_at: datetime | None = None
+    """Moment 4a: the user attested to being 18 or older before sending."""
+    storage_terms_confirmed_at: datetime | None = None
+    """Moment 4b: the user accepted permanent, irrevocable storage, the
+    disclosed uses, and external AI processing of the records they send.
+
+    Kept separate from the age attestation because the review page presents
+    them as two unchecked boxes and either may be given without the other.
+    Collapsing them into one timestamp would record an agreement the user
+    never made as a single act."""
 
 
 class PeriodSelection(BaseModel):

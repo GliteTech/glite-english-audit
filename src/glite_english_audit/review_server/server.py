@@ -22,11 +22,13 @@ import time
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import cast
 
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.models import ReviewedSubmissionArtifact
 from glite_english_audit.artifacts.submission import NewSubmissionRequest
+from glite_english_audit.pipeline.record_consent import record_consent
 from glite_english_audit.review_server.page import CONSENT_POLICY_VERSION, render_page
 from glite_english_audit.review_server.session import ReviewSessionState, UnknownMistakeError
 from glite_english_audit.submission.capability import SubmissionCapability
@@ -75,12 +77,19 @@ class _ReviewHTTPServer(ThreadingHTTPServer):
         token: str,
         monotonic: Callable[[], float],
         submit: _SubmitFn,
+        run_id: str | None = None,
+        runs_root: Path | None = None,
     ) -> None:
         super().__init__((_LOOPBACK_HOST, port), _ReviewRequestHandler)
         self.state = state
         self.capability = capability
         self.token = token
         self.submit = submit
+        # Where the two send confirmations are recorded. Absent in tests that
+        # exercise the page without a run behind it; recording is skipped then
+        # rather than invented.
+        self.run_id = run_id
+        self.runs_root = runs_root
         self.monitor: _InactivityMonitor | None = None
         self.serving = False
         self._monotonic = monotonic
@@ -290,8 +299,10 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
                 return
         elif isinstance(payload.get("adult_confirmed"), bool):
             state.set_adult_confirmed(cast(bool, payload["adult_confirmed"]))
+            self._record_consent_if_checked("adult", checked=state.adult_confirmed)
         elif isinstance(payload.get("storage_confirmed"), bool):
             state.set_storage_confirmed(cast(bool, payload["storage_confirmed"]))
+            self._record_consent_if_checked("storage-terms", checked=state.storage_confirmed)
         else:
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
@@ -299,6 +310,33 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
             )
             return
         self._send_json(HTTPStatus.OK, self._counts_payload())
+
+    def _record_consent_if_checked(self, moment: str, *, checked: bool) -> None:
+        """Write a ticked confirmation into the run manifest.
+
+        Specification 2.2 counts these as consent moments, and until now they
+        lived only in this process's memory: the page held them, the server
+        wrote nothing, and a finished run's manifest said the user had never
+        agreed to anything about sending. A consent nobody recorded cannot be
+        told apart afterwards from one nobody asked for.
+
+        Only ticking is recorded, never unticking. The record says a person
+        agreed at a moment, which stays true whether or not they later change
+        their mind; what a later untick changes is whether sending is allowed,
+        and that is read live from this session, not from the manifest.
+
+        A manifest that cannot be written must not stop the review. The user
+        is mid-decision on their own machine, and the send path checks the
+        live session rather than this record, so a failed write costs an audit
+        trail entry and nothing else.
+        """
+        review = self._review
+        if not checked or review.run_id is None:
+            return
+        try:
+            record_consent(review.run_id, moment, runs_root=review.runs_root)
+        except (OSError, ValueError):
+            return
 
     def _counts_payload(self) -> dict[str, object]:
         state = self._review.state
@@ -486,6 +524,8 @@ def start_review_server(
     inactivity_check_seconds: float = INACTIVITY_CHECK_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
     submit: _SubmitFn = submit_once,
+    run_id: str | None = None,
+    runs_root: Path | None = None,
 ) -> ReviewServerHandle:
     """Bind the loopback review server and return its control handle.
 
@@ -501,6 +541,8 @@ def start_review_server(
         token=token,
         monotonic=monotonic,
         submit=submit,
+        run_id=run_id,
+        runs_root=runs_root,
     )
     monitor = _InactivityMonitor(
         server,

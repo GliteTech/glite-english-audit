@@ -8,6 +8,7 @@ import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from email.message import Message
+from pathlib import Path
 
 import pytest
 
@@ -434,3 +435,92 @@ def test_shutdown_is_idempotent() -> None:
     with _running() as handle:
         handle.shutdown()
         handle.shutdown()
+
+
+def _run_for_consent(root: Path) -> str:
+    """A real run whose manifest the review page can write consent into."""
+    from glite_english_audit.artifacts.enums import AgentRuntime, OsEnvironment
+    from glite_english_audit.artifacts.manifest import CompatibilityFingerprint, ConsentState
+    from glite_english_audit.state.run_store import create_run
+
+    manifest = create_run(
+        AgentRuntime.CLAUDE_CODE,
+        OsEnvironment.MACOS,
+        ConsentState(consent_policy_version="1"),
+        CompatibilityFingerprint(
+            adapter_versions={"claude_code": "1.0.0"},
+            artifact_schema_version=1,
+            tokenizer_version="1.0.0",
+            skill_versions={"analyze-english-text": 1},
+            prompt_versions={"find-mistakes": 1},
+            model_ids={"find-mistakes": "example-model-1"},
+            consent_policy_version="1",
+        ),
+        root=root,
+    )
+    return manifest.run_id
+
+
+def test_ticking_a_confirmation_reaches_the_run_manifest(tmp_path: Path) -> None:
+    """Specification 2.2 counts these as consent moments.
+
+    Before this they lived only in the server process: the page held them,
+    nothing was written, and a finished run's manifest said the user had never
+    agreed to anything about sending.
+    """
+    from glite_english_audit.state.run_store import load_manifest
+
+    run_id = _run_for_consent(tmp_path)
+    handle = start_review_server(
+        _artifact(),
+        _download_only(),
+        submit=_no_network_submit,
+        run_id=run_id,
+        runs_root=tmp_path,
+    )
+    handle.serve_forever_in_thread()
+    try:
+        _post(handle, "decisions", {"adult_confirmed": True})
+        _post(handle, "decisions", {"storage_confirmed": True})
+        consent = load_manifest(run_id, root=tmp_path).consent
+        assert consent.adult_confirmed_at is not None
+        assert consent.storage_terms_confirmed_at is not None
+    finally:
+        handle.shutdown()
+
+
+def test_unticking_a_confirmation_does_not_erase_the_record(tmp_path: Path) -> None:
+    """The record says a person agreed at a moment, which stays true.
+
+    What a later untick changes is whether sending is allowed, and the send
+    path reads that from the live session, not from this record.
+    """
+    from glite_english_audit.state.run_store import load_manifest
+
+    run_id = _run_for_consent(tmp_path)
+    handle = start_review_server(
+        _artifact(),
+        _download_only(),
+        submit=_no_network_submit,
+        run_id=run_id,
+        runs_root=tmp_path,
+    )
+    handle.serve_forever_in_thread()
+    try:
+        _post(handle, "decisions", {"adult_confirmed": True})
+        stamped = load_manifest(run_id, root=tmp_path).consent.adult_confirmed_at
+        _post(handle, "decisions", {"adult_confirmed": False})
+        assert load_manifest(run_id, root=tmp_path).consent.adult_confirmed_at == stamped
+    finally:
+        handle.shutdown()
+
+
+def test_a_review_without_a_run_behind_it_still_works(tmp_path: Path) -> None:
+    """Recording is skipped rather than invented when there is no run.
+
+    Tests and previews render the page without a manifest; a missing run must
+    not turn a tick into a crash.
+    """
+    with _running() as handle:
+        status, _, _ = _post(handle, "decisions", {"adult_confirmed": True})
+        assert status == 200
