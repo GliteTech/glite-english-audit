@@ -46,6 +46,10 @@ Steps a and b are ordinary local scripts and never involve a model. Steps c, d a
 per file, in parallel. Filenames are opaque sequence numbers — `session-0001.jsonl` — so no session
 identity reaches the model; the mapping stays in a local index that is never sent anywhere.
 
+The same rule applies inside the files. Each agent is shown only what its judgment needs — the
+text, what it was numbered, and whether it was typed or dictated — and hands back what it decided.
+The files themselves are written by local scripts.
+
 ## Supported sources
 
 Nine adapters ship today. Stability drives default selection: stable sources with a supported

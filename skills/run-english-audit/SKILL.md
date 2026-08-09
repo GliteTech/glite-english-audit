@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 8
+**Version**: 9
 
 ## Goal
 
@@ -250,6 +250,20 @@ runtime; naming both is confusing and wrong.
    Discovery already ran during setup — it is not a step, and its promoted
    inventory is reused rather than rebuilt.
 
+   Steps c, d and e do not hand an agent a session file and do not take one back.
+   Each step writes a **projection** under `steps/<step>/agent/` holding only what
+   the judgment needs, the agent answers with a **decision** holding only what it
+   decided, and the driver expands that decision into the artifact. The step files
+   on disk are unchanged; only what crosses into a model moved.
+
+   Treat the projection as a privacy control first and a saving second. A session
+   file carries a 64-hex session hash, a 64-hex path hash and a 64-hex utterance ID
+   on every line; a projection carries a line number instead, so none of that
+   identity reaches a model. This project already keeps session filenames opaque on
+   exactly that reasoning, and the file contents used to hand back what the names
+   withheld. The saving is real too — 77% of a step-c file was bookkeeping the
+   driver already had — but it is the smaller half.
+
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
      --runtime <claude_code|codex> --period <preset> --profile <profile>
      --local-scan-consent --provider-transfer-consent`. It adopts the inventory
@@ -292,56 +306,81 @@ runtime; naming both is confusing and wrong.
    - Step c, keep only the learner's words, in three parts.
 
      First `uv run python -m glite_english_audit.pipeline.authorship
-     --run-id <run-id> --prepare`. It creates `steps/c-authored/` and prints one
-     entry per session file: what to read, where to write, and how much is in it.
+     --run-id <run-id> --prepare`. It creates `steps/c-authored/`, writes one
+     projection per session into `steps/c-authored/agent/`, and prints one entry per
+     session: `input_path`, `output_path`, and how much is in it.
 
      Then `skills/filter-authored-english/SKILL.md`, **one agent per session file**,
-     in parallel. Each agent reads one `steps/b-deduplicated/session-NNNN.jsonl` and
-     writes `steps/c-authored/session-NNNN.jsonl` with the same items in the same
-     order, only `text` replaced. Give each agent its own file and nothing else.
+     in parallel. Each agent reads the `input_path` it was given, a
+     `session-NNNN.in.jsonl` of one `{"i", "modality", "text"}` object per utterance,
+     and writes the `output_path`, a `session-NNNN.out.jsonl` of one `{"i", "text"}`
+     answer per projected line. Give each agent those two paths and nothing else; no
+     agent opens a step-b or step-c session file, and none writes one.
 
      Then `uv run python -m glite_english_audit.pipeline.authorship
-     --run-id <run-id> --apply`, which checks every retained span against the step-b
-     text it came from, quarantines whole files that fail, and counts the words. Then
+     --run-id <run-id> --apply`, which expands each session's answers into the step-c
+     session file, checks every retained span against the step-b text it came from,
+     quarantines the whole session when one fails, and counts the words. Then
      `uv run python -m glite_english_audit.verification.verify_corpus
      --run-id <run-id>`, which re-derives the count from the files and checks it
      against the index, the tokenizer version, and the per-file hashes. This is the
      number every reported rate divides by, so it is checked by code rather than
      trusted from the step that produced it.
 
-     A non-zero exit means some files were quarantined and their words are out of the
-     count. Repair once: `--prepare --repair-only` lists exactly those sessions, the
-     agents judge them again, and `--apply` runs again. One repair pass, not a loop —
-     if they fail twice, report the count and continue, because the review page
+     A non-zero exit means some sessions were quarantined and their words are out of
+     the count. Repair once: `--prepare --repair-only` lists exactly those sessions,
+     the agents judge them again, and `--apply` runs again. One repair pass, not a
+     loop — if they fail twice, report the count and continue, because the review page
      reports how many were lost.
 
    - Step d, find mistakes: `uv run python -m glite_english_audit.pipeline.mistakes
      --run-id <run-id> --prepare`, then `skills/find-english-mistakes/SKILL.md` one
      agent per session file, then `--apply`.
 
+     `--prepare` writes one projection per session into `steps/d-mistakes/agent/` and
+     prints an entry per session naming `read` and `write`. Each agent reads the
+     `read` path, the same `{"i", "modality", "text"}` shape step c was given, now
+     over the text step c kept — every line numbered, including the ones step c
+     emptied, so an index addresses the line the driver resolves the span against —
+     and writes the `write` path: one
+     `{"i", "span", "mistake", "rule", "example", "example_type"}` draft per mistake,
+     and an empty file for a session holding none.
+
      Step d owes **clean** records: privacy-safe, with synthetic examples, on the
-     first attempt. `--apply` validates every line, resolves every evidence span
-     against that session's own step-c file, refuses two records that count one
-     mistake twice, and runs the privacy scanner. A scanner hit fails the file and is
-     a defect in step d — never treat it as a filter that did its job.
+     first attempt. `--apply` expands each draft into a record — re-deriving the
+     utterance ID, source type and modality from the utterance the index addresses —
+     resolves every evidence span against that session's own step-c file, refuses two
+     records that count one mistake twice, and runs the privacy scanner. A scanner hit
+     fails the session and is a defect in step d — never treat it as a filter that did
+     its job.
 
    - Step e, confirm confidentiality: `skills/verify-mistake-confidentiality/SKILL.md`
      one agent per session file, then
      `uv run python -m glite_english_audit.pipeline.verify --run-id <run-id> --apply`.
 
-     Step e may drop a record and may never rewrite one, so `--apply` requires each
-     step-e file to be its step-d file with lines removed and nothing else. In normal
-     operation it drops nothing. If it drops records regularly, say so in the outcome
-     and fix step d — the system has to be correct with step e removed.
+     Step e has no `--prepare`: promoting step d creates `steps/e-verified/agent/`,
+     writes each projection, and returns the assignments as `next_step`. An agent
+     reads a `session-NNNN.in.jsonl` of `{"i", "mistake", "rule", "example",
+     "example_type"}` — the published face of each record, without the utterance ID or
+     the span, which are local addresses that never leave the machine — and writes
+     `session-NNNN.out.json`: one object for the whole session, listing the indices it
+     will not share.
+
+     Step e may only drop. The driver rebuilds the file from step d's own records, so
+     a record added, altered, repeated or reordered by step e is not something to
+     detect but something that cannot be expressed. In normal operation it drops
+     nothing. If it drops records regularly, say so in the outcome and fix step d —
+     the system has to be correct with step e removed.
 
    - Review: `uv run python -m glite_english_audit.pipeline.build_review
      --run-id <run-id>` computes the count set from the run's own files, then
      `skills/prepare-glite-submission/SKILL.md` serves the review page.
 
    Run the per-file agents as measured child processes or native subagents of the
-   active runtime only. Each child receives one session file, the canonical skill, and
-   the artifact contract — never another session's text, and never the session index.
-   File failures: retry once, then quarantine that file and continue. Source-wide
+   active runtime only. Each child receives one projection, the canonical skill, and
+   the decision contract, and writes one decision — never another session's
+   projection, never the session index, and never a step directory's artifacts.
+   File failures: retry once, then quarantine that session and continue. Source-wide
    failures: pause that source, continue others when safe, and explain the exclusion
    at the end.
 11. Progress. During active model or extraction work, post a concise update at least
@@ -353,10 +392,15 @@ runtime; naming both is confusing and wrong.
     message content appears in progress updates.
 12. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
-    any file interrupted before promotion — `--prepare` reports which files are
-    already written, so a resumed run asks only for what is missing instead of paying
-    for every judgment again. Do not reprocess promoted files unless their inputs or
-    required versions changed.
+    any session interrupted before promotion — `--prepare` marks a session
+    `already_written` when its decision exists and the step is still current, so a
+    resumed run asks only for the sessions still unanswered instead of paying for
+    every judgment again. Two things follow from it being the decision that counts,
+    not the artifact: a decision `--apply` rejected is moved into `quarantined/`, so
+    the session stops reporting as answered and the repair pass genuinely re-asks; and
+    a step the manifest invalidated reports nothing as written, whatever sits on disk,
+    because a changed skill, prompt or model is why it was invalidated. Do not
+    reprocess promoted files unless their inputs or required versions changed.
 13. Review and outcome. After every local step has passed, follow
     `skills/prepare-glite-submission/SKILL.md`: it starts the loopback review page,
     where consent moment 4 lives (the 18+ confirmation and the permanent-storage and
@@ -394,8 +438,31 @@ breaks the confirmed autonomous policy.
 - The run manifest validating as `RunManifest` in
   `src/glite_english_audit/artifacts/manifest.py`, updated through the transitions in
   `src/glite_english_audit/state/machine.py`.
-- Per-step artifacts as specified in `specifications/artifacts.md`; each step's skill
-  documents its own artifact.
+- Per-step artifacts as specified in `specifications/artifacts.md`, expanded by each
+  driver from the decisions its agents wrote; each step's skill documents its own
+  artifact.
+- The decision each per-file agent writes, validated by a Pydantic model in
+  `src/glite_english_audit/pipeline/agent_io.py`. This is the contract to hand each
+  child. All three forbid unknown fields, `i` is the one-based line number of the
+  projection that agent read, and no decision carries an utterance ID, a session hash
+  or a path hash:
+  - Step c writes `AuthoredLine`: `i` (integer, 1 or greater) and `text` (string — the
+    retained spans joined by a newline, and `""` for an utterance the learner wrote
+    none of). One JSON object per line of `session-NNNN.out.jsonl`, and exactly one per
+    projected utterance: every index from 1 to the projection's length appears once.
+  - Step d writes `MistakeDraft`: `i` (integer, 1 or greater), `span` (two integers
+    `[start, end]`, half-open, `end` greater than `start`, in the coordinates of that
+    utterance's projected `text`), `mistake`, `rule`, `example` (strings) and
+    `example_type` (one of `verbatim`, `redacted`, `synthetic`). One line of
+    `session-NNNN.out.jsonl` per verified mistake: zero or more per session, an index
+    may repeat when one utterance holds two mistakes, and a session with no mistakes is
+    an empty file rather than a missing one.
+  - Step e writes `DropList`: `drop` (an array of one-based indices into the
+    projection, empty by default). Exactly one JSON object in `session-NNNN.out.json`
+    for the whole session — one verdict per file, not one per line — and `{"drop": []}`
+    is the expected answer.
+  An agent that cannot locate a span exactly, or cannot decide a judgment, omits the
+  item and continues. Every field above is decided or omitted; none is guessed.
 - Conversation output: the setup questions, progress updates, and one final outcome
   message with the counts from the review.
 
@@ -483,12 +550,14 @@ steps a-e `promoted`; the run ends `completed` after the user sends 84 records f
 the review page. Private artifacts are deleted; the package and calibration numbers
 remain.
 
-Failure/repair behavior: during step c, one session file comes back with a span
-that is not verbatim in its step-b text. The file is quarantined whole, named in
-`needs-repair.json`, and `--prepare --repair-only` asks for exactly that session
-again; the second judgment verifies and the file joins the corpus. No question is
-asked; the repair is recorded in the run manifest and the event log.
+Failure/repair behavior: during step c, one decision comes back with a span that is
+not verbatim in its step-b text. That session is quarantined whole — the rejected
+decision and the file expanded from it both move into `quarantined/` — the session is
+named in `needs-repair.json`, and `--prepare --repair-only` asks for exactly that
+session again; the second judgment verifies and the file joins the corpus. No question
+is asked; the repair is recorded in the run manifest and the event log.
 
-A step-d file whose record trips the privacy scanner is the other shape: that file
-fails and is repaired the same way, and it is reported as a step-d defect rather
-than as the scanner working. Step e is expected to drop nothing.
+A step-d draft whose expanded record trips the privacy scanner is the other shape:
+that session's decision is quarantined and repaired the same way, and it is reported
+as a step-d defect rather than as the scanner working. Step e is expected to answer
+`{"drop": []}` for every session.

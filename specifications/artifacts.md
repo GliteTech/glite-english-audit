@@ -20,7 +20,7 @@ and they map one to one onto directories under `runtime/runs/<run-id>/steps/`.
 | b | `b-deduplicated` | The same files with duplicate messages removed | `pipeline/deduplicate.py` — a script, no model | Deterministic: every survivor appears in step a, every removal is recorded |
 | c | `c-authored` | The same files with everything the learner did not write removed | The `filter-authored-english` skill, one agent per file | Span verifier: every retained span is a verbatim substring of its step-b utterance, in order, non-overlapping |
 | d | `d-mistakes` | One privacy-clean `MistakeRecord` per line | The `find-english-mistakes` skill, one agent per file | `pipeline/mistakes.py --apply`: schema, span resolution against step c, double-count detection, privacy scanner |
-| e | `e-verified` | The same records, confidentiality confirmed | The `verify-mistake-confidentiality` skill, one agent per file | `pipeline/verify.py --apply`: step e must be step d with lines removed and nothing else |
+| e | `e-verified` | The same records, confidentiality confirmed | The `verify-mistake-confidentiality` skill, one agent per file | `pipeline/verify.py --apply`: the file is rebuilt from step d minus the indices the agent named |
 
 Everything under `steps/` is private and never leaves the local machine. Only the exported
 `SubmissionPackage` under `submission/` may leave, and only through the allowlist in
@@ -111,14 +111,49 @@ hashes, model metadata, local artifact ID, and the creation timestamp all stay l
   `python -m glite_english_audit.artifacts.schema_export`; CI runs it with `--check` and fails on
   drift.
 
+## 3A. What an agent reads, what it writes, and who writes the artifact
+
+Every step file described above is written by a **driver**, not by an agent. An agent is handed a
+**projection** of what it needs to judge and returns a **decision** carrying only what it decided;
+the driver expands that into the artifact. Three shapes per step, not one. The models are in
+`src/glite_english_audit/pipeline/agent_io.py`.
+
+| Step | The agent reads | The agent writes |
+|---|---|---|
+| c | `UtteranceForJudgment` — `i`, `modality`, `text` | `AuthoredLine` — `i`, `text`, one per line |
+| d | `UtteranceForJudgment` | `MistakeDraft` — `i`, `span`, and the four fields it authors |
+| e | `RecordForConfidentiality` — the published face, no addresses | `DropList` — `{"drop": [...]}`, one object per session |
+
+Both files live in `steps/<step>/agent/`, and retention sweeps them with the rest of `steps/`.
+
+**This is a privacy control, not only a saving.** A step-c line carries a 64-hex `session_hash` and
+a 64-hex `source_path_hash`; 15% of what the agents read was identity they had no use for. Section
+1.2 keeps session identity out of filenames on exactly that reasoning, and the file contents were
+handing it over anyway. The projection that used to strip those fields was deleted along with the
+batching it shared a module with, and this restores it.
+
+The saving is real too. Measured on one run, a step-c file was 77% bookkeeping the agent had copied
+from the file it had just read, and step e retyped every record it was given to report that nothing
+was wrong.
+
+`i` is a one-based index, local to one session file. It replaces the utterance ID, which is 64
+characters carrying a truncated session hash. It needs no checksum beside it: in step c a shifted
+index fails the span scan, since utterance four's text is not a verbatim substring of utterance
+three.
+
+**A decision is not an artifact.** An agent that answers badly leaves a rejected decision, which the
+driver moves into `quarantined/` beside the artifact so the repair pass is really asked for that
+session again — `--prepare` decides what to re-ask by looking for the decision file, so a rejected
+answer left in place makes the repair a pass that asks for nothing.
+
 ## 4. Step c: who decides which words are the learner's
 
 Authorship is a judgment, so a model makes it; counting is arithmetic, so code does. Splitting them
 this way keeps the word count deterministic while letting the harder question be answered by
 something that can read.
 
-1. One agent per session file runs the `filter-authored-english` skill and returns each utterance
-   with `text` replaced by the spans the learner wrote — verbatim, in original order.
+1. One agent per session file runs the `filter-authored-english` skill and answers each index with
+   the spans the learner wrote — verbatim, in original order, joined by a newline.
 2. `pipeline/authorship.py` locates every returned span in the step-b text by a single forward scan,
    which enforces verbatim wording, original order, and non-overlap together. A span that is absent,
    reordered, or overlapping quarantines its **whole file** rather than entering the corpus, so a
@@ -169,10 +204,13 @@ Its identity is derived rather than declared: `record_id` is `utterance_id:start
 non-overlap rule makes unique within a run and identical across reruns. An ID a model chooses is
 neither, and a resumed run needs to know whether it is looking at the same record or a new one.
 
-Step e writes back its step-d file with lines removed and nothing else. Not a subset by content
-but a **subsequence by full record equality**, so an added, altered, repeated, or reordered
-record fails with its own diagnostic rather than passing as a drop. What it removed is recorded in
-`dropped.json`, the way step b records `removed.json`.
+Step e returns the indices of the records that must not be shared, and the driver rebuilds the file
+from step d's own records. An added, altered, repeated or reordered record used to be four checks in
+`pipeline/verify.py`; they are gone because the format cannot express them. That is a stronger
+guarantee than the check it replaces, and it closes a gap: the skill demanded byte-identical copies
+while the driver only compared parsed models, so a re-serialized record passed a check the
+instructions said it should fail. What was removed is recorded in `dropped.json`, the way step b
+records `removed.json`.
 
 There is no separate findings-accuracy verifier, by decision. When precision or recall slips, the
 fix belongs in the `find-english-mistakes` skill.

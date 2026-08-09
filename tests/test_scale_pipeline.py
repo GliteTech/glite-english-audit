@@ -39,7 +39,12 @@ from glite_english_audit.artifacts.enums import (
     StepStatus,
     TextStatus,
 )
-from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
+from glite_english_audit.artifacts.io import (
+    ensure_private_dir,
+    read_jsonl_models,
+    write_jsonl_models,
+    write_model,
+)
 from glite_english_audit.artifacts.manifest import (
     MANIFEST_SCHEMA_VERSION,
     CompatibilityFingerprint,
@@ -48,8 +53,6 @@ from glite_english_audit.artifacts.manifest import (
     empty_step_map,
 )
 from glite_english_audit.artifacts.models import (
-    EvidenceSpan,
-    MistakeRecord,
     NormalizedUtterance,
     ReviewedSubmissionArtifact,
 )
@@ -57,12 +60,18 @@ from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline import authorship, build_review, deduplicate, mistakes, verify
+from glite_english_audit.pipeline.agent_io import (
+    AuthoredLine,
+    DropList,
+    MistakeDraft,
+    RecordForConfidentiality,
+    UtteranceForJudgment,
+)
 from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
 from glite_english_audit.pipeline.record_step import advance_to
 from glite_english_audit.sessions import (
     read_all,
     read_index,
-    read_session,
     session_file_name,
     session_files,
     write_index,
@@ -213,30 +222,34 @@ def _authored_text(text: str, position: int) -> str:
 
 
 def _write_step_c(prepared: authorship.PreparedStep) -> None:
+    # Counted across the whole run rather than per file, so the one-in-ten
+    # partial retention does not land on the same offset in every session.
     position = 0
     for session in prepared.sessions:
-        judged: list[NormalizedUtterance] = []
-        for utterance in read_session(Path(session.input_path)):
+        decisions: list[AuthoredLine] = []
+        for item in read_jsonl_models(Path(session.input_path), UtteranceForJudgment):
             position += 1
-            judged.append(
-                utterance.model_copy(update={"text": _authored_text(utterance.text, position)})
-            )
-        write_jsonl_models(Path(session.output_path), judged)
+            decisions.append(AuthoredLine(i=item.i, text=_authored_text(item.text, position)))
+        write_jsonl_models(Path(session.output_path), decisions)
 
 
-def _record_for(utterance: NormalizedUtterance) -> MistakeRecord | None:
-    start = utterance.text.find(_FLAGGED_PHRASE)
+def _draft_for(item: UtteranceForJudgment) -> MistakeDraft | None:
+    """The step-d agent: the one phrase it is built to notice, addressed by index.
+
+    No utterance ID, no source type and no modality. All three are copies of the
+    utterance the index names, so the driver re-derives them and a fake that
+    typed them would only be checking its own bookkeeping.
+    """
+    start = item.text.find(_FLAGGED_PHRASE)
     if start < 0:
         return None
-    return MistakeRecord(
-        utterance_id=utterance.utterance_id,
-        evidence_span=EvidenceSpan(start=start, end=start + len(_FLAGGED_PHRASE)),
+    return MistakeDraft(
+        i=item.i,
+        span=(start, start + len(_FLAGGED_PHRASE)),
         mistake="Used 'very' to modify the verb 'like'.",
         rule="In English, 'very' cannot modify a verb; use 'really' instead.",
         example="I really like this approach.",
         example_type=ExampleType.SYNTHETIC,
-        source_type="claude_code",
-        modality=Modality.WRITTEN,
     )
 
 
@@ -284,23 +297,25 @@ def scaled(tmp_path_factory: pytest.TempPathFactory) -> _ScaleRun:
     long_enough = [entry for entry in assigned_d if entry.items >= len(_SENTENCES)]
     flagged = {entry.name for entry in long_enough[::_SESSIONS_WITH_A_MISTAKE]}
     for assignment in assigned_d:
-        records: list[MistakeRecord] = []
+        drafts: list[MistakeDraft] = []
         if assignment.name in flagged:
-            for utterance in read_session(Path(assignment.read)):
-                record = _record_for(utterance)
-                if record is not None:
-                    records.append(record)
+            for item in read_jsonl_models(Path(assignment.read), UtteranceForJudgment):
+                draft = _draft_for(item)
+                if draft is not None:
+                    drafts.append(draft)
                     break
-        write_jsonl_models(Path(assignment.write), records)
+        write_jsonl_models(Path(assignment.write), drafts)
     produced = mistakes.apply_mistakes(_RUN, runs_root=runs_root)
 
     dropped = False
     for assignment in produced.next_step:
-        confirmed, _ = mistakes.read_records(Path(assignment.read))
-        if confirmed and not dropped:
-            confirmed = confirmed[1:]
-            dropped = True
-        write_jsonl_models(Path(assignment.write), confirmed)
+        offered = list(read_jsonl_models(Path(assignment.read), RecordForConfidentiality))
+        # One record withheld across the whole run, named by the index it was
+        # offered under. That index is all step e can say, and the record itself
+        # is left out of the file the driver rebuilds from step d.
+        withheld = [offered[0].i] if offered and not dropped else []
+        dropped = dropped or bool(withheld)
+        write_model(Path(assignment.write), DropList(drop=withheld))
     verified = verify.apply_verification(_RUN, runs_root=runs_root)
 
     reviewed = build_review.build_review(_RUN, runs_root=runs_root)

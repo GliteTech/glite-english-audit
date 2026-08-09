@@ -1,6 +1,6 @@
 ---
 name: "verify-mistake-confidentiality"
-description: "Read one step-d session file of mistake records, judge each one as an adversary would — could a motivated reader identify a person or organization from it? — and write the same file name into step e carrying only the records that pass: clean lines copied verbatim, leaking ones dropped, nothing rewritten. Use during step e, one agent per session file, in a fresh context, never in the conversation that wrote the records."
+description: "Read one session's projected mistake records, judge each one as an adversary would — could a motivated reader identify a person or organization from it? — and answer with the indices of the records that must not be shared, as one JSON object for the whole session. Use during step e, one agent per session file, in a fresh context, never in the conversation that wrote the records."
 ---
 
 # verify-mistake-confidentiality wrapper

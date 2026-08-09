@@ -99,9 +99,9 @@ Example:
 ```markdown
 ---
 name: "find-english-mistakes"
-description: "Read one step-c session file and write the same file name into
-step d, holding one privacy-clean mistake record per line. Use during step d,
-one agent per session file."
+description: "Read one session's projected utterances and answer with the
+mistakes found in them, each already privacy-clean and addressed by the index
+and span it was found at. Use during step d, one agent per session file."
 ---
 
 # Find English Mistakes

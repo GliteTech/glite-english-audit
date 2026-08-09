@@ -42,13 +42,21 @@ from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
-from glite_english_audit.artifacts.io import ensure_private_dir, write_model
+from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
+from glite_english_audit.pipeline.agent_io import (
+    AuthoredLine,
+    agent_dir,
+    decision_path,
+    expand_authored,
+    project_utterances,
+    projection_path,
+)
 from glite_english_audit.pipeline.record_step import advance_to, output_is_current
 from glite_english_audit.sessions import read_all, read_index, session_files, write_index
 
@@ -86,11 +94,17 @@ class PreparedSession(BaseModel):
 
     file_name: str
     input_path: str
+    """The projection to read: index, modality and text, and nothing else.
+
+    Not the step-b file. That file carries a session hash and a path hash on
+    every line, which the judgment does not use and the model should not see."""
     output_path: str
+    """Where to write the decisions. The driver expands them into the artifact,
+    so an agent never writes a step-c session file itself."""
     utterance_count: int = Field(ge=0)
     word_count: int = Field(ge=0)
     already_written: bool
-    """True when a step-c file of this name exists.
+    """True when this session's decisions exist and may be reused.
 
     An interrupted run resumes by asking only for the sessions still missing,
     rather than paying for every judgment again."""
@@ -208,8 +222,8 @@ def _validation_code(error: ValidationError) -> str:
     return "SCHEMA_INVALID_VALUE"
 
 
-def read_authored(raw: bytes, *, item_ref: str) -> list[NormalizedUtterance] | Diagnostic:
-    """Parse one agent-written step-c file, reporting the first bad line.
+def read_decisions(raw: bytes, *, item_ref: str) -> list[AuthoredLine] | Diagnostic:
+    """Parse one agent-written decision file, reporting the first bad line.
 
     Bad lines are diagnosed rather than raised: the file is model output, and a
     malformed one must quarantine its session instead of stopping the run.
@@ -218,9 +232,9 @@ def read_authored(raw: bytes, *, item_ref: str) -> list[NormalizedUtterance] | D
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         return Diagnostic.from_code(
-            "SCHEMA_INVALID_JSON", "a step-c session file is not valid UTF-8", item_ref=item_ref
+            "SCHEMA_INVALID_JSON", "a step-c decision file is not valid UTF-8", item_ref=item_ref
         )
-    items: list[NormalizedUtterance] = []
+    items: list[AuthoredLine] = []
     for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped:
@@ -230,18 +244,18 @@ def read_authored(raw: bytes, *, item_ref: str) -> list[NormalizedUtterance] | D
             payload = json.loads(stripped)
         except json.JSONDecodeError:
             return Diagnostic.from_code(
-                "SCHEMA_INVALID_JSON", "a step-c line is not valid JSON", item_ref=reference
+                "SCHEMA_INVALID_JSON", "a decision line is not valid JSON", item_ref=reference
             )
         if not isinstance(payload, dict):
             return Diagnostic.from_code(
-                "SCHEMA_INVALID_VALUE", "a step-c line is not a JSON object", item_ref=reference
+                "SCHEMA_INVALID_VALUE", "a decision line is not a JSON object", item_ref=reference
             )
         try:
-            items.append(NormalizedUtterance.model_validate(payload))
+            items.append(AuthoredLine.model_validate(payload))
         except ValidationError as error:
             return Diagnostic.from_code(
                 _validation_code(error),
-                "a step-c line does not validate as an utterance",
+                "a decision line does not validate as an authorship answer",
                 item_ref=reference,
             )
     return items
@@ -280,35 +294,27 @@ def verify_session(
     *,
     item_ref: str,
 ) -> Diagnostic | None:
-    """Return the diagnostic that quarantines this session file, or ``None``."""
+    """Return the diagnostic that quarantines this session file, or ``None``.
+
+    ``authored`` is what the expander built, not what an agent wrote, so the two
+    structural checks below can no longer fail on a model's answer — the
+    expander copies every field but ``text`` from ``source`` and refuses an
+    answer that does not cover the session exactly once. They are kept because
+    they now guard the expander, which is the only thing left that could get
+    them wrong, and because an unguarded invariant is one nobody notices
+    breaking.
+
+    The span scan is the check that still reads a model's decision, and it is
+    the one that matters: it is what stops a paraphrase reaching the word
+    denominator.
+    """
     if len(authored) != len(source):
         return Diagnostic.from_code(
             "CARDINALITY_MISMATCH",
             f"step c returned {len(authored)} items for a session step b left with {len(source)}",
             item_ref=item_ref,
         )
-    known = {utterance.utterance_id for utterance in source}
-    seen: set[str] = set()
-    for expected, actual in zip(source, authored, strict=True):
-        if actual.utterance_id in seen:
-            return Diagnostic.from_code(
-                "AUTHORSHIP_DUPLICATE_DECISION",
-                "more than one step-c item covers the same utterance",
-                item_ref=item_ref,
-            )
-        seen.add(actual.utterance_id)
-        if actual.utterance_id != expected.utterance_id:
-            if actual.utterance_id not in known:
-                return Diagnostic.from_code(
-                    "AUTHORSHIP_UNKNOWN_UTTERANCE",
-                    "a step-c item names an utterance this session does not contain",
-                    item_ref=item_ref,
-                )
-            return Diagnostic.from_code(
-                "CARDINALITY_MISMATCH",
-                "step c does not repeat its step-b utterances in order",
-                item_ref=item_ref,
-            )
+    for index, (expected, actual) in enumerate(zip(source, authored, strict=True), 1):
         # Only `text` may change. Everything else is provenance the adapters
         # established, and a rewritten timestamp or modality would travel
         # unchecked into every later step.
@@ -316,9 +322,11 @@ def verify_session(
             return Diagnostic.from_code(
                 "SCHEMA_INVALID_VALUE",
                 "a step-c item changes a field other than its text",
-                item_ref=item_ref,
+                item_ref=f"{item_ref}:{index}",
             )
-        diagnostic = span_diagnostic(actual.text, expected.text, item_ref=item_ref)
+        # The index is in the reference now. A span failure used to name only
+        # the file, which told a repairing agent to re-read all of it.
+        diagnostic = span_diagnostic(actual.text, expected.text, item_ref=f"{item_ref}:{index}")
         if diagnostic is not None:
             return diagnostic
     return None
@@ -343,6 +351,9 @@ def prepare(
         raise ValueError(msg)
 
     target = ensure_private_dir(authored_dir(run_id, runs_root=runs_root))
+    # Owner-only, and created before anything writes into it: an implicit
+    # mkdir would give it the umask default.
+    ensure_private_dir(agent_dir(target))
     if repair_only:
         wanted = set(read_repair_list(run_id, runs_root=runs_root))
         per_file = [(path, members) for path, members in per_file if path.name in wanted]
@@ -356,20 +367,25 @@ def prepare(
     # prompt or model is exactly why it was invalidated, so the answer on disk
     # is the one being replaced.
     reusable = output_is_current(run_id, StepId.C_AUTHORED, runs_root=runs_root)
-    sessions = [
-        PreparedSession(
-            file_name=path.name,
-            input_path=str(path),
-            output_path=str(target / path.name),
-            utterance_count=len(members),
-            # Every word, not only the English ones: this number says how much
-            # text the agent has to read, which is what it costs. The English
-            # denominator is counted after the judgment, by `english_words`.
-            word_count=sum(count_words(utterance.text) for utterance in members),
-            already_written=reusable and (target / path.name).is_file(),
+    sessions: list[PreparedSession] = []
+    for path, members in per_file:
+        projection = projection_path(target, path.name)
+        write_jsonl_models(projection, project_utterances(members))
+        decisions = decision_path(target, path.name)
+        sessions.append(
+            PreparedSession(
+                file_name=path.name,
+                input_path=str(projection),
+                output_path=str(decisions),
+                utterance_count=len(members),
+                # Every word, not only the English ones: this number says how
+                # much text the agent has to read, which is what it costs. The
+                # English denominator is counted after the judgment, by
+                # `english_words`.
+                word_count=sum(count_words(utterance.text) for utterance in members),
+                already_written=reusable and decisions.is_file(),
+            )
         )
-        for path, members in per_file
-    ]
     # Same names in, same names out — and the sequence-to-session mapping
     # travels with them, or step c's file names mean nothing on their own.
     write_index(target, read_index(source))
@@ -443,27 +459,42 @@ def apply_authorship(run_id: str, *, runs_root: Path | None = None) -> Authorshi
         # then report it as what the model removed.
         words_before += sum(english_words(utterance.text) for utterance in expected)
         target = out_dir / path.name
-        outcome = _verify_one(target, expected)
+        outcome = _verify_one(decision_path(out_dir, path.name), expected, item_ref=path.name)
         if isinstance(outcome, Diagnostic):
             diagnostics.append(outcome)
             failures.append((path.name, outcome.code))
             quarantined_utterances += len(expected)
+            # A session that failed this time must not leave a passing artifact
+            # from an earlier attempt in the corpus.
             _quarantine(target, run_id=run_id, runs_root=runs_root)
+            # And its decisions must go with it, or the repair never happens.
+            # `prepare` decides whether to re-ask an agent by looking for the
+            # decision file; a rejected answer left in place reports the session
+            # as already judged, the repair pass skips it, and `--apply` reads
+            # the same bad answer again. Moved rather than deleted, like the
+            # artifact, so the failure stays inspectable.
+            _quarantine(decision_path(out_dir, path.name), run_id=run_id, runs_root=runs_root)
             continue
+        # The driver writes the artifact, so it is a rendering of a verified
+        # decision rather than a file the run has to take on trust. The hash is
+        # over the bytes that land, which is what verify_corpus re-derives.
+        write_jsonl_models(target, outcome.items)
         entries.append(
             AuthoredSession(
                 file_name=target.name,
                 utterance_count=len(outcome.items),
                 word_count=sum(english_words(utterance.text) for utterance in outcome.items),
-                sha256=sha256_hex(outcome.raw),
+                sha256=sha256_hex(target.read_bytes()),
             )
         )
         # A session that passes this time is no longer waiting for repair, and
         # a stale copy under quarantine would say otherwise.
         (quarantine_dir(run_id, runs_root=runs_root) / target.name).unlink(missing_ok=True)
 
-    # A stray file is quarantined but never listed for repair: no step-b
-    # session asked for it, so there is nothing to ask again.
+    # A stray artifact is quarantined but never listed for repair: no step-b
+    # session asked for it, so there is nothing to ask again. Only this driver
+    # writes here now, so a stray file is a leftover from a previous run shape
+    # rather than something an agent did.
     expected_names = {path.name for path, _ in per_file}
     for stray in session_files(out_dir):
         if stray.name in expected_names:
@@ -525,28 +556,31 @@ def apply_authorship(run_id: str, *, runs_root: Path | None = None) -> Authorshi
 
 
 class _Verified(NamedTuple):
-    """A step-c file that passed, with the bytes its hash is taken over."""
+    """A session that passed, with the artifact records to write for it."""
 
-    raw: bytes
     items: list[NormalizedUtterance]
 
 
-def _verify_one(target: Path, expected: list[NormalizedUtterance]) -> _Verified | Diagnostic:
-    """Read and check one step-c file against the step-b session it answers."""
-    if not target.is_file():
+def _verify_one(
+    decisions: Path, expected: list[NormalizedUtterance], *, item_ref: str
+) -> _Verified | Diagnostic:
+    """Check one session's decisions and build the records they expand to."""
+    if not decisions.is_file():
         return Diagnostic.from_code(
             "LINEAGE_MISSING_INPUT",
-            "no step-c file was written for this session",
-            item_ref=target.name,
+            "no step-c decisions were written for this session",
+            item_ref=item_ref,
         )
-    raw = target.read_bytes()
-    authored = read_authored(raw, item_ref=target.name)
-    if isinstance(authored, Diagnostic):
-        return authored
-    diagnostic = verify_session(expected, authored, item_ref=target.name)
+    answers = read_decisions(decisions.read_bytes(), item_ref=item_ref)
+    if isinstance(answers, Diagnostic):
+        return answers
+    authored, expansion = expand_authored(expected, answers, item_ref=item_ref)
+    if expansion:
+        return expansion[0]
+    diagnostic = verify_session(expected, authored, item_ref=item_ref)
     if diagnostic is not None:
         return diagnostic
-    return _Verified(raw, authored)
+    return _Verified(authored)
 
 
 def _diagnostic_counts(diagnostics: list[Diagnostic]) -> dict[str, int]:
