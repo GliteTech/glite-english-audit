@@ -32,6 +32,7 @@ from glite_english_audit.pipeline.record_consent import record_consent
 from glite_english_audit.review_server.page import CONSENT_POLICY_VERSION, render_page
 from glite_english_audit.review_server.report_handoff import REPORT_PAGE_ORIGIN
 from glite_english_audit.review_server.session import ReviewSessionState, UnknownMistakeError
+from glite_english_audit.state.run_store import RunStoreError
 from glite_english_audit.submission.capability import SubmissionCapability
 from glite_english_audit.submission.client import SubmissionOutcome, submit_once
 
@@ -331,13 +332,21 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
         is mid-decision on their own machine, and the send path checks the
         live session rather than this record, so a failed write costs an audit
         trail entry and nothing else.
+
+        Unreadable counts as unwritable, which is why ``RunStoreError`` is
+        caught here. A run that started before a manifest schema change has a
+        manifest this version refuses to parse, and the resume policy handles
+        that at the start of a run, not in the middle of a review. Letting it
+        escape turned a tick of a checkbox into a 500 and told the user the
+        local server had refused their decision, which is both wrong and
+        unactionable: the decision is held in this session and was fine.
         """
         review = self._review
         if not checked or review.run_id is None:
             return
         try:
             record_consent(review.run_id, moment, runs_root=review.runs_root)
-        except (OSError, ValueError):
+        except (OSError, ValueError, RunStoreError):
             return
 
     def _counts_payload(self) -> dict[str, object]:
