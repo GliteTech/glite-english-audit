@@ -36,6 +36,10 @@ from glite_english_audit.artifacts.manifest import (
 )
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.discovery.inventory import PrivateInventory
+from glite_english_audit.discovery.pending_expiry import (
+    PENDING_INVENTORY_MAX_AGE_DAYS,
+    is_stale,
+)
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import pending_inventory_dir, run_dir, stage_dir
 from glite_english_audit.pipeline.save_choice import load_choice
@@ -162,6 +166,16 @@ def start_run(
 
     moment = now if now is not None else utc_now()
     inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
+    if is_stale(inventory, now=moment):
+        # Starting from a stale map means snapshotting paths that may no longer
+        # be what they were. Rediscovering costs seconds; auditing the wrong
+        # sources costs the whole run.
+        msg = (
+            "this source inventory is older than "
+            f"{PENDING_INVENTORY_MAX_AGE_DAYS} days, so it may no longer describe "
+            "this machine; run discovery again before starting a run"
+        )
+        raise ValueError(msg)
 
     # A choice the user already made during setup is used unless this call
     # overrides it, so an answer given once does not have to be repeated.

@@ -179,6 +179,7 @@ def _write_inventory(home: Path, target: Path) -> None:
         PrivateInventory(
             records=outcome.records,
             instance_paths={key: str(path) for key, path in outcome.instance_paths.items()},
+            created_at=_NOW,
         ),
     )
 

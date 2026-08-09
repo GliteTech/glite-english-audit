@@ -20,6 +20,8 @@ from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.discovery.inventory import PrivateInventory
 
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+
 _REPO = Path(__file__).resolve().parent.parent
 _FIXTURE_HOME = _REPO / "fixtures" / "claude_code" / "success" / "home"
 
@@ -52,6 +54,7 @@ def _seed_inventory(inventory_dir: Path) -> None:
         PrivateInventory(
             records=outcome.records,
             instance_paths={key: str(path) for key, path in outcome.instance_paths.items()},
+            created_at=_NOW,
         ),
     )
 

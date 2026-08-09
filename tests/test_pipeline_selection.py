@@ -24,6 +24,8 @@ from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.pipeline.start_run import resolve_selection, start_run
 
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+
 
 def _record(
     adapter: str,
@@ -62,6 +64,7 @@ def _inventory() -> PrivateInventory:
     return PrivateInventory(
         records=records,
         instance_paths={r.instance_key: f"/somewhere/{r.instance_key}" for r in records},
+        created_at=_NOW,
     )
 
 

@@ -68,6 +68,10 @@ class ProgressState(BaseModel):
     collected_words: int = Field(ge=0)
     est_remaining_tokens: EstimateRange
     est_remaining_minutes: EstimateRange
+    work_unit: str = "sessions"
+    """Plural noun for what the per-source counts count. Early steps walk
+    sessions; from stage 3 on the unit is messages, and calling those sessions
+    tells the user their history is twenty times smaller than it is."""
     waiting_note: str | None = None
     """Set when the previous update was delayed by an uninterruptible
     provider call; rendered as a trailing note (specification, 9.1)."""
@@ -92,6 +96,18 @@ def _count(value: int) -> str:
 
 
 def _tokens(value: int) -> str:
+    """Scale a token count to a unit a reader can hold in their head.
+
+    Real runs reach tens of millions, and the thousands-only form rendered
+    that as ``14000K``, which is both unreadable and easy to misread by three
+    orders of magnitude. One decimal place survives at the M and B tiers
+    because the difference between 14.2M and 14.9M is the difference between
+    two estimates.
+    """
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}".removesuffix(".0") + "B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}".removesuffix(".0") + "M"
     if value >= 1000:
         return f"{round(value / 1000)}K"
     return str(value)
@@ -111,7 +127,7 @@ def render_progress(state: ProgressState) -> str:
     for source in state.per_source:
         lines.append(
             f"{source.label}: {_count(source.done)} of {_count(source.total)} "
-            f"sessions processed — {_percent(source.done, source.total)}%"
+            f"{state.work_unit} processed — {_percent(source.done, source.total)}%"
         )
     tokens = state.est_remaining_tokens
     minutes = state.est_remaining_minutes

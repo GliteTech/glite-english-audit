@@ -34,13 +34,22 @@ from glite_english_audit.paths import (
 
 
 class PrivateInventory(BaseModel):
-    """Private discovery result persisted inside the run directory."""
+    """Private discovery result persisted inside the run directory.
+
+    ``instance_paths`` is a map of where the user's own application data lives
+    on this machine. Inside a run it expires with the run under the 30-day
+    rule. The copy discovery leaves behind before any run exists had no owner
+    and no expiry, so ``created_at`` gives it one.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     records: list[SourceInstanceRecord]
     instance_paths: dict[str, str]
     failures: list[Diagnostic] = []
+    created_at: datetime | None = None
+    """When this inventory was discovered. ``None`` in inventories written
+    before expiry existed; those are treated as already stale."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
+
+    # Imported here, not at module scope: pending_expiry imports this module
+    # for PrivateInventory, and a top-level import would close the cycle.
+    from glite_english_audit.discovery.pending_expiry import expire_pending_inventory
+
     if arguments.run_dir is None:
         if arguments.run_id is not None:
             arguments.run_dir = stage_dir(
@@ -146,6 +160,10 @@ def main(argv: list[str] | None = None) -> int:
             # No run exists yet at stage 0, so the inventory waits in the
             # pending location until start_run adopts it.
             arguments.run_dir = pending_inventory_dir()
+            # Remove an abandoned one before writing this one. There is no
+            # daemon, so every entry point that touches this directory is an
+            # opportunity to clear what a previous setup left behind.
+            expire_pending_inventory()
 
     # Registration stays out of module import time so tests control the registry.
     from glite_english_audit import adapters
@@ -170,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 for key, path in outcome.instance_paths.items()
             },
             failures=report.failures,
+            created_at=context.now,
         )
         write_model(arguments.run_dir / "source-inventory.json", private)
 

@@ -27,6 +27,8 @@ from glite_english_audit.pipeline.save_choice import (
 )
 from glite_english_audit.pipeline.start_run import start_run
 
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+
 
 def _record(adapter: str, label: str) -> SourceInstanceRecord:
     return SourceInstanceRecord(
@@ -59,6 +61,7 @@ def _seed(tmp_path: Path) -> Path:
         PrivateInventory(
             records=records,
             instance_paths={r.instance_key: f"/somewhere/{r.instance_key}" for r in records},
+            created_at=_NOW,
         ),
     )
     return inventory_dir

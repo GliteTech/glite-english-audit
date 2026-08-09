@@ -9,6 +9,7 @@ from glite_english_audit.progress.progress import (
     ProgressState,
     ProgressThrottle,
     SourceProgress,
+    _tokens,
     render_progress,
 )
 
@@ -150,3 +151,25 @@ def test_throttle_overdue_after_sixty_seconds() -> None:
 def test_throttle_rejects_inverted_intervals() -> None:
     with pytest.raises(ValueError, match="exceeds max_interval_seconds"):
         ProgressThrottle(min_interval_seconds=61.0, max_interval_seconds=60.0)
+
+
+def test_millions_of_tokens_read_as_millions() -> None:
+    """A real run reaches tens of millions, and 14000K is a misreading waiting
+    to happen: three orders of magnitude sit between what it says and what a
+    reader skims."""
+    assert _tokens(14_000_000) == "14M"
+    assert _tokens(14_200_000) == "14.2M"
+    assert _tokens(999_999) == "1000K"
+    assert _tokens(1_500_000_000) == "1.5B"
+    assert _tokens(950) == "950"
+
+
+def test_the_work_unit_follows_the_step() -> None:
+    """Early steps walk sessions; from stage 3 on the unit is messages. Calling
+    messages sessions understates a user's history by more than an order of
+    magnitude."""
+    state = _state()
+    assert "sessions processed" in render_progress(state)
+    state.work_unit = "messages"
+    assert "messages processed" in render_progress(state)
+    assert "sessions processed" not in render_progress(state)

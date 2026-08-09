@@ -7,6 +7,7 @@ runnable, not merely if a function returns the wrong value.
 """
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,8 @@ from glite_english_audit.verification.verify_corpus import verify_corpus
 _FIXTURE_HOME = (
     Path(__file__).resolve().parent.parent / "fixtures" / "claude_code" / "success" / "home"
 )
+
+_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -135,6 +138,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
         PrivateInventory(
             records=outcome.records,
             instance_paths={k: str(v) for k, v in outcome.instance_paths.items()},
+            created_at=_NOW,
         ),
     )
     summaries = [summarize(record) for record in outcome.records]
