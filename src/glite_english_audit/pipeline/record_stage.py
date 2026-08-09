@@ -114,6 +114,37 @@ def advance_to(
     return write_checkpoint(manifest, root=runs_root, now=now)
 
 
+def require_promoted_through(
+    run_id: str,
+    last: StageId,
+    *,
+    runs_root: Path | None = None,
+) -> None:
+    """Refuse to continue unless every stage up to ``last`` is promoted.
+
+    The counts a review shows are the honesty guarantee of the whole audit:
+    the denominator of analyzed words, the verified total, and the withheld
+    classes that must add up to it. Computed from a partial run they are still
+    arithmetically consistent and still wrong, and nothing downstream can tell
+    the difference. The orchestration skill tells the agent to check this; the
+    check belongs here as well, because a rule only an agent enforces is a rule
+    that holds until an agent skips a step.
+    """
+    manifest = load_manifest(run_id, root=runs_root)
+    unfinished = [
+        stage
+        for stage in StageId
+        if int(stage) <= int(last) and manifest.stages[stage].status is not StageStatus.PROMOTED
+    ]
+    if unfinished:
+        names = ", ".join(str(int(stage)) for stage in unfinished)
+        msg = (
+            f"this run cannot build a review yet: stage {names} is not promoted. "
+            "Its counts would describe part of the audit while claiming to describe all of it."
+        )
+        raise ValueError(msg)
+
+
 def enter_review(
     run_id: str,
     *,

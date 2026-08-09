@@ -41,7 +41,11 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import stage_dir
-from glite_english_audit.pipeline.record_stage import advance_to, enter_review
+from glite_english_audit.pipeline.record_stage import (
+    advance_to,
+    enter_review,
+    require_promoted_through,
+)
 
 CORPUS_NAME = "corpus.jsonl"
 CORPUS_MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -74,6 +78,7 @@ def build_review(
     processed. Anything eligible but unprocessed is reported as reduced
     coverage rather than silently treated as error-free text.
     """
+    require_promoted_through(run_id, StageId.PRIVACY_APPROVED, runs_root=runs_root)
     corpus_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
     corpus = list(read_jsonl_models(corpus_dir / CORPUS_NAME, NormalizedUtterance))
     corpus_manifest = read_model(corpus_dir / CORPUS_MANIFEST_NAME, EligibleCorpusManifest)

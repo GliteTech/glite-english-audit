@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
-from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId
+from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId, StageStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import (
@@ -45,6 +45,7 @@ from glite_english_audit.pipeline import (
     promote_records,
     start_run,
 )
+from glite_english_audit.pipeline.record_stage import advance_to
 from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.verification.deterministic import (
     verify_package_against_review,
@@ -223,6 +224,12 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     first = sorted(batch_dir.glob("batch-*.jsonl"))[0]
     rows = [json.loads(line) for line in first.read_text().splitlines()]
     assert {"utterance_id", "text", "modality"} == set(rows[0])
+
+    # The model that turns those batches into findings does not run here, so
+    # stage 4 is promoted as its stand-in. Without this, stage 8 refuses the
+    # run — which is the point of that guard, and the reason it is recorded
+    # explicitly rather than left to a command's side effect.
+    advance_to(run_id, StageId.PLAIN_FINDINGS, StageStatus.PROMOTED, runs_root=runs_root)
 
     # Stage 5: a deterministic stand-in for the semantic producer.
     corpus = list(

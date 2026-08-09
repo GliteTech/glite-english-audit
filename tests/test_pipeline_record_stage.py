@@ -156,3 +156,28 @@ def test_entering_review_twice_does_not_leave_the_review_state(run: str, tmp_pat
     enter_review(run, runs_root=tmp_path)
     enter_review(run, runs_root=tmp_path)
     assert load_manifest(run, root=tmp_path).status is RunStatus.REVIEW
+
+
+def test_a_review_cannot_be_built_from_a_partial_run(run: str, tmp_path: Path) -> None:
+    """The counts a review shows are the audit's honesty guarantee.
+
+    Computed from a partial run they are still arithmetically consistent and
+    still wrong, and nothing downstream can tell the difference. The
+    orchestration skill tells the agent to check this; a rule only an agent
+    enforces holds until an agent skips a step.
+    """
+    from glite_english_audit.pipeline.record_stage import require_promoted_through
+
+    for stage in (StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS):
+        advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
+    with pytest.raises(ValueError, match="stage 2, 3, 4, 5, 6, 7 is not promoted"):
+        require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
+
+
+def test_a_complete_run_passes_the_same_check(run: str, tmp_path: Path) -> None:
+    from glite_english_audit.pipeline.record_stage import require_promoted_through
+
+    for stage in StageId:
+        if int(stage) <= int(StageId.PRIVACY_APPROVED):
+            advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
+    require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
