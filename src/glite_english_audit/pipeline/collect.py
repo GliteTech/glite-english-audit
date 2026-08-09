@@ -36,6 +36,7 @@ from glite_english_audit.artifacts.models import (
     SnapshotManifest,
     SourceInstanceRecord,
 )
+from glite_english_audit.diagnostics.codes import Severity
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.discovery.registry import create_adapter
 from glite_english_audit.discovery.snapshot_safety import cleanup_snapshot, ensure_safe_snapshot_dir
@@ -99,6 +100,7 @@ def collect(
     utterances: list[NormalizedUtterance] = []
     per_source: dict[str, int] = {}
     excluded: list[dict[str, str]] = []
+    warnings: list[str] = []
 
     for instance_key in selection.selected_instance_keys:
         record = by_key.get(instance_key)
@@ -139,8 +141,28 @@ def collect(
             )
             write_model(snapshot_stage / f"{instance_key[:12]}.json", snapshot_manifest)
 
+            extracted = list(adapter.extract(record, target))
+
+            # Each adapter's own structural checks: that every utterance
+            # belongs to it, that IDs are unique, that no denylisted file was
+            # opened. They are several hundred lines across nine adapters and
+            # nothing in the pipeline ran them, so the opened-path audits that
+            # emit SOURCE_SNAPSHOT_UNSAFE_PATH could never have failed a run.
+            #
+            # An error excludes the source rather than the run: one adapter's
+            # broken output must not cost the user the eight that worked
+            # (specification, 9.5). Warnings are recorded and the text is kept,
+            # because they describe the extraction rather than condemn it.
+            findings = adapter.verify(record, extracted)
+            fatal = sorted({d.code for d in findings if d.severity is Severity.ERROR})
+            if fatal:
+                excluded.append({"instance": instance_key[:12], "reason": ",".join(fatal)})
+                cleanup_snapshot(snapshot_manifest, run_id, repo=repo)
+                continue
+            warnings.extend(sorted({d.code for d in findings}))
+
             kept = 0
-            for utterance in adapter.extract(record, target):
+            for utterance in extracted:
                 if _within_bounds(
                     utterance,
                     start=selection.period.start,
@@ -202,6 +224,7 @@ def collect(
         "candidate_utterances": count,
         "per_source": per_source,
         "excluded_instances": excluded,
+        "adapter_warnings": sorted(set(warnings)),
     }
 
 

@@ -7,14 +7,22 @@ runnable, not merely if a function returns the wrong value.
 """
 
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from confidentiality_stub import write_confidentiality_report
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
-from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId, StageStatus
+from glite_english_audit.artifacts.enums import (
+    ExampleType,
+    Modality,
+    Stability,
+    StageId,
+    StageStatus,
+)
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import (
@@ -32,8 +40,15 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
     SafeRecordCandidate,
+    SourceInstanceRecord,
 )
+from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery import registry
+from glite_english_audit.discovery.base import (
+    DiscoveryContext,
+    DiscoveryOutcome,
+    SnapshotCapture,
+)
 from glite_english_audit.discovery.inventory import PrivateInventory, summarize
 from glite_english_audit.normalization.filter_corpus import filter_corpus
 from glite_english_audit.paths import stage_dir
@@ -114,6 +129,42 @@ def _repo_with_ignored_temp(tmp_path: Path) -> Path:
         check=True,
     )
     return repo
+
+
+def _seeded_run(tmp_path: Path, runs_root: Path) -> str:
+    """Discovery plus run creation over the fixture home, without the stages."""
+    from glite_english_audit.artifacts.enums import AgentRuntime, OsEnvironment
+    from glite_english_audit.discovery.base import DiscoveryContext
+
+    outcome = claude_code_adapter().discover(
+        DiscoveryContext(
+            os_environment=OsEnvironment.MACOS,
+            home=_FIXTURE_HOME,
+            now=datetime(2026, 8, 8, tzinfo=UTC),
+            environ={},
+        )
+    )
+    inventory_dir = ensure_private_dir(tmp_path / "inventory-2")
+    write_model(
+        inventory_dir / "source-inventory.json",
+        PrivateInventory(
+            records=outcome.records,
+            instance_paths={k: str(v) for k, v in outcome.instance_paths.items()},
+            created_at=_NOW,
+        ),
+    )
+    manifest = start_run.start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        processing_profile="recommended",
+        runs_root=runs_root,
+        inventory_dir=inventory_dir,
+        local_scan_consent=True,
+        provider_transfer_consent=True,
+    )
+    return manifest.run_id
 
 
 def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -> None:
@@ -356,3 +407,73 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     assert verify_submission_package(package) == []
     assert verify_package_against_review(package, stored) == []
     assert len(package.records) == 1
+
+
+def test_an_adapter_that_fails_its_own_checks_loses_only_its_own_source(
+    tmp_path: Path, only_claude_code: None
+) -> None:
+    """Every adapter's verify() was dead code in production.
+
+    Several hundred lines across nine adapters — the duplicate-ID checks, the
+    belongs-to-this-adapter checks, and the opened-path audits that emit
+    SOURCE_SNAPSHOT_UNSAFE_PATH — were called only by tests, so no structural
+    defect an adapter could detect was able to fail a run.
+    """
+    runs_root = tmp_path / "runs"
+    repo = _repo_with_ignored_temp(tmp_path)
+    run_id = _seeded_run(tmp_path, runs_root)
+
+    real = claude_code_adapter()
+
+    class _FailsItsOwnCheck:
+        """Extracts normally, then reports an error about what it extracted."""
+
+        @property
+        def adapter_id(self) -> str:
+            return real.adapter_id
+
+        @property
+        def adapter_version(self) -> str:
+            return real.adapter_version
+
+        @property
+        def stability(self) -> Stability:
+            return real.stability
+
+        def discover(self, context: DiscoveryContext) -> DiscoveryOutcome:
+            return real.discover(context)
+
+        def snapshot(
+            self, instance: SourceInstanceRecord, source_path: Path, target_dir: Path
+        ) -> SnapshotCapture:
+            return real.snapshot(instance, source_path, target_dir)
+
+        def extract(
+            self, instance: SourceInstanceRecord, snapshot_dir: Path
+        ) -> Iterator[NormalizedUtterance]:
+            return real.extract(instance, snapshot_dir)
+
+        def verify(
+            self, instance: SourceInstanceRecord, utterances: list[NormalizedUtterance]
+        ) -> list[Diagnostic]:
+            return [
+                Diagnostic.from_code(
+                    "SOURCE_SNAPSHOT_UNSAFE_PATH",
+                    "the adapter opened a file outside its allowlist",
+                    item_ref="synthetic",
+                )
+            ]
+
+    # The registry refuses to re-register, so swap the factory directly and
+    # restore it: this test is about the pipeline calling verify(), not about
+    # the registry's own rules.
+    registry._FACTORIES["claude_code"] = lambda: _FailsItsOwnCheck()
+    try:
+        collected = collect.collect(run_id, runs_root=runs_root, repo=repo)
+    finally:
+        registry._FACTORIES["claude_code"] = claude_code_adapter
+
+    assert collected["candidate_utterances"] == 0
+    entries = cast(list[dict[str, str]], collected["excluded_instances"])
+    reasons = [entry["reason"] for entry in entries]
+    assert reasons and all("SOURCE_SNAPSHOT_UNSAFE_PATH" in reason for reason in reasons)
