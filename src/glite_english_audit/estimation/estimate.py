@@ -82,6 +82,7 @@ from glite_english_audit.pipeline.start_run import (
     resolve_period,
     resolve_selection,
 )
+from glite_english_audit.runtime_session import detect_effort, detect_model
 
 PRODUCER_VERSION: str = "0.1.0"
 
@@ -435,6 +436,9 @@ def build_notes(
             f"{and_list(low)}, so the total stays low confidence and its upper bound "
             "is widened."
         )
+    mismatch = _measured_elsewhere_note(steps)
+    if mismatch is not None:
+        notes.append(mismatch)
     notes.append(QUOTA_UNAVAILABLE_NOTE)
     if concurrent_batches == 1:
         notes.append(
@@ -444,6 +448,48 @@ def build_notes(
     else:
         notes.append(f"Times assume {concurrent_batches} batches running in parallel.")
     return tuple(notes)
+
+
+def _measured_elsewhere_note(steps: RuntimeSteps) -> str | None:
+    """Say so when this session is not what the numbers were measured on.
+
+    The calibration profile is keyed by model and effort, and nothing compared
+    either against the session actually running. On the machine this was written
+    the profile assumed one model at medium effort while the session ran a
+    different model at xhigh, so every hour and token above described a run the
+    user would not get.
+
+    The numbers still stand as the best available: they are the only ones this
+    project has measured, and a missing estimate helps nobody choose a period.
+    What changes is that the reader is told what they are an estimate OF.
+
+    Returns ``None`` when detection finds nothing, because an unknown session is
+    not evidence of a mismatch.
+    """
+    running_model = detect_model()
+    running_effort = detect_effort()
+    if running_model is None and running_effort is None:
+        return None
+
+    measured_models = sorted({entry.model for entry in steps.entries()})
+    measured_efforts = sorted({entry.effort for entry in steps.entries()})
+    wrong_model = running_model is not None and running_model not in measured_models
+    wrong_effort = running_effort is not None and running_effort not in measured_efforts
+    if not wrong_model and not wrong_effort:
+        return None
+
+    differences: list[str] = []
+    if wrong_model:
+        differences.append(f"a different model ({and_list(measured_models)}, not {running_model})")
+    if wrong_effort:
+        differences.append(
+            f"a different effort ({and_list(measured_efforts)}, not {running_effort})"
+        )
+    return (
+        f"These times and token counts were measured on {and_list(differences)}. They are the "
+        "only measurements this project has, so they are still the best available, but treat "
+        "them as rough for this session rather than as calibrated for it."
+    )
 
 
 def _expected_use(row: PresetRow) -> str:

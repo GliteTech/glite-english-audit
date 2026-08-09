@@ -387,3 +387,56 @@ def test_the_undated_source_note_agrees_in_number() -> None:
     assert any(
         "3 sources report no dates" in note and "they count in full" in note for note in several
     )
+
+
+def test_the_note_is_silent_when_the_session_matches_what_was_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unknown or matching session is not evidence of a mismatch.
+
+    Warning unconditionally would make the caveat noise, and a caveat that is
+    always there stops being read.
+    """
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
+    monkeypatch.setattr(module, "detect_effort", lambda: "medium")
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    assert module._measured_elsewhere_note(steps) is None
+
+    monkeypatch.setattr(module, "detect_model", lambda: None)
+    monkeypatch.setattr(module, "detect_effort", lambda: None)
+    assert module._measured_elsewhere_note(steps) is None
+
+
+def test_the_note_names_both_what_ran_and_what_was_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: "claude-opus-5")
+    monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    note = module._measured_elsewhere_note(steps)
+    assert note is not None
+    # A reader has to be able to tell which is which, so both appear.
+    assert "claude-opus-5" in note and "claude-fable-5" in note
+    assert "xhigh" in note
+    # The numbers still stand; only their standing changes.
+    assert "best available" in note
+
+
+def test_a_matching_model_with_a_wrong_effort_still_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Effort is a profile key too, so the right model at an unmeasured effort
+    # is still an estimate of a different run.
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
+    monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    note = module._measured_elsewhere_note(steps)
+    assert note is not None
+    assert "effort" in note
+    assert "different model" not in note
