@@ -31,6 +31,7 @@ from glite_english_audit.artifacts.io import (
     write_model,
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance
+from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.normalization.authorship import PRODUCER_VERSION as PREFILTER_VERSION
 from glite_english_audit.normalization.authorship import strip_non_authored
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
@@ -129,6 +130,9 @@ def prepare_authorship_batches(
     if batch_size < 1:
         msg = "batch size must be at least 1"
         raise ValueError(msg)
+    # Batch files exist only to be read by the model, so writing one is the
+    # moment the learner's sentences become provider-bound.
+    require_provider_transfer_consent(run_id, runs_root=runs_root)
     utterances = read_candidate_utterances(run_id, runs_root=runs_root)
     candidates = build_candidates(utterances)
 

@@ -20,7 +20,7 @@ per-source grouping may ever be added.
 | `submission_id` | `str` | Matches `^sub-[0-9a-f]{32}$`; random and idempotent |
 | `recovery_secret` | `str` | 64 lowercase hex characters (256 random bits) |
 | `payload_hash` | `str` | SHA-256 hex digest; see Section 4 |
-| `client_version` | `str` | Local client version |
+| `client_version` | `str` matching `^[0-9]+(\.[0-9]+)*$` | Local client version |
 | `producer_version` | `str` matching `^[0-9]+(\.[0-9]+)*$` | Safe-record producer version |
 | `privacy_verifier_version` | `str` matching `^[0-9]+(\.[0-9]+)*$` | Independent privacy-verifier version |
 | `records` | `list[SafeMistakeRecord]` | Approved privacy-safe mistake records |

@@ -20,7 +20,7 @@ from glite_english_audit.artifacts.submission import (
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.verification.privacy_scanner import scan_safe_record, scan_version
 
-_VERSION_FIELDS = ("producer_version", "privacy_verifier_version")
+_VERSION_FIELDS = ("client_version", "producer_version", "privacy_verifier_version")
 
 
 def verify_file_hash(path: Path, expected_sha256: str, *, item_ref: str) -> list[Diagnostic]:

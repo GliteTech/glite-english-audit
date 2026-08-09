@@ -33,6 +33,7 @@ from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
     SourceInstanceRecord,
+    safe_id_part,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery.base import (
@@ -502,7 +503,9 @@ class ClaudeCodeAdapter:
                 else "explicit_user_role"
             )
             yield NormalizedUtterance(
-                utterance_id=f"{ADAPTER_ID}-{session_hash[:16]}-{candidate.record_uuid}",
+                utterance_id=(
+                    f"{ADAPTER_ID}-{session_hash[:16]}-{safe_id_part(candidate.record_uuid)}"
+                ),
                 source_adapter=ADAPTER_ID,
                 adapter_version=ADAPTER_VERSION,
                 session_hash=session_hash,

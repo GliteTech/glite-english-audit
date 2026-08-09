@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 6
+**Version**: 7
 
 ## Goal
 
@@ -213,7 +213,11 @@ runtime; naming both is confusing and wrong.
      see them: `--exclude-source "Cursor"` drops a whole app, `--include-source
      "Wispr Flow"` adds one that is off by default, and `--exclude-label "Claude
      Code 4"` drops a single project by the label shown to the user. Each is
-     repeatable, and the command resolves labels to real paths locally.
+     repeatable, and the command resolves labels to real paths locally. Add
+     `--local-scan-consent` and `--provider-transfer-consent` only for the consent
+     moments the user actually confirmed on this run. Passing neither is fine and
+     records neither; the stages that read source files or prepare provider-bound
+     text refuse to run without the matching timestamp.
    - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
      --run-id <run-id>`. It snapshots each selected instance under the safety gates,
      extracts candidates from the snapshot only, removes each snapshot as soon as its

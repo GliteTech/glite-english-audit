@@ -156,6 +156,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
         runs_root=runs_root,
         inventory_dir=inventory_dir,
         local_scan_consent=True,
+        provider_transfer_consent=True,
     )
     run_id = manifest.run_id
     assert manifest.selection is not None

@@ -19,6 +19,14 @@ the same bypass would simply move one step downstream. Instead, text that
 changes under that normalization is reported as
 ``PRIVACY_INVISIBLE_CHARACTER``, so a record carrying hidden characters is
 withheld rather than silently rewritten.
+
+Every pattern also runs a second time over a Latin-lookalike folding of that
+normalized text. NFKC leaves Cyrillic ``а`` and Greek ``ο`` alone, so
+``аcme.io`` renders as a domain, reads as a domain to the semantic verifier and
+to the user, and matches none of the ASCII character classes below. Folding the
+lookalikes back to Latin restores every pattern without reporting a separate
+code: what the record leaks is still a domain, and that is what the diagnostic
+must say.
 """
 
 import re
@@ -61,9 +69,11 @@ _URL = re.compile(
     # Scheme or www prefix: any case, any host.
     r"(?i:(?:https?://|www\.)\S+)"
     # Bare domain: any label plus any 2-24 letter TLD, not just a fixed list.
-    # Lowercase only, so an ordinary sentence run together with the next one
-    # ("the plan.We agreed") is not read as a domain.
-    r"|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,24}\b"
+    # Case-insensitive on both sides. Restricting it to lowercase let 'Acme.io'
+    # through untouched, and a capital letter is not an obfuscation the scanner
+    # gets to reward. It costs the run-on-sentence false positive
+    # ("the plan.We agreed"), which withholds one record and leaks nothing.
+    r"|(?i:\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,24}\b)"
 )
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 _PHONE = re.compile(r"(?<!\w)\+?\d[\d\s().-]{6,}\d(?!\w)")
@@ -135,10 +145,95 @@ _CONTEXT_DEPENDENT = re.compile(
 )
 
 
+# Cyrillic and Greek letters that render as their Latin counterparts in the
+# fonts a review page and a terminal use. NFKC keeps them distinct, so every
+# ASCII character class above misses them until they are folded back.
+_LATIN_LOOKALIKES: dict[int, str] = {
+    ord(source): target
+    for source, target in (
+        # Cyrillic lowercase.
+        ("а", "a"),
+        ("в", "b"),
+        ("е", "e"),
+        ("ѕ", "s"),
+        ("і", "i"),
+        ("ј", "j"),
+        ("к", "k"),
+        ("м", "m"),
+        ("н", "h"),
+        ("о", "o"),
+        ("р", "p"),
+        ("с", "c"),
+        ("т", "t"),
+        ("у", "y"),
+        ("х", "x"),
+        ("һ", "h"),
+        ("ԁ", "d"),
+        ("ԛ", "q"),
+        ("ԝ", "w"),
+        ("ѡ", "w"),
+        ("ӏ", "l"),
+        ("ғ", "f"),
+        ("ԍ", "g"),
+        # Cyrillic uppercase.
+        ("А", "A"),
+        ("В", "B"),
+        ("Е", "E"),
+        ("Ѕ", "S"),
+        ("І", "I"),
+        ("Ј", "J"),
+        ("К", "K"),
+        ("М", "M"),
+        ("Н", "H"),
+        ("О", "O"),
+        ("Р", "P"),
+        ("С", "C"),
+        ("Т", "T"),
+        ("У", "Y"),
+        ("Х", "X"),
+        ("Ԁ", "D"),
+        ("Ԛ", "Q"),
+        ("Ԝ", "W"),
+        # Greek lowercase.
+        ("α", "a"),
+        ("ο", "o"),
+        ("ν", "v"),
+        ("ρ", "p"),
+        ("τ", "t"),
+        ("υ", "u"),
+        ("κ", "k"),
+        ("ι", "i"),
+        ("μ", "u"),
+        ("γ", "y"),
+        ("χ", "x"),
+        # Greek uppercase.
+        ("Α", "A"),
+        ("Β", "B"),
+        ("Ε", "E"),
+        ("Ζ", "Z"),
+        ("Η", "H"),
+        ("Ι", "I"),
+        ("Κ", "K"),
+        ("Μ", "M"),
+        ("Ν", "N"),
+        ("Ο", "O"),
+        ("Ρ", "P"),
+        ("Τ", "T"),
+        ("Υ", "Y"),
+        ("Χ", "X"),
+    )
+}
+
+
 def _normalize(text: str) -> str:
     """NFKC plus removal of every Unicode format character."""
     folded = unicodedata.normalize("NFKC", text)
     return "".join(char for char in folded if unicodedata.category(char) != "Cf")
+
+
+def _fold_lookalikes(text: str) -> str:
+    """Map Latin-lookalike Cyrillic and Greek letters back to Latin."""
+    return text.translate(_LATIN_LOOKALIKES)
 
 
 @dataclass(frozen=True)
@@ -188,8 +283,9 @@ def scan_text(text: str, *, item_ref: str | None = None) -> list[Diagnostic]:
                 item_ref=item_ref,
             )
         )
+    lookalike_folded = _fold_lookalikes(normalized)
     for check in _CONTENT_CHECKS:
-        if check.matches(normalized):
+        if check.matches(normalized) or check.matches(lookalike_folded):
             diagnostics.append(
                 Diagnostic.from_code(
                     check.code,
@@ -200,10 +296,21 @@ def scan_text(text: str, *, item_ref: str | None = None) -> list[Diagnostic]:
     return diagnostics
 
 
+SCANNED_RECORD_FIELDS: tuple[str, ...] = tuple(
+    name for name, field in SafeMistakeRecord.model_fields.items() if field.annotation is str
+)
+"""Every free-text field of a shipped record, derived from the model itself.
+
+A hand-written list is a field behind whenever the record grows one: the new
+field ships unscanned and nothing fails. Deriving it means a seventh string
+field is scanned the moment it exists.
+"""
+
+
 def scan_safe_record(record: SafeMistakeRecord, *, item_ref: str | None = None) -> list[Diagnostic]:
     """Scan one privacy-safe mistake record with field-specific rules."""
     diagnostics: list[Diagnostic] = []
-    for field_name in ("mistake", "rule", "example", "source_type"):
+    for field_name in SCANNED_RECORD_FIELDS:
         value: str = getattr(record, field_name)
         for diagnostic in scan_text(value, item_ref=item_ref):
             diagnostics.append(
@@ -223,7 +330,7 @@ def scan_safe_record(record: SafeMistakeRecord, *, item_ref: str | None = None) 
                 item_ref=item_ref,
             )
         )
-    if _CONTEXT_DEPENDENT.search(_normalize(record.rule)):
+    if _CONTEXT_DEPENDENT.search(_fold_lookalikes(_normalize(record.rule))):
         diagnostics.append(
             Diagnostic.from_code(
                 "PRIVACY_CONTEXT_DEPENDENT_RULE",

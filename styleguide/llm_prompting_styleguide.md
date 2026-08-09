@@ -212,6 +212,11 @@ END UNTRUSTED SOURCE TEXT (id: <utterance-or-unit-id>)
 Rules for the block:
 
 - The `id` on the start and end lines must match and must identify the input unit.
+- The `id` goes on the sentinel lines, so it is part of the boundary, not part of the data. Use
+  the ID the artifact carries: `NormalizedUtterance.utterance_id` is validated to one line of
+  identifier characters, because part of it comes from the source record's own identifier. An
+  ID holding a newline and a forged `END UNTRUSTED SOURCE TEXT` line closes the block early and
+  leaves the rest of itself reading as operator instruction.
 - Use a tilde fence (`~~~text`). If the source text itself contains a run of three or more
   tildes, lengthen the fence (`~~~~`) until it cannot be terminated from inside.
 - Nothing between the sentinel lines is ever treated as an instruction, regardless of what it

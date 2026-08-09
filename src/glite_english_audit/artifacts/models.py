@@ -22,9 +22,58 @@ from glite_english_audit.artifacts.enums import (
     TextStatus,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope
+from glite_english_audit.artifacts.hashing import sha256_hex
 
 _ADAPTER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+# Utterance IDs are quoted into prompts, into the sentinel lines of the
+# untrusted-data block that fences source text, and into decision and repair
+# files. Part of every ID comes from the source record's own identifier, which
+# is data someone else wrote: a record whose ID carries a newline and a forged
+# 'END UNTRUSTED SOURCE TEXT' line closes the fence early and puts the rest of
+# itself outside it, where it reads as operator instruction. So the ID is held
+# to one line of ordinary identifier characters.
+_ID_CHARACTERS = r"A-Za-z0-9_.:-"
+_UTTERANCE_ID_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,256}}$")
+_ID_PART_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,128}}$")
+
+# Instance keys become directory and file names: stage 1 writes snapshots to
+# '<snapshots>/<adapter_id>/<instance_key[:12]}' and its manifest to
+# '<stage>/<instance_key[:12]}.json'. A key holding a separator or a dot run
+# puts both outside the run's own tree, where manifest-bounded cleanup will not
+# reach the copied source data. No separators and no dots, so truncating one
+# can never produce a traversal component.
+_INSTANCE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def safe_id_part(value: str) -> str:
+    """Return ``value`` when it is a safe ID component, otherwise a digest of it.
+
+    Adapters compose utterance IDs from source-provided identifiers. Passing an
+    unsafe one through breaks the delimiter convention; dropping the record
+    loses a real utterance, and raising loses the whole source instance to one
+    poisoned record. A stable digest keeps the record addressable across reruns
+    and carries nothing the source chose.
+    """
+    if _ID_PART_PATTERN.fullmatch(value):
+        return value
+    return "h" + sha256_hex(value.encode("utf-8"))[:16]
+
+
+def _validate_utterance_id(value: str) -> str:
+    if not _UTTERANCE_ID_PATTERN.fullmatch(value):
+        msg = "utterance_id must be one line of identifier characters"
+        raise ValueError(msg)
+    return value
+
+
+def _validate_instance_key(value: str) -> str:
+    if not _INSTANCE_KEY_PATTERN.fullmatch(value):
+        msg = f"instance_key must be a path-safe identifier: {value!r}"
+        raise ValueError(msg)
+    return value
+
 
 # The stable public adapter IDs a submitted record may name (specification,
 # 5.5). Frozen here rather than derived from the discovery registry on purpose:
@@ -86,6 +135,11 @@ class SourceInstanceRecord(BaseModel):
     @classmethod
     def _adapter_id(cls, value: str) -> str:
         return _validate_adapter_id(value)
+
+    @field_validator("instance_key")
+    @classmethod
+    def _instance_key(cls, value: str) -> str:
+        return _validate_instance_key(value)
 
     @field_validator("path_hash")
     @classmethod
@@ -186,6 +240,11 @@ class SnapshotManifest(BaseModel):
     def _adapter_id(cls, value: str) -> str:
         return _validate_adapter_id(value)
 
+    @field_validator("instance_key")
+    @classmethod
+    def _instance_key(cls, value: str) -> str:
+        return _validate_instance_key(value)
+
 
 class NormalizedUtterance(BaseModel):
     """One extracted candidate utterance (specification, 4.4). Private."""
@@ -210,6 +269,11 @@ class NormalizedUtterance(BaseModel):
     @classmethod
     def _adapter_id(cls, value: str) -> str:
         return _validate_adapter_id(value)
+
+    @field_validator("utterance_id")
+    @classmethod
+    def _utterance_id(cls, value: str) -> str:
+        return _validate_utterance_id(value)
 
 
 class CandidateUtterancesManifest(BaseModel):
@@ -330,6 +394,11 @@ class PrivateMistake(BaseModel):
     @classmethod
     def _adapter_id(cls, value: str) -> str:
         return _validate_adapter_id(value)
+
+    @field_validator("utterance_id")
+    @classmethod
+    def _utterance_id(cls, value: str) -> str:
+        return _validate_utterance_id(value)
 
     @field_validator("modality")
     @classmethod

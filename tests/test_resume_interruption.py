@@ -193,6 +193,7 @@ def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
         runs_root=workspace.runs_root,
         inventory_dir=workspace.inventory_dir,
         local_scan_consent=True,
+        provider_transfer_consent=True,
         now=now,
     )
 
