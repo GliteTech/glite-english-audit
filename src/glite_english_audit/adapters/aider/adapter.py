@@ -18,8 +18,7 @@ import hashlib
 import json
 import os
 import shutil
-from collections import deque
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +47,11 @@ from glite_english_audit.discovery.base import (
     DiscoveryOutcome,
     SnapshotCapture,
     SourceAdapter,
+)
+from glite_english_audit.discovery.parallel import (
+    PARALLEL_THRESHOLD,
+    map_in_processes,
+    worker_count,
 )
 from glite_english_audit.discovery.scan_exclusions import (
     audit_owned_roots,
@@ -169,6 +173,141 @@ class ExtractionStats:
     timestamp_parse_failures: int
 
 
+@dataclass(frozen=True)
+class _DirectoryScan:
+    """One directory's contribution to the walk: its hits and where to descend."""
+
+    directory: Path
+    names: tuple[str, ...]
+    children: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
+class _SubtreeJob:
+    """One independent subtree to walk, addressed by path.
+
+    ``base_depth`` is the subtree root's depth below the search root, so the
+    parent can put the hits back into breadth-first order.
+    """
+
+    root: str
+    base_depth: int
+    max_depth: int
+    os_environment: OsEnvironment
+    audit_roots: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _SubtreeHit:
+    """One directory holding history files, and how deep the walk found it.
+
+    Deliberately text-free: this value is what crosses the worker-process
+    boundary, so directory paths and the two allowlisted file names are all
+    that can ever leave a worker. No file is opened inside one.
+    """
+
+    depth: int
+    directory: str
+    names: tuple[str, ...]
+
+
+def _pruned_scan_dir(
+    directory: Path, os_environment: OsEnvironment, audit_roots: frozenset[Path]
+) -> bool:
+    name = directory.name
+    if name in _PRUNE_DIR_NAMES or name in DENY_DIR_NAMES:
+        return True
+    if should_prune_scan_dir(directory, audit_roots=audit_roots):
+        return True
+    if name.startswith(_DENY_DIR_PREFIX):
+        return True
+    if (
+        name == "Trash"
+        and directory.parent.name == "share"
+        and directory.parent.parent.name == ".local"
+    ):
+        return True
+    if os_environment is OsEnvironment.WSL and str(directory) == "/mnt":
+        return True
+    return os.path.ismount(directory)
+
+
+def _scan_directory(
+    directory: Path,
+    os_environment: OsEnvironment,
+    audit_roots: frozenset[Path],
+    *,
+    descend: bool,
+) -> _DirectoryScan:
+    """One directory's history files and the child directories to visit.
+
+    ``os.scandir`` rather than ``Path.iterdir``: the directory entry already
+    carries its type, so a name that is neither a history file nor a directory
+    costs no ``stat`` at all, and only the surviving directories become ``Path``
+    objects. Names are sorted with the key ``PurePath`` comparison uses, so the
+    visit order is the one this walk has always produced.
+    """
+    try:
+        with os.scandir(directory) as scanner:
+            entries = sorted(scanner, key=lambda entry: os.path.normcase(entry.name))
+    except OSError:
+        return _DirectoryScan(directory=directory, names=(), children=())
+    names = tuple(
+        entry.name
+        for entry in entries
+        if entry.name in (INPUT_HISTORY_NAME, CHAT_MARKDOWN_NAME) and entry.is_file()
+    )
+    if not descend:
+        return _DirectoryScan(directory=directory, names=names, children=())
+    children: list[Path] = []
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        child = directory / entry.name
+        if _pruned_scan_dir(child, os_environment, audit_roots):
+            continue
+        children.append(child)
+    return _DirectoryScan(directory=directory, names=names, children=tuple(children))
+
+
+def _walk_levels(
+    root: Path,
+    os_environment: OsEnvironment,
+    audit_roots: frozenset[Path],
+    *,
+    max_depth: int,
+) -> Iterator[tuple[int, Path, tuple[str, ...]]]:
+    """Breadth-first walk of one subtree, single-threaded, depth reported."""
+    level = [root]
+    depth = 0
+    while level:
+        descend = depth < max_depth
+        next_level: list[Path] = []
+        for directory in level:
+            scan = _scan_directory(directory, os_environment, audit_roots, descend=descend)
+            if scan.names:
+                yield depth, directory, scan.names
+            next_level.extend(scan.children)
+        if not descend:
+            return
+        level = next_level
+        depth += 1
+
+
+def _walk_subtree(job: _SubtreeJob) -> tuple[_SubtreeHit, ...]:
+    """Walk one subtree down to its hits. Runs inside a worker process."""
+    audit_roots = frozenset(Path(root) for root in job.audit_roots)
+    return tuple(
+        _SubtreeHit(depth=job.base_depth + depth, directory=str(directory), names=names)
+        for depth, directory, names in _walk_levels(
+            Path(job.root),
+            job.os_environment,
+            audit_roots,
+            max_depth=job.max_depth - job.base_depth,
+        )
+    )
+
+
 @dataclass
 class _InstanceFiles:
     """The history files found in one instance directory."""
@@ -240,9 +379,10 @@ class AiderAdapter:
 
         Aider keeps no central store: history sits beside each project, so
         finding it means walking the home directory to
-        :data:`DEFAULT_SCAN_DEPTH`. On a large home that costs around two
-        minutes and, when Aider was never installed, returns nothing — which is
-        the common case and the one worth making fast.
+        :data:`DEFAULT_SCAN_DEPTH`. On the reference machine's real home that
+        costs 6.2 s with the pool and 19.6 s without, and when Aider was never
+        installed it returns nothing — the common case, and the one worth
+        making fast.
 
         Three cheap signals settle it first: an environment override, an
         ``.aider`` entry in the home directory itself, or the executable on
@@ -253,8 +393,8 @@ class AiderAdapter:
         This can still miss one case: Aider used only in a project buried
         deeper than the probe, on a machine where it has since been uninstalled
         and left no home entry. Point ``AIDER_INPUT_HISTORY_FILE`` at the file
-        or pass ``extra_scan_roots`` to recover it. Two minutes on every audit
-        is too high a price to pay for that case by default.
+        or pass ``extra_scan_roots`` to recover it. A full-depth scan on every
+        audit is too high a price to pay for that case by default.
         """
         if context.environ.get(INPUT_HISTORY_ENV) or context.environ.get(CHAT_MARKDOWN_ENV):
             return True
@@ -268,7 +408,7 @@ class AiderAdapter:
             return True
         for root in (home, *self._extra_scan_roots):
             for _directory, _names in self._walk(
-                root, context.os_environment, max_depth=_PROBE_DEPTH
+                root, context.os_environment, max_depth=_PROBE_DEPTH, environ=context.environ
             ):
                 return True
         return False
@@ -304,7 +444,9 @@ class AiderAdapter:
         # Spec 2.3 step 2: filename-pattern scan of the search roots. The
         # canonical file path collapses symlinked or doubly-reachable files.
         for root in (context.home, *self._extra_scan_roots):
-            for directory, names in self._walk(root, context.os_environment):
+            for directory, names in self._walk(
+                root, context.os_environment, environ=context.environ
+            ):
                 for name in names:
                     canonical_file = _canonical_path(directory / name)
                     if canonical_file in claimed:
@@ -318,50 +460,68 @@ class AiderAdapter:
         return list(by_root.values())
 
     def _walk(
-        self, root: Path, os_environment: OsEnvironment, *, max_depth: int | None = None
+        self,
+        root: Path,
+        os_environment: OsEnvironment,
+        *,
+        max_depth: int | None = None,
+        environ: Mapping[str, str] | None = None,
     ) -> Iterator[tuple[Path, list[str]]]:
+        """Every directory under ``root`` holding history files, breadth-first.
+
+        Aider has no central store, so this is one walk rather than N items to
+        map over. The parent expands the tree breadth-first until it holds
+        enough independent subtrees to be worth a pool, then each subtree is
+        walked in its own worker; the walk is a filesystem read that holds the
+        GIL between syscalls, so threads only contend for it.
+
+        Order is the same breadth-first order the single-threaded walk
+        produced. Subtrees come back in input order and a stable sort on depth
+        regroups them, so no worker count can change which directory claims a
+        doubly-reachable history file.
+        """
         if not root.is_dir() or self._pruned_directory(root, os_environment):
             return
-        queue: deque[tuple[Path, int]] = deque([(root, 0)])
-        while queue:
-            directory, depth = queue.popleft()
-            try:
-                entries = sorted(directory.iterdir())
-            except OSError:
-                continue
-            names = [
-                item.name
-                for item in entries
-                if item.name in (INPUT_HISTORY_NAME, CHAT_MARKDOWN_NAME) and item.is_file()
-            ]
-            if names:
-                yield directory, names
-            if depth >= (max_depth if max_depth is not None else self._max_scan_depth):
-                continue
-            for item in entries:
-                if item.is_symlink() or not item.is_dir():
-                    continue
-                if self._pruned_directory(item, os_environment):
-                    continue
-                queue.append((item, depth + 1))
+        limit = max_depth if max_depth is not None else self._max_scan_depth
+        frontier = [root]
+        depth = 0
+        while depth < limit and len(frontier) < PARALLEL_THRESHOLD:
+            next_frontier: list[Path] = []
+            for directory in frontier:
+                scan = _scan_directory(directory, os_environment, self._audit_roots, descend=True)
+                if scan.names:
+                    yield directory, list(scan.names)
+                next_frontier.extend(scan.children)
+            frontier = next_frontier
+            depth += 1
+            if not frontier:
+                return
+
+        audit_roots = tuple(str(item) for item in sorted(self._audit_roots))
+        jobs = [
+            _SubtreeJob(
+                root=str(directory),
+                base_depth=depth,
+                max_depth=limit,
+                os_environment=os_environment,
+                audit_roots=audit_roots,
+            )
+            for directory in frontier
+        ]
+        results = map_in_processes(
+            _walk_subtree,
+            jobs,
+            workers=worker_count(item_count=len(jobs), environ=environ),
+        )
+        hits = [hit for result in results for hit in result]
+        # Stable on depth alone: subtrees are already in breadth-first order,
+        # and so is each subtree's own hit list.
+        hits.sort(key=lambda hit: hit.depth)
+        for hit in hits:
+            yield Path(hit.directory), list(hit.names)
 
     def _pruned_directory(self, directory: Path, os_environment: OsEnvironment) -> bool:
-        name = directory.name
-        if name in _PRUNE_DIR_NAMES or name in DENY_DIR_NAMES:
-            return True
-        if should_prune_scan_dir(directory, audit_roots=self._audit_roots):
-            return True
-        if name.startswith(_DENY_DIR_PREFIX):
-            return True
-        if (
-            name == "Trash"
-            and directory.parent.name == "share"
-            and directory.parent.parent.name == ".local"
-        ):
-            return True
-        if os_environment is OsEnvironment.WSL and str(directory) == "/mnt":
-            return True
-        return os.path.ismount(directory)
+        return _pruned_scan_dir(directory, os_environment, self._audit_roots)
 
     def _not_found_outcome(self, context: DiscoveryContext) -> DiscoveryOutcome:
         root = context.home

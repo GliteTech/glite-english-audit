@@ -10,18 +10,26 @@ executing any SQL and reports each access to an audit callback.
 Discovery scans return aggregates only. Bubble text is retained solely when a
 caller passes ``collect_text=True``, which extraction does against a snapshot;
 discovery never does, so no discovery path can return or log source text.
+
+The per-composer bubble scan is the expensive half and fans out over worker
+processes. A connection cannot cross that boundary, so each worker opens its
+own read-only ``StateDatabase`` over the same file and reports the keys it read
+back to the parent's audit. Text collection is unavailable in a worker, which
+is what keeps a prompt from becoming a value pickled back to the parent.
 """
 
+import dataclasses
 import json
 import sqlite3
 import urllib.parse
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
 from glite_english_audit.adapters.cursor.lexical import GateResult, TextGate, reconcile
+from glite_english_audit.discovery.parallel import map_in_processes, worker_count
 from glite_english_audit.normalization.tokenizer import count_words
 
 COMPOSER_PREFIX = "composerData:"
@@ -122,6 +130,14 @@ class StateDatabase:
 
     def close(self) -> None:
         self._connection.close()
+
+    def replay_audit(self, kind: str, key: str) -> None:
+        """Report an access a worker made against this same store.
+
+        The audit must list every key read on the adapter's behalf, including
+        the ones read from a worker process's own connection.
+        """
+        self._audit(kind, key)
 
     def table_names(self) -> frozenset[str]:
         rows = self._connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -553,17 +569,160 @@ def _scan_composer_bubbles(
                 scan.latest = timestamp
 
 
-def scan_global_store(db: StateDatabase, *, collect_text: bool = False) -> GlobalStoreScan:
+@dataclass(frozen=True)
+class BubbleChunkJob:
+    """One contiguous slice of eligible composers, addressed by store path.
+
+    Carries composer identity and bubble IDs only. A worker opens its own
+    read-only connection from ``database_path``: a live ``sqlite3.Connection``
+    cannot cross a process boundary, and sharing one would serialize the scan
+    it is there to parallelize.
+    """
+
+    database_path: str
+    composers: tuple[ComposerRecord, ...]
+
+
+@dataclass(frozen=True)
+class BubbleChunkResult:
+    """What one worker contributes: aggregates and the keys it read.
+
+    Deliberately text-free. The worker never collects text, so ``scan`` holds
+    counts, timestamps, and versions, and ``key_audit`` holds the store keys
+    the adapter's verify() re-checks against the section 3 allowlist.
+    """
+
+    scan: GlobalStoreScan
+    key_audit: tuple[tuple[str, str], ...]
+
+
+def _earlier(left: datetime | None, right: datetime | None) -> datetime | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return min(left, right)
+
+
+def _later(left: datetime | None, right: datetime | None) -> datetime | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
+
+
+def _merge_chunk(base: GlobalStoreScan, addition: GlobalStoreScan) -> None:
+    """Fold one chunk's aggregates into ``base``.
+
+    Every field is a sum, a min, a max, or a set union, so the merged scan does
+    not depend on which worker finished first. A field that is none of those is
+    a hard error rather than a counter silently dropped from the inventory.
+    """
+    for field_info in dataclasses.fields(base):
+        name = field_info.name
+        if name == "earliest":
+            base.earliest = _earlier(base.earliest, addition.earliest)
+            continue
+        if name == "latest":
+            base.latest = _later(base.latest, addition.latest)
+            continue
+        if name == "extracted":
+            if addition.extracted:
+                msg = "a Cursor worker returned bubble text; workers return aggregates only"
+                raise ValueError(msg)
+            continue
+        current: object = getattr(base, name)
+        extra: object = getattr(addition, name)
+        if isinstance(current, bool) or isinstance(extra, bool):
+            # A flag would need OR, not addition, and bool is an int subclass:
+            # refusing it keeps a future field from being summed by accident.
+            msg = f"unmergeable Cursor scan field: {name}"
+            raise TypeError(msg)
+        if isinstance(current, int) and isinstance(extra, int):
+            setattr(base, name, current + extra)
+        elif isinstance(current, set) and isinstance(extra, set):
+            current |= extra
+        else:
+            msg = f"unmergeable Cursor scan field: {name}"
+            raise TypeError(msg)
+
+
+def scan_bubble_chunk(job: BubbleChunkJob) -> BubbleChunkResult:
+    """Scan one slice of eligible composers. Runs inside a worker process.
+
+    Text collection is never available here, which is what keeps a bubble's
+    text from becoming a value pickled back to the parent.
+    """
+    audit: list[tuple[str, str]] = []
+    database = StateDatabase.open_readonly(
+        Path(job.database_path), lambda kind, key: audit.append((kind, key))
+    )
+    scan = GlobalStoreScan()
+    try:
+        for composer in job.composers:
+            _scan_composer_bubbles(database, composer, scan, collect_text=False)
+    finally:
+        database.close()
+    return BubbleChunkResult(scan=scan, key_audit=tuple(audit))
+
+
+# Enough chunks that a few long composers cannot leave workers idle, few
+# enough that reopening the store per chunk stays negligible.
+_CHUNKS_PER_WORKER = 8
+
+
+def _partition_by_bubbles(
+    composers: Sequence[ComposerRecord], *, chunks: int
+) -> list[tuple[ComposerRecord, ...]]:
+    """Split into ``chunks`` contiguous slices of roughly equal bubble count.
+
+    Contiguous, so concatenating the chunk results reproduces the sequential
+    key-access audit exactly. Balanced by bubble count rather than by composer
+    count, because a composer costs what its bubbles cost.
+    """
+    total = sum(len(composer.user_bubble_ids) for composer in composers)
+    if chunks <= 1 or not composers:
+        return [tuple(composers)]
+    result: list[tuple[ComposerRecord, ...]] = []
+    current: list[ComposerRecord] = []
+    carried = 0
+    for composer in composers:
+        current.append(composer)
+        carried += len(composer.user_bubble_ids)
+        remaining_chunks = chunks - len(result)
+        if remaining_chunks > 1 and carried * remaining_chunks >= total:
+            result.append(tuple(current))
+            current = []
+            total -= carried
+            carried = 0
+    if current:
+        result.append(tuple(current))
+    return result
+
+
+def scan_global_store(
+    db: StateDatabase,
+    *,
+    collect_text: bool = False,
+    parallel_over: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> GlobalStoreScan:
     """Scan one global store per spec 8.1: composers first, then only the
     ``type == 1`` bubble rows by exact key, never the assistant rows.
 
     ``collect_text`` retains the reconciled, mention-stripped text of each
     analyzable bubble. Discovery must leave it off (spec 8.1: discovery never
     returns text); extraction turns it on against a snapshot.
+
+    ``parallel_over`` is the store path a worker may reopen read-only, and
+    permits the per-composer bubble scan to fan out. It is ignored while
+    collecting text: text must never become a value returned from a worker.
     """
     scan = GlobalStoreScan()
     composers = [parse_composer(key, raw) for key, raw in db.kv_items(COMPOSER_PREFIX)]
     known_sub_ids = {sub_id for composer in composers for sub_id in composer.sub_composer_ids}
+    eligible: list[ComposerRecord] = []
     for composer in composers:
         scan.composers_total += 1
         if composer.classification is ComposerClass.MALFORMED:
@@ -589,7 +748,26 @@ def scan_global_store(db: StateDatabase, *, collect_text: bool = False) -> Globa
         if composer.composer_id in known_sub_ids:
             scan.excluded_sub_composer += 1
             continue
-        _scan_composer_bubbles(db, composer, scan, collect_text=collect_text)
+        eligible.append(composer)
+
+    workers = (
+        worker_count(item_count=len(eligible), environ=environ)
+        if parallel_over is not None and not collect_text
+        else 1
+    )
+    if workers <= 1:
+        for composer in eligible:
+            _scan_composer_bubbles(db, composer, scan, collect_text=collect_text)
+        return scan
+
+    jobs = [
+        BubbleChunkJob(database_path=str(parallel_over), composers=chunk)
+        for chunk in _partition_by_bubbles(eligible, chunks=workers * _CHUNKS_PER_WORKER)
+    ]
+    for result in map_in_processes(scan_bubble_chunk, jobs, workers=workers):
+        _merge_chunk(scan, result.scan)
+        for kind, key in result.key_audit:
+            db.replay_audit(kind, key)
     return scan
 
 
