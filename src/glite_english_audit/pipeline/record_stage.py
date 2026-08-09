@@ -191,3 +191,23 @@ def mark_failed(
     state.updated_at = now
     manifest.stages[stage] = state
     return write_checkpoint(manifest, root=runs_root, now=now)
+
+
+def output_is_current(run_id: str, step: StepId, *, runs_root: Path | None = None) -> bool:
+    """Whether a file already on disk for ``step`` may be reused on a resume.
+
+    False once the step is invalidated. ``invalidate_from`` only edits the
+    manifest — it says so — and nothing deleted the files, so a resume after a
+    changed skill, prompt or model saw them still sitting there, reported them
+    as already written, and skipped exactly the judgments the change existed to
+    replace. The run then reported the step recomputed.
+
+    Reading the status rather than deleting the files keeps the old output
+    inspectable: a person comparing what the new instructions did differently
+    still has the previous answer next to it, in the quarantine directory or in
+    the file the agent is about to overwrite.
+    """
+    state = load_manifest(run_id, root=runs_root).stages.get(step)
+    if state is None:
+        return False
+    return state.status is not StageStatus.INVALIDATED

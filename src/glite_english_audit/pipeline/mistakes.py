@@ -50,7 +50,7 @@ from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import repo_root, step_dir
-from glite_english_audit.pipeline.record_stage import advance_to, mark_failed
+from glite_english_audit.pipeline.record_stage import advance_to, mark_failed, output_is_current
 from glite_english_audit.sessions import read_index, read_session, session_files, write_index
 from glite_english_audit.state.run_store import load_manifest
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
@@ -79,6 +79,12 @@ class SessionAssignment(BaseModel):
     read: str
     write: str
     items: int = Field(ge=0)
+    already_written: bool = False
+    """True when an output file of this name exists and may be reused.
+
+    False for a step the manifest has invalidated, whatever is on disk: a
+    changed skill, prompt or model is why it was invalidated, so the answer
+    sitting there is the one being replaced."""
     words: int = Field(ge=0)
 
 
@@ -312,6 +318,9 @@ def prepare_mistakes(run_id: str, *, runs_root: Path | None = None) -> list[Sess
     # sequence number to session and no step has to re-derive it.
     write_index(target, read_index(source))
 
+    # Step d could not resume at file granularity: an interrupted run re-asked
+    # the agents for every session, including the ones already answered.
+    reusable = output_is_current(run_id, STEP, runs_root=runs_root)
     assignments: list[SessionAssignment] = []
     for path in inputs:
         authored = [u for u in read_session(path) if u.text.strip()]
@@ -322,6 +331,7 @@ def prepare_mistakes(run_id: str, *, runs_root: Path | None = None) -> list[Sess
                 write=str(target / path.name),
                 items=len(authored),
                 words=sum(count_words(u.text) for u in authored),
+                already_written=reusable and (target / path.name).is_file(),
             )
         )
     advance_to(run_id, STEP, StageStatus.IN_PROGRESS, runs_root=runs_root)

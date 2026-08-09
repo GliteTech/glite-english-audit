@@ -49,7 +49,7 @@ from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
-from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.pipeline.record_stage import advance_to, output_is_current
 from glite_english_audit.sessions import read_all, read_index, session_files, write_index
 
 INDEX_NAME = "authored-corpus-index.json"
@@ -352,6 +352,10 @@ def prepare(
             msg = "no step-b session is listed for repair, so there is no repair pass to run"
             raise ValueError(msg)
 
+    # An invalidated step's files are stale by definition: a changed skill,
+    # prompt or model is exactly why it was invalidated, so the answer on disk
+    # is the one being replaced.
+    reusable = output_is_current(run_id, StepId.C_AUTHORED, runs_root=runs_root)
     sessions = [
         PreparedSession(
             file_name=path.name,
@@ -362,7 +366,7 @@ def prepare(
             # text the agent has to read, which is what it costs. The English
             # denominator is counted after the judgment, by `english_words`.
             word_count=sum(count_words(utterance.text) for utterance in members),
-            already_written=(target / path.name).is_file(),
+            already_written=reusable and (target / path.name).is_file(),
         )
         for path, members in per_file
     ]
