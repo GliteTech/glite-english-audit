@@ -250,7 +250,7 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
     DiagnosticDefinition(
         code="STATE_INVALID_TRANSITION",
         severity=Severity.ERROR,
-        description="A run or stage attempted a transition the state machine forbids.",
+        description="A run or step attempted a transition the state machine forbids.",
     ),
     DiagnosticDefinition(
         code="STATE_RESUME_INCOMPATIBLE",

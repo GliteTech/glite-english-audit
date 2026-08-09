@@ -34,12 +34,6 @@ NO_SKILL_CALLER: dict[str, str] = {
         "maintainer tool: regenerates the .claude and .codex skill wrappers. A run "
         "reads the wrappers; it never rebuilds them."
     ),
-    "normalization.filter_corpus": (
-        "the step-c fallback path, applying the pre-filter alone with no model "
-        "judgment. Used by tests and where no model is available. A real run uses "
-        "the model path, so no skill names it, and the fallback is documented as "
-        "understating every rate."
-    ),
 }
 
 
