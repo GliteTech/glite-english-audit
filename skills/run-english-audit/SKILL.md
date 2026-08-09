@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 13
+**Version**: 14
 
 ## Goal
 
@@ -140,10 +140,23 @@ runtime; naming both is confusing and wrong.
       `specifications/token_estimation_profile.md`), passing the apps the user just
       chose with the same `--include-source`, `--exclude-source`, and
       `--exclude-label` arguments the run will use. Show its `table` and repeat its
-      `notes` — three of them, four when a source reports no dates. Warn when a
-      preset is unlikely to fit the remaining allowance. These are estimates, not
-      guarantees, and a range stays a range when you repeat it.
-   3. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
+      `notes` — three of them, four when a source reports no dates. Warn when the
+      tightest allowance window is already close to its limit. These are estimates,
+      not guarantees, and a range stays a range when you repeat it.
+
+      Once the period is answered, read `idle_sources` on that preset's row and say
+      what it holds. Sources are chosen before the period, so the period can empty
+      one: a user who kept Cursor and then chose the last 7 days has selected an app
+      whose data stopped in June. Name it and offer to drop it — "Cursor has nothing
+      in the last 7 days, so this is a Codex run" — rather than reading the
+      selection back as "Codex and Cursor", which is true of the list they ticked
+      and false about the run they are approving.
+   3. Cost and quota: ask whether the estimate is acceptable, and offer only choices
+      that exist. When the chosen period is already the shortest preset there is no
+      smaller one, and the real options are dropping an app or stopping.
+      Don't: an option labelled "Pick a smaller period" whose own description then
+      withdraws it. A choice the user has to read a paragraph to discover was never
+      a choice is worse than one you did not offer.
 
    There is no model question. There was one — "Recommended" against "Maximum
    assurance" — and both sides of it named models this run cannot select: the
@@ -205,6 +218,13 @@ runtime; naming both is confusing and wrong.
    a throttled provider ends in a checkpoint rather than a hang. When API billing
    is detected, show the expected cost range and take a spend ceiling instead.
 
+   Send this as its own message, before the question. Don't: folding it into the
+   question prompt, which is how it was last cut to three of these facts — the
+   model line, the reset, the reading's age and the overage state all went, and
+   the user approved a run without being told which model would read everything
+   they had written. A question box is sized for a question. If the preflight has
+   to be shortened to fit inside one, the box is wrong, not the preflight.
+
    The model line is an observation, and everything you may say in it comes from
    the same command's `session` object — `session.model`, `session.effort`,
    `session.measured_models`, `session.measured_elsewhere`
@@ -236,7 +256,8 @@ runtime; naming both is confusing and wrong.
      so they describe a run on a different model.
    - Expected use: 14.7M tokens, 27.2M as the conservative upper bound; 0.4–1.8 hours.
    - Your allowance: 12% of the weekly limit used, resets Friday 15:00 (read 20
-     minutes ago).
+     minutes ago). I cannot say what share of it this run takes — the host
+     reports a percentage, not a budget.
    - Money: no price is available, so I cannot show what this costs. Paid overage
      is off and I will not turn it on.
    - If your provider throttles I wait, and if the wait runs long I save a
@@ -251,11 +272,25 @@ runtime; naming both is confusing and wrong.
    says. Don't: the retry delay, the cumulative wait limit and the
    difference between them, which are the policy below and not the user's decision.
 
+   Every allowance word comes from the same command's `allowance` object —
+   `allowance.utilization`, `allowance.tightest_window`, `allowance.resets_at`,
+   `allowance.age_phrase`, `allowance.stale`, `allowance.overage_enabled`. Do not
+   read it any other way. There was no command for months, so the agent wrote its
+   own one-liner, got a raw dataclass back and dropped the age: it told a user
+   "a weekly allowance that is 1% used" from a reading six hours old, which is
+   exactly the sentence the age exists to prevent.
+
    The allowance figure carries its age and is never presented as a live reading:
    it comes from a cache some other process refreshed, and a percentage without an
-   age implies a check nobody made. When it cannot be read at all — another
-   runtime, a machine that has never cached one — say nothing about headroom
-   rather than announcing its absence. Money is the part that is genuinely
+   age implies a check nobody made. Say so plainly when `allowance.stale` is true.
+   When it cannot be read at all — another runtime, a machine that has never
+   cached one — say nothing about headroom rather than announcing its absence.
+
+   Never put the token estimate and the allowance in one comparison. The host
+   reports a percentage used and no denominator, so there is no arithmetic that
+   turns 12.8M tokens into a share of the week, and "12.8M tokens against an
+   allowance 1% used" invites the user to do a sum that cannot be done. They are
+   two facts on two lines. Money is the part that is genuinely
    unknown, and one sentence covers it; a missing price, a missing percentage, a
    missing reset time and a missing spend cap are one absence billed four times.
    Say paid overage is off because it was read as off, and say it is on when it

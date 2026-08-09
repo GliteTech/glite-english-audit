@@ -92,6 +92,7 @@ from glite_english_audit.pipeline.start_run import (
     resolve_selection,
 )
 from glite_english_audit.runtime_session import detect_effort, detect_model
+from glite_english_audit.subscription import read_allowance
 
 PRODUCER_VERSION: str = "0.1.0"
 
@@ -226,6 +227,39 @@ class SessionModel(BaseModel):
     measured_elsewhere: bool
 
 
+class AllowanceReport(BaseModel):
+    """The host's cached subscription headroom, ready to be said out loud.
+
+    :mod:`glite_english_audit.subscription` could read this from the first day
+    it existed and nothing called it, so the preflight either said nothing or
+    the agent improvised a one-liner and reported the percentage without its
+    age -- the single thing that module's docstring forbids. It travels with
+    the estimate now because the preflight already runs that command, and a
+    fact the agent has to fetch separately is a fact it will fetch differently
+    each time.
+
+    ``age_phrase`` is rendered here rather than left as seconds for the same
+    reason: an agent handed ``21960.08`` will either round it well or not
+    mention it.
+
+    There is deliberately no "share of your allowance" field. The host reports
+    a percentage used and no denominator, so tokens cannot be converted into
+    it. Putting the two numbers side by side implies an arithmetic nobody can
+    do; :func:`build_notes` says so in words instead.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    known: bool
+    tightest_window: str | None
+    utilization: int | None
+    resets_at: str | None
+    age_seconds: float | None
+    age_phrase: str | None
+    stale: bool
+    overage_enabled: bool | None
+
+
 class PresetRow(BaseModel):
     """One preset's estimate, as the agent receives it."""
 
@@ -238,6 +272,15 @@ class PresetRow(BaseModel):
     tokens: TokenEstimate
     minutes: TimeRange
     confidence: EstimateConfidence
+    idle_sources: tuple[str, ...] = ()
+    """Selected apps contributing nothing to this window.
+
+    Sources are chosen before the period, so a period can silently empty one:
+    a user who picks Cursor and then "last 7 days" has selected an app whose
+    data stopped in June. Reporting the selection back as "Codex and Cursor"
+    is then untrue in the only sense the user cares about, and this field is
+    what lets the preflight say which of their choices does nothing.
+    """
 
 
 class EstimateReport(BaseModel):
@@ -253,6 +296,7 @@ class EstimateReport(BaseModel):
     undated_instances: int
     concurrent_batches: int
     session: SessionModel
+    allowance: AllowanceReport
     presets: tuple[PresetRow, ...]
     notes: tuple[str, ...]
     table: str
@@ -390,12 +434,32 @@ def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
     )
 
 
+def idle_sources(
+    records: list[SourceInstanceRecord], *, start: datetime, end: datetime
+) -> tuple[str, ...]:
+    """Selected apps with nothing inside this window.
+
+    An app counts as idle only when every selected instance of it is idle, so a
+    user running two Cursor workspaces is told about Cursor once and only when
+    both are silent. Instances with no date range are never idle: they cannot
+    be placed in time, so :func:`window_counts` charges them in full and this
+    must agree with it rather than quietly contradict the totals.
+    """
+    per_source: dict[str, bool] = {}
+    for record in records:
+        fraction = window_fraction(record, start=start, end=end)
+        contributes = fraction is None or (fraction > 0.0 and record.candidate_messages > 0)
+        per_source[record.adapter_id] = per_source.get(record.adapter_id, False) or contributes
+    return tuple(sorted(name for name, live in per_source.items() if not live))
+
+
 def estimate_preset(
     *,
     preset: str,
     counts: WindowCounts,
     steps: RuntimeSteps,
     concurrent_batches: int,
+    idle: tuple[str, ...] = (),
 ) -> PresetRow:
     """One table row: words, utterances, tokens, minutes, and confidence."""
     confidence = steps_confidence(steps)
@@ -414,6 +478,7 @@ def estimate_preset(
         tokens=tokens,
         minutes=minutes,
         confidence=confidence,
+        idle_sources=idle,
     )
 
 
@@ -524,6 +589,48 @@ def describe_session(steps: RuntimeSteps) -> SessionModel:
     )
 
 
+def describe_age(seconds: float | None) -> str | None:
+    """How long ago the host refreshed its figure, in words a user reads.
+
+    Coarse on purpose. The number exists so nobody mistakes a cache for a live
+    check, and "6 hours ago" carries that whole meaning; "21960 seconds ago"
+    carries it too and makes the reader do arithmetic to get there.
+    """
+    if seconds is None:
+        return None
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    days = hours // 24
+    return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def describe_allowance(*, home: Path | None = None, now: float | None = None) -> AllowanceReport:
+    """The host's cached headroom, or an honest record that it said nothing.
+
+    Reports the tightest window rather than every one of them: a user at 3% of
+    the week and 90% of the five-hour block is about to be throttled, and the
+    number worth showing is the 90.
+    """
+    allowance = read_allowance(home=home, now=now)
+    tightest = allowance.tightest
+    return AllowanceReport(
+        known=allowance.known,
+        tightest_window=tightest.name if tightest is not None else None,
+        utilization=tightest.utilization if tightest is not None else None,
+        resets_at=tightest.resets_at if tightest is not None else None,
+        age_seconds=allowance.age_seconds,
+        age_phrase=describe_age(allowance.age_seconds),
+        stale=allowance.stale,
+        overage_enabled=allowance.overage_enabled,
+    )
+
+
 def render_table(rows: list[PresetRow], *, notes: tuple[str, ...]) -> str:
     """The specification 2.4 table for these rows, with its caveats attached."""
     presets = [
@@ -575,9 +682,11 @@ def build_report(
                 counts=counts,
                 steps=steps,
                 concurrent_batches=concurrent_batches,
+                idle=idle_sources(records, start=period.start, end=period.end),
             )
         )
     session = describe_session(steps)
+    allowance = describe_allowance()
     notes = build_notes(steps=steps, session=session, undated_instances=undated)
     return EstimateReport(
         runtime=runtime_id,
@@ -588,6 +697,7 @@ def build_report(
         undated_instances=undated,
         concurrent_batches=concurrent_batches,
         session=session,
+        allowance=allowance,
         presets=tuple(rows),
         notes=notes,
         table=render_table(rows, notes=notes),
