@@ -241,11 +241,26 @@ name allowlisted columns explicitly and must never use `SELECT *`.
 
 ## 5. Sessions, timestamps, deduplication
 
-- Session: Wispr Flow has no session concept for dictation; each row is one dictation event.
-  `session_hash` = local SHA-256 of `conversationId` when non-empty (groups related
-  dictations), else of `transcriptEntityId` (single-utterance session). `conversationId`
-  semantics are only partially documented (section 9); grouping is best-effort and never
-  affects inclusion.
+- Session: Wispr Flow has no session concept for dictation; each row is one dictation event, so
+  the adapter derives one. `session_hash` = local SHA-256 of, in order of preference:
+  `conversationId` when non-empty (the store's own grouping, used whatever the timing says);
+  otherwise the first dictation of the **burst** the row falls in — consecutive dictations
+  separated by less than 30 minutes of silence; otherwise, for a row with no usable timestamp,
+  its own `transcriptEntityId`. Grouping never affects inclusion.
+
+  The burst rule arrived in adapter 1.1.0 and is not cosmetic. The `conversationId` column the
+  section-9 notes describe is absent from the generation measured on 2026-08-09, so every row
+  fell back to its own ID and every dictated sentence became a session of one. A session is now
+  the unit of work — steps c, d and e each run one agent per session file, each paying the full
+  skill and schema prompt — and one sentence is not worth three of those. Measured on a real
+  store, a 30-minute gap cut the file count by roughly 4.5x.
+
+  Deliberately **not** split by destination app: on that same store, splitting on the app
+  fragmented single bursts into singletons, because a person dictating a train of thought moves
+  between a terminal, a browser, and a chat window without pausing. The silence is the signal.
+
+  A row with no parsable timestamp keeps a session of its own rather than joining a neighbour.
+  It cannot be placed in time, and a session file is what a person reads to check a run.
 - Timestamps: `timestamp` column, written as `YYYY-MM-DD HH:MM:SS.mmm +00:00` (UTC) by
   observed integrations (E5). The adapter parses that form plus ISO-8601 variants
   (feature-detected). Unparsable or missing → utterance kept, reported `undated`, excluded

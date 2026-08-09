@@ -26,7 +26,7 @@ import sqlite3
 import stat
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -34,6 +34,7 @@ from typing import Literal
 
 from glite_english_audit.adapters.wispr_flow.store import (
     NEVER_INGEST_COLUMNS,
+    HistoryRow,
     StoreScan,
     inspect_structure,
     scan_history,
@@ -62,7 +63,12 @@ from glite_english_audit.discovery.base import (
 )
 
 ADAPTER_ID = "wispr_flow"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
+"""1.1.0 groups dictations into bursts; see :data:`_DICTATION_SESSION_GAP`.
+
+The version is part of the resume fingerprint, so a run checkpointed under
+1.0.0 will not silently continue with different session boundaries.
+"""
 PRODUCER_VERSION = ADAPTER_VERSION
 
 _HUMAN_NAME = "Wispr Flow"
@@ -110,6 +116,24 @@ _BACKUP_DB_PREFIX = "backup-"
 # The one deliberate absolute path in this adapter; tests repoint it.
 _WSL_MOUNT_BASE = Path("/mnt")
 
+# A dictation session is a burst of dictations with no long silence in it.
+#
+# Wispr Flow has no session concept of its own, and the `conversationId` column
+# the specification describes is absent from the generation measured on
+# 2026-08-09: every row fell back to its own `transcriptEntityId`, so every
+# dictated sentence became a session of one. That is harmless when sessions are
+# only a grouping key, and expensive now that a session is the unit of work —
+# steps c, d and e each run one agent per session file, and each of those calls
+# pays the skill and schema prompt in full. One dictated sentence is not worth
+# an agent call, three times over.
+#
+# Thirty minutes, and deliberately not split by destination app: measured on a
+# real store, splitting on the app fragmented single bursts into singletons,
+# because a person dictating a train of thought moves between a terminal, a
+# browser and a chat window without pausing. The silence is the signal; the
+# window is not.
+_DICTATION_SESSION_GAP = timedelta(minutes=30)
+
 _PK_ANOMALY_RATIO_LIMIT = 0.01
 _BACKUP_ATTEMPTS = 3
 _BACKUP_RETRY_SECONDS = 0.05
@@ -122,6 +146,43 @@ _COLUMN_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _with_session_basis(rows: Sequence[HistoryRow]) -> list[tuple[HistoryRow, str]]:
+    """Pair each dictation with the session it belongs to.
+
+    ``rows`` arrives ordered by timestamp then transcript ID, which is what
+    makes a single forward pass enough. Three cases, in order of how much the
+    data tells us:
+
+    - The store gave a ``conversationId``: that is Wispr Flow's own grouping and
+      is used as-is, whatever the timing says.
+    - The row has a timestamp: it joins the previous burst when the silence
+      before it is under :data:`_DICTATION_SESSION_GAP`, and starts a new one
+      otherwise.
+    - The row has no timestamp: it cannot be placed in time, so it gets a
+      session of its own. Guessing a neighbour would put words into a session
+      they may not belong to, and the session file is what a person reads to
+      check the run.
+
+    The session identity is the first row's transcript ID, so the same store
+    always produces the same sessions and the same file names.
+    """
+    paired: list[tuple[HistoryRow, str]] = []
+    open_basis = ""
+    open_until: datetime | None = None
+    for row in rows:
+        if row.conversation_id is not None:
+            paired.append((row, f"{ADAPTER_ID}|conversation|{row.conversation_id}"))
+            continue
+        if row.timestamp is None:
+            paired.append((row, f"{ADAPTER_ID}|transcript|{row.transcript_entity_id}"))
+            continue
+        if open_until is None or row.timestamp > open_until:
+            open_basis = f"{ADAPTER_ID}|burst|{row.transcript_entity_id}"
+        open_until = row.timestamp + _DICTATION_SESSION_GAP
+        paired.append((row, open_basis))
+    return paired
 
 
 def _canonical_path(path: Path) -> str:
@@ -608,11 +669,7 @@ class WisprFlowAdapter:
         if scan.pk_anomaly_ratio > _PK_ANOMALY_RATIO_LIMIT:
             return
         self._extraction_stats[instance.instance_key] = self._stats_from_scan(scan)
-        for row in scan.rows:
-            if row.conversation_id is not None:
-                session_basis = f"{ADAPTER_ID}|conversation|{row.conversation_id}"
-            else:
-                session_basis = f"{ADAPTER_ID}|transcript|{row.transcript_entity_id}"
+        for row, session_basis in _with_session_basis(scan.rows):
             session_hash = _hash_text(session_basis)
             yield NormalizedUtterance(
                 utterance_id=(
