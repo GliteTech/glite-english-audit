@@ -31,32 +31,124 @@ The mistake-finding skill (step d) writes the record, and it must not include:
 - URLs, domains, emails, phone numbers, IDs, paths, or code.
 - Invisible or non-canonical characters. A zero-width space inside an address defeats every pattern check and is invisible to a human reviewer, so a record whose text changes under Unicode normalization is withheld (`PRIVACY_INVISIBLE_CHARACTER`) rather than rewritten.
 - Rare job titles or distinctive technical descriptions.
-- Long source phrases.
+- Long source phrases. An example runs to at most 15 words whatever its provenance, enforced by
+  `PRIVACY_LONG_SOURCE_PHRASE`; quoting the learner is normal, quoting them at length is not.
 - Context that reveals what the user or their organization is doing.
 - A correction that restores private information omitted from the example.
 
-Generic grammar words may be quoted. When any uncertainty remains, the example must be synthetic
-(`example_type: "synthetic"`).
+Generic grammar words may be quoted.
 
-All examples below are synthetic.
+### 2.1 Choosing the example
 
-### Do
+The example is the learner's own words wherever their own words are safe. Being shown an invented
+sentence in place of the mistake they made costs the learner the evidence, and it is a cost worth
+paying only when their words carry something that identifies them. Step d works down three rungs
+and stops at the first that holds.
+
+**1. `verbatim` — quote.** Take the shortest stretch of the learner's text that contains the
+construction and reads as ordinary English on its own, trimmed at clause boundaries and at most 15
+words, and copy it exactly. Spelling and punctuation come with it: an unrelated slip inside that
+stretch travels with it, because that is what verbatim means. This rung holds when the stretch
+carries nothing on the list above and no personal attribute — age, health, religion, family, first
+language, nationality, or where the learner lives.
+
+**2. `redacted` — substitute.** When the stretch is disqualified, replace each offending value with
+a different concrete value and keep everything else the learner's. The replacement is:
+
+- **The same grammatical kind.** Proper noun for proper noun, singular countable for singular
+  countable, number for number. Swapping a bare proper noun for a noun phrase with an article
+  silently repairs an article error and makes the record false about what the learner did.
+- **Unrelated, not adjacent.** One neighbouring language, one nearby city, or one competitor in the
+  same niche still narrows to the same guess.
+- **An ordinary real thing, not a placeholder.** A common profession, a common city, a widely known
+  everyday tool. Never a newly invented brand-shaped name, which is a plausible-looking company that
+  did not exist before the record.
+- **Itself safe.** The substitute passes rung 1, so a replacement number is one or two digits with
+  no decimal, percent, or currency sign.
+
+The construction under examination is never substituted. It is the evidence.
+
+**3. `synthetic` — invent.** When substituting every disqualifying value would leave a sentence that
+no longer shows the problem, or whose remaining shape still says what the organization does, invent
+a sentence demonstrating the same problem.
+
+Three rules hold at every rung. No example contains a placeholder standing in for removed material:
+no bracketed slots, no ellipses, no blanks — an example that has been hollowed out is not redacted,
+it is a record that should have moved down a rung. The `mistake` and `rule` sentences never name a
+value the example does not carry, because a record is one unit and scrubbing the example while the
+rule restores the detail protects nothing. And when even an invented example cannot show the problem
+without private context, the record is withheld rather than salvaged.
+
+The learner sentences below are invented for this document. A record shown as `verbatim` illustrates
+the shape of the rung, not text anyone wrote.
+
+### Do — rung 1
 
 ```json
 {
-  "mistake": "Used 'informations' as a plural countable noun.",
-  "rule": "The noun 'information' is uncountable in English and has no plural form.",
-  "example": "Please send me these informations by tomorrow.",
-  "example_type": "synthetic",
+  "mistake": "Used 'explain me' without the preposition 'to'.",
+  "rule": "The verb 'explain' takes an indirect object introduced by 'to': 'explain to me'.",
+  "example": "Please explain me how this feature works.",
+  "example_type": "verbatim",
   "source_type": "claude_code",
   "modality": "written"
 }
 ```
 
-The example demonstrates the language problem with no names, numbers, or context. The rule stands
-alone without hidden context.
+The learner's own clause, unchanged. It names nobody, counts nothing, and would sit as comfortably
+in one workplace as another, so quoting it discloses only that its author writes English this way —
+which is the whole point of the record.
 
-### Don't
+### Do — rung 2
+
+The learner wrote "why Finnish is mentioned here?", which identifies nothing but pins their first
+language. The language is not the error; the missing inversion is. Substituting an unrelated
+language keeps the error intact and the attribute out:
+
+```json
+{
+  "mistake": "Formed a direct question with statement word order.",
+  "rule": "A direct wh-question puts the auxiliary before the subject: 'why is it mentioned'.",
+  "example": "why Portuguese is mentioned here?",
+  "example_type": "redacted",
+  "source_type": "codex",
+  "modality": "written"
+}
+```
+
+The learner wrote "I live in Helsinki for 14 years." — a city and a duration, in a session that also
+gives their age. Both values are replaced, each by one of the same kind:
+
+```json
+{
+  "mistake": "Used the simple present for a state continuing over a stated period up to now.",
+  "rule": "A state that began in the past and still holds takes the present perfect: 'I have lived'.",
+  "example": "I live in Osaka for 7 years.",
+  "example_type": "redacted",
+  "source_type": "codex",
+  "modality": "written"
+}
+```
+
+### Do — rung 3
+
+The learner wrote "Our migration off the legacy invoicing platform depends from the Berlin team's
+rollout script at /srv/deploy/run.sh." Substituting the path, the city, and the platform would still
+leave a sentence describing one organization's migration, so no substitution reaches safety and the
+example is invented instead:
+
+```json
+{
+  "mistake": "Used the preposition 'from' after the verb 'depends'.",
+  "rule": "The verb 'depends' takes the preposition 'on', not 'from'.",
+  "example": "The result depends from the input.",
+  "example_type": "synthetic",
+  "source_type": "codex",
+  "modality": "written"
+}
+```
+
+### Don't — a label is not a check
 
 ```json
 {
@@ -72,24 +164,25 @@ alone without hidden context.
 Three violations: the rule depends on hidden context ("in this case"), and the example leaks a
 company name, a business metric, and an email address. The deterministic scanner rejects this
 record with `PRIVACY_CONTEXT_DEPENDENT_RULE`, `PRIVACY_SUSPICIOUS_NUMBER`, and
-`PRIVACY_EMAIL_PRESENT`.
+`PRIVACY_EMAIL_PRESENT`. Rung 1 disqualified this stretch before any of them; `verbatim` names where
+the text came from and asserts nothing about whether it was allowed to travel.
 
-### Don't
+### Don't — substitute something adjacent
 
 ```json
 {
-  "mistake": "Wrong preposition after 'depends'.",
-  "rule": "The verb 'depends' takes the preposition 'on', not 'from'.",
-  "example": "Our migration off the legacy invoicing platform depends from the Berlin team's rollout script at /srv/deploy/run.sh.",
+  "mistake": "Formed a direct question with statement word order.",
+  "rule": "A direct wh-question puts the auxiliary before the subject.",
+  "example": "why Estonian is mentioned here?",
   "example_type": "redacted",
   "source_type": "codex",
   "modality": "written"
 }
 ```
 
-The rule is fine, but the example carries a path, a location, and enough workflow context to hint
-at what the organization is doing. The safe version is a short synthetic sentence: "The result
-depends from the input." with `example_type: "synthetic"`.
+The learner wrote "Finnish". Estonian is its closest relative, so a reader who knows that learns
+almost exactly what the substitution was meant to hide. A substitute is chosen for having no
+relationship to the original, not for being a different word.
 
 ## 3. Submission boundary
 
@@ -151,10 +244,12 @@ knows something downstream will catch its leaks stops being careful about not pr
 
 Protection is nevertheless doubled:
 
-1. Step d: the skill produces records under the safe-record rules above, with synthetic examples.
-   A deterministic scanner runs over its output. A scanner hit here **fails the file** and is
-   reported as a defect in step d, rather than the record being quietly dropped — otherwise the
-   defect is invisible and the failure rate is never measured.
+1. Step d: the skill produces records under the safe-record rules above, choosing each example's
+   provenance by Section 2.1. A deterministic scanner runs over its output. A scanner hit here
+   **fails the file** and is reported as a defect in step d, rather than the record being quietly
+   dropped — otherwise the defect is invisible and the failure rate is never measured. This is why
+   rung 1's disqualifiers are written as a superset of what the scanner matches: an agent that
+   quotes to the edge of the pattern checks turns a routine record into a failed session file.
 2. Step e: an independent semantic confidentiality verifier — in a fresh context, without step d's
    reasoning — checks semantic re-identification, which no pattern check can do. It may drop a
    record. It may never rewrite, redact, or repair one.
