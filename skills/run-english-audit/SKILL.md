@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 12
+**Version**: 13
 
 ## Goal
 
@@ -79,13 +79,15 @@ runtime; naming both is confusing and wrong.
    say the run cannot resume and offer a new audit. Resume decisions follow the
    deterministic policy in the resume section below.
 3. First-run explanation. Before the first local scan, say in one line what that
-   scan does. The scan reads app data on this machine and hands back counts and
-   dates, and that is the whole of what the user agrees to here.
+   scan does and which apps it reads. The scan reads app data on this machine and
+   hands back counts and dates, and that is the whole of what the user agrees to
+   here.
 
    Do:
    ```text
-   I'll scan this computer for English you wrote or dictated. I'll see counts and
-   dates — never your messages.
+   I'll scan this computer for English you wrote or dictated — Claude Code,
+   Codex, Cursor, Wispr Flow and five other AI coding and dictation apps. I'll
+   see counts and dates, never your messages.
    ```
    Don't: the eleven facts this used to open with — provider transfer, anonymity,
    permanent storage, the disclosed uses. Every one of them belongs to a consent
@@ -98,6 +100,15 @@ runtime; naming both is confusing and wrong.
    talking to a model and is about to point it at their message history, so what
    this conversation sees is the fact they cannot infer and might object to. "It
    sends nothing to a model" is also not quite true: the counts reach you.
+
+   Name the apps. "This computer" is a scope the user cannot picture, and it is
+   the thing they are being asked to agree to — a scan of a machine is a
+   different question from a scan of nine named apps, and only the second one is
+   answerable. Four names they will recognise plus a count of the rest is
+   shorter than the full list and gives away no less. Keep the count honest: it
+   covers every app the scan looks for, installed or not, and
+   `tests/test_first_run_names_the_apps.py` fails when an adapter is added
+   without this line moving with it.
 
 4. Consent moment 1 — local scan. On first use, ask the user to confirm that local
    scripts may read the supported apps on this computer to count what is there.
@@ -310,7 +321,7 @@ runtime; naming both is confusing and wrong.
      discovery left pending, prints the `<run-id>`, and freezes the record cutoff.
      Pass the user's choice in the words they used, since instance keys are private
      and you never see them: `--exclude-source "Cursor"` drops a whole app,
-     `--include-source "Wispr Flow"` adds one that is off by default, and
+     `--include-source "Roo Code"` adds a beta one that is off by default, and
      `--exclude-label "Claude Code 4"` drops a single project by the label shown to
      the user. Each is repeatable, and the command resolves labels to real paths
      locally.
