@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 9
+**Version**: 10
 
 ## Goal
 
@@ -232,7 +232,10 @@ aggregate numbers; neither carries a label, a path, or any text.
   stability, date range, and counts labeled "candidate".
 - Every period option carried that preset's words and estimated time range, and
   the estimate's confidence and quota caveats reached the user.
-- Undetected or unusable sources are reported with their diagnostic codes.
+- Every undetected or unusable source is named to the user in plain English, and no
+  diagnostic code appears in the conversation. The codes stay where they already
+  are: the `diagnostic_code` field of each inventory row, which the orchestration
+  reads.
 - No path, project, workspace, account name, or source text appeared in the
   conversation or in tool output shown to the model.
 
@@ -253,6 +256,9 @@ aggregate numbers; neither carries a label, a path, or any text.
 - Do not estimate a period yourself, and do not offer a period the estimate
   command did not cover. Guessing "a few hours" is the failure this skill's step
   5 exists to remove.
+- Do not offer the table's "Custom dates" row as a choice. It is a row, not a
+  preset: it carries no numbers, and `pipeline.start_run --period` cannot record a
+  custom range. Offer the five presets that have estimates.
 - Do not report your own validation to the user: that every row parsed, that the
   artifact has the right permissions, that a document is out of date. Those are
   your job, not their reading. Fix a defect or note it for the maintainer; do not
@@ -269,22 +275,24 @@ Command: `uv run python -m glite_english_audit.discovery.inventory`. Exact
 agent-facing output (condensed to one instance):
 
 ```json
-[
-  {
-    "adapter_id": "claude_code",
-    "adapter_version": "1.0.0",
-    "opaque_label": "Claude Code 1",
-    "stability": "stable",
-    "accessibility": "found",
-    "diagnostic_code": null,
-    "estimated_records": 506,
-    "earliest_timestamp": "2026-03-03T09:12:00Z",
-    "latest_timestamp": "2026-08-01T17:40:00Z",
-    "candidate_messages": 2140,
-    "candidate_words": 61900,
-    "candidate_bytes": 412553
-  }
-]
+{
+  "inventory": [
+    {
+      "adapter_id": "claude_code",
+      "adapter_version": "1.0.0",
+      "opaque_label": "Claude Code 1",
+      "stability": "stable",
+      "accessibility": "found",
+      "diagnostic_code": null,
+      "estimated_records": 506,
+      "earliest_timestamp": "2026-03-03T09:12:00Z",
+      "latest_timestamp": "2026-08-01T17:40:00Z",
+      "candidate_messages": 2140,
+      "candidate_words": 61900,
+      "candidate_bytes": 412553
+    }
+  ]
+}
 ```
 
 Intermediate decision: both Claude Code instances are stable and found, so both are

@@ -17,6 +17,7 @@ stable diagnostic codes. This document states the conventions and lists the curr
 | `PRIVACY_` | Forbidden patterns in content that must stay privacy-safe |
 | `SUBMISSION_` | Submission allowlist, counts, payload hash |
 | `SOURCE_` | Source discovery, accessibility, snapshot safety |
+| `FINDING_` | Stage-4 findings checked against the strict non-native threshold |
 | `STATE_` | Run state machine, checkpoints, resume |
 | `SKILL_` | Canonical skill files and generated wrappers |
 | `AUTHORSHIP_` | Stage-3 authorship decisions checked against their candidate text |
@@ -30,9 +31,10 @@ stable diagnostic codes. This document states the conventions and lists the curr
 ## Authoritative registry
 
 `src/glite_english_audit/diagnostics/codes.py` is the single authoritative registry. Skills,
-verifiers, tests, and the website contract reference these exact strings. A sync test compares
-the table below against the registry and fails on any difference, so this document cannot drift.
-(The test lands with the verification test suite.)
+verifiers, tests, and the website contract reference these exact strings.
+`tests/test_diagnostic_codes_doc.py` compares the table below against the registry row for
+row — code, severity, and description — and fails on any difference, so this document cannot
+drift.
 
 ### Adding a code
 

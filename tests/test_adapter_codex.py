@@ -167,6 +167,53 @@ def test_discover_empty_fixture() -> None:
     assert record.schema_fingerprint == "empty+meta-only"
 
 
+def test_discover_never_follows_a_symlink_into_the_session_tree(tmp_path: Path) -> None:
+    """A link inside the date tree points out of the allowlisted root.
+
+    Every other adapter skips symlinks during enumeration; this one has to as
+    well, or the allowlist stops bounding what gets opened.
+    """
+    outside = tmp_path / "outside"
+    day = outside / "2026" / "01" / "02"
+    day.mkdir(parents=True)
+    session_id = "0193a1b2-0000-7000-8000-000000000001"
+    name = f"rollout-2026-01-02T09-00-00-{session_id}.jsonl"
+    lines = [
+        {
+            "timestamp": "2026-01-02T09:00:00Z",
+            "type": "session_meta",
+            "payload": {
+                "id": session_id,
+                "timestamp": "2026-01-02T09:00:00Z",
+                "cli_version": "0.150.0",
+                "cwd": "/home/fake-user/projects/site",
+                "originator": "codex_cli_rs",
+                "history_mode": "paginated",
+            },
+        },
+        {
+            "timestamp": "2026-01-02T09:01:00Z",
+            "type": "event_msg",
+            "payload": {"type": "user_message", "kind": "plain", "message": "Please explain me."},
+        },
+    ]
+    (day / name).write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+    home = tmp_path / "home"
+    sessions = home / ".codex" / "sessions"
+    sessions.mkdir(parents=True)
+    # One link at the year level and one at the file level: both are skipped.
+    (sessions / "2026").symlink_to(outside / "2026", target_is_directory=True)
+    linked_day = sessions / "2027" / "01" / "02"
+    linked_day.mkdir(parents=True)
+    (linked_day / name).symlink_to(day / name)
+
+    outcome = CodexAdapter().discover(_context(home))
+
+    record = outcome.records[0]
+    assert record.candidate_messages == 0
+    assert record.schema_fingerprint == "empty"
+
+
 def test_discover_malformed_fixture() -> None:
     outcome = CodexAdapter().discover(_context(FIXTURES / "malformed" / "home"))
     record = outcome.records[0]

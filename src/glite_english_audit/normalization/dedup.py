@@ -40,6 +40,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from glite_english_audit.artifacts.enums import Modality, TextStatus
+from glite_english_audit.artifacts.envelope import as_utc
 from glite_english_audit.artifacts.models import NormalizedUtterance
 
 PRODUCER_VERSION = "1.0.0"
@@ -80,19 +81,31 @@ def _normalized_key(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def _stamp(utterance: NormalizedUtterance) -> datetime | None:
+    """The utterance's timestamp on the one comparable scale.
+
+    Sources that record timezone-unknown local time reach this stage naive, so
+    every subtraction and ordering below would raise against an aware
+    timestamp from a sibling source.
+    """
+    return None if utterance.timestamp is None else as_utc(utterance.timestamp)
+
+
 def _order_key(utterance: NormalizedUtterance) -> tuple[int, datetime, str]:
     """Timestamped utterances first by time, then untimestamped by ID."""
-    if utterance.timestamp is None:
+    stamp = _stamp(utterance)
+    if stamp is None:
         return (1, _EPOCH, utterance.utterance_id)
-    return (0, utterance.timestamp, utterance.utterance_id)
+    return (0, stamp, utterance.utterance_id)
 
 
 def _canonical_key(utterance: NormalizedUtterance) -> tuple[int, int, int, datetime, str]:
+    stamp = _stamp(utterance)
     return (
         0 if utterance.text_status is TextStatus.VERBATIM else 1,
         0 if utterance.modality is Modality.SPOKEN_ASR else 1,
-        0 if utterance.timestamp is not None else 1,
-        utterance.timestamp if utterance.timestamp is not None else _EPOCH,
+        0 if stamp is not None else 1,
+        stamp if stamp is not None else _EPOCH,
         utterance.utterance_id,
     )
 
@@ -136,7 +149,7 @@ def dedupe(utterances: list[NormalizedUtterance]) -> DedupOutcome:
     for indices in by_key.values():
         if len(indices) < 2:
             continue
-        timed = [(t, i) for i in indices if (t := ordered[i].timestamp) is not None]
+        timed = [(t, i) for i in indices if (t := _stamp(ordered[i])) is not None]
         untimed = [i for i in indices if ordered[i].timestamp is None]
         for position, (ts_left, left) in enumerate(timed):
             for ts_right, right in timed[position + 1 :]:
@@ -152,7 +165,7 @@ def dedupe(utterances: list[NormalizedUtterance]) -> DedupOutcome:
                     union(left, right)
 
     # Fuzzy pass: timestamped utterances only, sliding proximity window.
-    timed_all = [(t, i) for i, u in enumerate(ordered) if (t := u.timestamp) is not None]
+    timed_all = [(t, i) for i, u in enumerate(ordered) if (t := _stamp(u)) is not None]
     for position, (ts_left, left) in enumerate(timed_all):
         for ts_right, right in timed_all[position + 1 :]:
             if ts_right - ts_left > TEMPORAL_PROXIMITY_LIMIT:

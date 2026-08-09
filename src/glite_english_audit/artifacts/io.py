@@ -37,6 +37,18 @@ def ensure_private_dir(path: Path) -> Path:
     return path
 
 
+def restrict_private_file(path: Path) -> None:
+    """Tighten an existing private file to mode 0600 on POSIX.
+
+    For files written outside :func:`atomic_write_bytes` — snapshot copies,
+    which are streamed rather than built in memory. A copy inherits nothing
+    useful from its source's mode, and a source database is often world
+    readable.
+    """
+    if _POSIX:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
 def atomic_write_bytes(path: Path, data: bytes) -> None:
     """Write ``data`` to ``path`` atomically with owner-only permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)

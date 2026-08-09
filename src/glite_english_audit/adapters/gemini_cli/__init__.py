@@ -1,4 +1,4 @@
-"""Google Gemini CLI source adapter (stable).
+"""Google Gemini CLI source adapter (beta).
 
 Source specification: ``specifications/sources/gemini_cli.md``.
 """

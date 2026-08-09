@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 
 # Spec 6.1: text pasted straight into the terminal prompt is stored like typed
-# text; entries above this length carry a possible-paste flag so the shared
-# normalization layer can quarantine copied material.
+# text; entries above this length carry a possible-paste content flag. No stage
+# consumes the flag yet; the stage-3 authorship skill removes pasted material.
 PASTE_LENGTH_THRESHOLD = 2000
 
 # Spec 9: quarantine a file when replacement characters exceed 1% of content.

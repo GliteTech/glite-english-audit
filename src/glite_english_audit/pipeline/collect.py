@@ -21,7 +21,7 @@ from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import StageId, StageStatus
-from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
+from glite_english_audit.artifacts.envelope import ArtifactEnvelope, as_utc, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
@@ -56,7 +56,7 @@ def _within_bounds(
     stamp = utterance.timestamp
     if stamp is None:
         return True
-    return start <= stamp <= min(end, cutoff)
+    return start <= as_utc(stamp) <= min(end, cutoff)
 
 
 def collect(
@@ -160,7 +160,7 @@ def collect(
     def _order(utterance: NormalizedUtterance) -> tuple[int, float, str]:
         if utterance.timestamp is None:
             return (1, 0.0, utterance.utterance_id)
-        return (0, utterance.timestamp.timestamp(), utterance.utterance_id)
+        return (0, as_utc(utterance.timestamp).timestamp(), utterance.utterance_id)
 
     utterances.sort(key=_order)
     candidates_path = candidates_stage / CANDIDATES_NAME

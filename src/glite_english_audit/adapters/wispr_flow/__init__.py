@@ -1,4 +1,4 @@
-"""Wispr Flow dictation source adapter (beta, strict fingerprint gate).
+"""Wispr Flow dictation source adapter (stable, strict fingerprint gate).
 
 Source specification: ``specifications/sources/wispr_flow.md``.
 """

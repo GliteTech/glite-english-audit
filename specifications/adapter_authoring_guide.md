@@ -5,9 +5,10 @@ records. Adding a source means adding an adapter package, its fingerprints, fixt
 rules, and documentation. This guide states what every adapter must do and what gates it must
 pass.
 
-Stable adapter IDs: `claude_code`, `codex`, `aider`, `gemini_cli`, `opencode`, `cline`,
-`roo_code`, `wispr_flow`, `cursor` (beta). IDs are lowercase `[a-z][a-z0-9_]*` and are public
-contract strings.
+The nine shipped adapter IDs: `claude_code`, `codex`, `aider`, `gemini_cli`, `opencode`,
+`cline`, `roo_code`, `wispr_flow`, `cursor`. IDs are lowercase `[a-z][a-z0-9_]*`, permanent, and
+public contract strings; an ID is stable whatever the adapter's maturity is. Current maturity per
+adapter is in `specifications/compatibility_matrix.md`, never inferred from this list.
 
 ## 1. Responsibilities
 

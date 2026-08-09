@@ -220,8 +220,14 @@ def _degenerate_instance(
     accessibility: Accessibility,
     diagnostic_code: str | None,
     fingerprint: str,
-    stability: Stability = Stability.STABLE,
+    stability: Stability,
 ) -> _ProvisionalInstance:
+    """An instance with no candidates: not found, empty, or refused.
+
+    ``stability`` is required rather than defaulted: no instance may claim
+    more maturity than the adapter that produced it, and a default would go
+    on claiming the old one after the adapter's own level changed.
+    """
     return _ProvisionalInstance(
         root=root,
         path_hash=_hash_text(_canonical_path(root)),
@@ -358,6 +364,7 @@ class GeminiCliAdapter:
             accessibility=accessibility,
             diagnostic_code=diagnostic_code,
             fingerprint=fingerprint,
+            stability=self.stability,
         )
         return self._label_and_build(context, [provisional])
 
@@ -374,6 +381,7 @@ class GeminiCliAdapter:
                 accessibility=Accessibility.INACCESSIBLE,
                 diagnostic_code="SOURCE_INACCESSIBLE",
                 fingerprint="unknown",
+                stability=self.stability,
             )
         if scans and all(scan.unsupported for scan in scans):
             return _degenerate_instance(
@@ -381,6 +389,7 @@ class GeminiCliAdapter:
                 accessibility=Accessibility.UNSUPPORTED_SCHEMA,
                 diagnostic_code="SOURCE_UNSUPPORTED_SCHEMA",
                 fingerprint="unsupported",
+                stability=self.stability,
             )
         candidates = _candidate_set(scans)
         stamps = [

@@ -8,7 +8,7 @@ unfinished audit."
 
 # Run English Audit
 
-**Version**: 6
+**Version**: 7
 
 ## Goal
 
@@ -124,8 +124,13 @@ runtime; naming both is confusing and wrong.
       default; the user can uncheck any source or instance. Beta, experimental,
       inaccessible, unsupported-schema, cleaned-only, and unknown-provenance sources
       are not selected automatically.
-   2. Period: offer the presets Last 7 days, Last 30 days, Last 3 months, Last year,
-      Everything, and Custom dates. Before asking, run
+   2. Period: offer exactly the five presets Last 7 days, Last 30 days, Last 3
+      months, Last year, and Everything. The estimate table prints a sixth "Custom
+      dates" row, but that row is not a preset and `pipeline.start_run --period`
+      cannot accept one: there is no way to record a custom range, so do not offer
+      it as a choice. If the user asks for specific dates, say the audit runs in
+      fixed periods, and offer the smallest preset that covers the range they want.
+      Before asking, run
       `uv run python -m glite_english_audit.estimation.estimate`
       (`src/glite_english_audit/estimation/estimate.py`; profile format in
       `specifications/token_estimation_profile.md`), passing the apps the user just
@@ -207,18 +212,46 @@ runtime; naming both is confusing and wrong.
      during setup; reuse the promoted artifact). It writes the private inventory the
      next command reads.
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
-     --period <preset> --profile <profile>`. It adopts the inventory discovery left
-     pending, prints the `<run-id>`, and freezes the record cutoff. Pass the user's
-     choice in the words they used, since instance keys are private and you never
-     see them: `--exclude-source "Cursor"` drops a whole app, `--include-source
-     "Wispr Flow"` adds one that is off by default, and `--exclude-label "Claude
-     Code 4"` drops a single project by the label shown to the user. Each is
-     repeatable, and the command resolves labels to real paths locally.
+     --runtime <claude_code|codex> --period <preset> --profile <profile>
+     --local-scan-consent --provider-transfer-consent`. It adopts the inventory
+     discovery left pending, prints the `<run-id>`, and freezes the record cutoff.
+     Pass the user's choice in the words they used, since instance keys are private
+     and you never see them: `--exclude-source "Cursor"` drops a whole app,
+     `--include-source "Wispr Flow"` adds one that is off by default, and
+     `--exclude-label "Claude Code 4"` drops a single project by the label shown to
+     the user. Each is repeatable, and the command resolves labels to real paths
+     locally.
+
+     `--runtime` names the runtime you are actually running in; it defaults to
+     `claude_code`, so a Codex run that omits it records the wrong runtime in the
+     manifest.
+
+     The two consent flags are what write the timestamps into `ConsentState`. Pass
+     each one only if that consent moment actually happened: `--local-scan-consent`
+     for moment 1, `--provider-transfer-consent` for moment 2, asked on this run and
+     never carried over from a previous one. Omitting a flag leaves its timestamp
+     null, which is the honest record of a question nobody asked — and it is also
+     why a run whose flags you forgot cannot satisfy the consent line under Done
+     When. Never pass a flag to make that line pass.
    - Stages 1-2: `uv run python -m glite_english_audit.pipeline.collect
      --run-id <run-id>`. It snapshots each selected instance under the safety gates,
      extracts candidates from the snapshot only, removes each snapshot as soon as its
      extraction is durable, and reports any source it had to exclude.
-   - Stage 3: `skills/filter-authored-english/SKILL.md`.
+   - Stage 3, in three parts. First
+     `uv run python -m glite_english_audit.pipeline.authorship_batches
+     --run-id <run-id>`, which pre-filters the stage-2 candidates and writes the
+     numbered batch files plus the decisions directory. Then
+     `skills/filter-authored-english/SKILL.md` once per batch file, each writing its
+     `decisions-NNNN.jsonl` into the decisions directory the first command created.
+     Then
+     `uv run python -m glite_english_audit.pipeline.apply_authorship
+     --run-id <run-id>`, which checks every retained span against its candidate,
+     quarantines the decisions that fail, and writes the stage-3 `corpus.jsonl` and
+     its `EligibleCorpusManifest`.
+     Do not skip the third command: it is what creates the corpus, so the stage-4
+     command below has nothing to read without it. It exits non-zero when any
+     decision was quarantined and lists those utterances in `needs-repair.json`;
+     re-ask only those, within the repair budget, then run it again.
    - Stage 4 input: `uv run python -m glite_english_audit.pipeline.batches
      --run-id <run-id>`, then the `analyze-english-text` skill on each batch file,
      verified by the independent `verify-english-findings` skill.
@@ -345,18 +378,29 @@ The user picks Last 30 days and the Recommended profile, confirms provider trans
 ("Send the selected text to your current AI provider through Claude Code?"), and
 confirms the preflight. Processing runs without further questions.
 
-Exact output (one progress update during stage 4):
+Exact output (one progress update during stage 4), as `render_progress` emits it:
 
 ```text
 English audit — 38% complete
 
-Step 5 of 9: Finding English mistakes
-Claude Code: 205 of 512 utterances analyzed — 40%
+Step 4 of 8: Finding English mistakes
+Claude Code: 205 of 512 sessions processed — 40%
 This step: 40% · Overall: 38%
 
-Collected so far: 512 eligible utterances, 14,900 English words
-Estimated remaining: 14M-31M tokens · 42-115 minutes
+Collected so far:
+512 eligible messages
+14,900 English words
+
+Estimated remaining: 14000K–31000K tokens
+Estimated time: 42–115 minutes
 ```
+
+The step numbering is the module's, not this file's stage numbering: discovery
+happens during setup, so the eight steps the user is shown are stages 1-8 and stage
+4 is step 4. Render the block; do not retype it. Every detail above is the
+renderer's — the en dashes, the two-line estimate, the word "sessions", and the
+thousands-only token unit — and a hand-written update that differs is a defect in
+the update, not an improvement.
 
 Verification result: every stage passes its deterministic verifier; stages 4-7 also
 pass their independent verifiers; the manifest marks stages 0-8 `promoted`; the run

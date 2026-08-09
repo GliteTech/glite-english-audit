@@ -5,7 +5,7 @@ description: "Judge, utterance by utterance, which spans of a stage-3 candidate 
 
 # Filter Authored English
 
-**Version**: 3
+**Version**: 5
 
 ## Goal
 
@@ -15,7 +15,8 @@ decision line per utterance whose retained spans are copied verbatim from the ca
 ## Inputs
 
 * `batch_path` — a JSONL file of candidate utterances written by the stage-3 pre-filter. Each
-  line is one JSON object with exactly these fields:
+  line validates as `Candidate` in `src/glite_english_audit/pipeline/authorship_batches.py`:
+  one JSON object with exactly these fields:
   * `utterance_id` — string, unique inside the run.
   * `text` — string, the full candidate text as extracted, with nothing removed except the
     unambiguous machinery the pre-filter already stripped.
@@ -178,10 +179,11 @@ messages, which are the ones most likely to contain pastes.
    pasted text."
    Don't: "AUTHORSHIP_TOOL_OUTPUT: 154, AUTHORSHIP_PASTED_MATERIAL: 56", which asks the reader
    to decode this project's internal words to find out what happened to their writing.
-10. If the span verifier rejects the batch, repair only the named lines — relocate the span in
-    the original `text` and rewrite it verbatim, or drop it and change the decision. Repairs are
-    bounded by the orchestrator's budget; when failures remain after it, report them instead of
-    looping.
+10. If the span verifier quarantines any decision, repair only the utterances it names in
+    `needs-repair.json` — relocate the span in the original `text` and rewrite it verbatim, or
+    drop it and change the decision. Leave every other decision alone; they were accepted.
+    Repairs are bounded by the orchestrator's budget; when failures remain after it, report them
+    instead of looping.
 
 ## Output Format
 
@@ -210,17 +212,29 @@ Reason codes:
 * `AUTHORSHIP_REFERENCE_ONLY` — URLs, bare paths, identifiers, image placeholders, no prose.
 * `AUTHORSHIP_UNCLEAR` — authorship could not be established, so the bias rule excluded it.
 
-A deterministic span verifier (`src/glite_english_audit/verification/verify_corpus.py`) re-reads
-this file against its batch and checks every span with an exact substring test. Any span it
-cannot locate, any unknown or duplicated `utterance_id`, and any decision inconsistent with its
-span list or reason code fails the whole batch and reports the utterance ID with
-`SCHEMA_INVALID_VALUE`. That test is what keeps paraphrase and invention out of the word
-denominator, so treat a span as a quotation, never as a description.
+A deterministic span verifier (`src/glite_english_audit/pipeline/apply_authorship.py`) rebuilds
+each candidate's text from the stage-2 records and checks every span against it with an exact
+substring test, reporting the utterance ID with one of these codes:
 
-This skill writes no manifest. The deterministic pipeline builds each eligible utterance's text
-from the retained spans in order, then writes the stage-3 corpus JSONL of `NormalizedUtterance`
-records and the `EligibleCorpusManifest`
-(`src/glite_english_audit/artifacts/models.py`), including the word counts.
+* `AUTHORSHIP_SPAN_NOT_VERBATIM` — a retained span is not an exact substring of the candidate.
+* `AUTHORSHIP_SPAN_ORDER_INVALID` — spans overlap or do not follow their order in the text.
+* `AUTHORSHIP_UNKNOWN_UTTERANCE` — the decision names an utterance that is not a candidate.
+* `AUTHORSHIP_DUPLICATE_DECISION` — more than one decision covers the same candidate.
+* `SCHEMA_INVALID_VALUE` — the decision contradicts its own shape: a `retain` carrying a reason
+  or not carrying the whole text, an `exclude` carrying spans, a `partial` carrying none, an
+  empty span string, or a reason outside the closed list above.
+
+A failure quarantines that one decision, not the batch: the utterance contributes nothing, the
+run continues, and the utterance ID and its code are listed in `needs-repair.json` beside the
+decisions files. The verifier exits non-zero when anything was quarantined, so the orchestration
+re-asks exactly those utterances instead of redoing the batch or accepting the loss. That
+substring test is what keeps paraphrase and invention out of the word denominator, so treat a
+span as a quotation, never as a description.
+
+This skill writes no manifest. The same command builds each eligible utterance's text from the
+retained spans in order, then writes the stage-3 corpus JSONL of `NormalizedUtterance` records
+and the `EligibleCorpusManifest` (`src/glite_english_audit/artifacts/models.py`), including the
+word counts.
 
 ## End-to-End Example
 
@@ -277,11 +291,12 @@ speech, and trace do not.
 
 Failure and repair: had the second span been written as `Is it the same for our runner?` — an
 unconscious repair of the learner's missing article — the substring test would fail, the verifier
-would report `utt-1002` with `SCHEMA_INVALID_VALUE`, and the batch would be rejected. The repair
-is to reopen that candidate's `text`, copy the span again character for character as `Is it same
-for our runner?`, rewrite only that decision line, and resubmit the batch. Editing the candidate
-text so it matches the span is the forbidden shortcut: it erases the exact mistake the audit
-exists to find.
+would report `utt-1002` with `AUTHORSHIP_SPAN_NOT_VERBATIM` and list it in `needs-repair.json`.
+The other two decisions still stand; only `utt-1002` is quarantined and contributes no words. The
+repair is to reopen that candidate's `text`, copy the span again character for character as `Is
+it same for our runner?`, rewrite only that decision line, and run the verifier again. Editing
+the candidate text so it matches the span is the forbidden shortcut: it erases the exact mistake
+the audit exists to find.
 
 ## Done When
 
@@ -293,7 +308,8 @@ exists to find.
   least one span and a reason code; every `retain` line has `reason` set to `null`.
 * Every reason code comes from the closed list in the Output Format section.
 * The decisions file is UTF-8 JSONL, one object per line, with one trailing newline.
-* The deterministic span verifier passes the batch.
+* The deterministic span verifier quarantines none of this batch's decisions, so
+  `needs-repair.json` names no utterance from it.
 * The conversation holds counts and utterance IDs only; no candidate text was quoted outside the
   decisions file.
 

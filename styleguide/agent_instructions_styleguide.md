@@ -198,7 +198,7 @@ for a sequence of actions.
    project specification.
 4. Write the findings artifact to the run directory.
 5. Run the verifier:
-   `uv run python -m glite_english_audit.verification.verify_findings <run_id>`.
+   `uv run python -m glite_english_audit.verification.verify_corpus --run-id <run-id>`.
 ```
 
 #### Don't:
@@ -350,15 +350,17 @@ Findings should have good evidence.
 
 Point to existing files rather than copying content into instructions. Duplicated instructions
 drift apart and create contradictions. Skills reference schemas, specifications, and style guides;
-they never restate them. Artifact schemas are generated from the Pydantic models in
-`src/glite_english_audit/artifacts/` — reference the generated files in `schemas/`, never copy
-field lists into a skill.
+they never restate them. Artifact shapes are defined by the Pydantic models in
+`src/glite_english_audit/artifacts/` and `src/glite_english_audit/pipeline/` — name the model,
+never copy its field list into a skill. `schemas/` holds generated JSON Schema for the
+submission contract only, because that is the one boundary consumed outside Python.
 
 #### Do:
 
 ```markdown
 Follow the prompting rules in `styleguide/llm_prompting_styleguide.md`.
-The findings artifact schema is `schemas/findings_artifact.schema.json`.
+The findings sidecar validates as `FindingsArtifactMeta` in
+`src/glite_english_audit/artifacts/models.py`.
 ```
 
 #### Don't:
@@ -500,7 +502,7 @@ After the agent creates output files, require verification.
 ## Verification
 
 1. Confirm the findings artifact exists in the run directory.
-2. Run: `uv run python -m glite_english_audit.verification.verify_findings <run_id>`
+2. Run: `uv run python -m glite_english_audit.verification.verify_corpus --run-id <run-id>`
 3. Fix any errors before proceeding. Warnings may be noted but do not
    block progress.
 ```

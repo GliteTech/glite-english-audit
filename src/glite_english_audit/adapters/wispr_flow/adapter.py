@@ -196,8 +196,9 @@ class WisprFlowAdapter:
 
     @property
     def stability(self) -> Stability:
-        # Spec header: beta until the section 9 real-installation smoke tests
-        # confirm the fingerprint on macOS and native Windows.
+        # Stable after the macOS real-installation smoke test recorded in
+        # ``specifications/compatibility_matrix.md``. Native Windows is still
+        # fixtures-only, and WSL fails closed before any store is opened.
         return Stability.STABLE
 
     # -- discovery ---------------------------------------------------------

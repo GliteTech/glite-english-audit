@@ -77,10 +77,16 @@ def _hash_session_id(session_id: str) -> str:
 
 
 def _subdirs(parent: Path, digits: int) -> list[Path]:
+    # Symlinks are skipped, not followed: a link inside the date tree leads
+    # outside the allowlisted root, which is the one thing the allowlist is
+    # there to prevent. Every other adapter applies the same rule.
     return sorted(
         child
         for child in parent.iterdir()
-        if child.is_dir() and len(child.name) == digits and child.name.isdigit()
+        if child.is_dir()
+        and not child.is_symlink()
+        and len(child.name) == digits
+        and child.name.isdigit()
     )
 
 
@@ -88,7 +94,7 @@ def _rollout_files(directory: Path, root: Path) -> list[Path]:
     return [
         child.relative_to(root)
         for child in sorted(directory.iterdir())
-        if child.is_file() and ROLLOUT_FILE_NAME.fullmatch(child.name)
+        if child.is_file() and not child.is_symlink() and ROLLOUT_FILE_NAME.fullmatch(child.name)
     ]
 
 

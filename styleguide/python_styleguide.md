@@ -351,7 +351,7 @@ class UtteranceSummary:
     status: TextStatus
 
 
-if summary.modality is Modality.DICTATED:
+if summary.modality is Modality.SPOKEN_ASR:
     ...
 ```
 
@@ -364,7 +364,7 @@ class UtteranceSummary:
     status: str
 
 
-if summary.modality == "dictated":  # Typo-prone string comparison
+if summary.modality == "spoken_asr":  # Typo-prone string comparison
     ...
 ```
 
@@ -478,12 +478,14 @@ def describe(status: StageStatus) -> str:
     match status:
         case StageStatus.PENDING:
             return "not started"
-        case StageStatus.RUNNING:
+        case StageStatus.IN_PROGRESS:
             return "in progress"
-        case StageStatus.COMPLETED:
+        case StageStatus.PRODUCED | StageStatus.VERIFIED_DETERMINISTIC:
+            return "awaiting verification"
+        case StageStatus.VERIFIED_SEMANTIC | StageStatus.PROMOTED:
             return "done"
-        case StageStatus.FAILED:
-            return "failed"
+        case StageStatus.QUARANTINED | StageStatus.FAILED | StageStatus.INVALIDATED:
+            return "needs another pass"
         case _:
             assert_never(status)
 ```
@@ -769,8 +771,8 @@ module uses may live as constants in that module; directory layout belongs to `p
 ```python
 from glite_english_audit import paths
 
-run_dir = paths.run_dir(run_id=run_id)
-snapshot_dir = paths.snapshot_dir(run_id=run_id, adapter_id=adapter_id)
+run_dir = paths.run_dir(run_id)
+snapshot_dir = paths.snapshot_dir(run_id)
 ```
 
 #### Don't:
@@ -801,8 +803,9 @@ from glite_english_audit.diagnostics.codes import Diagnostic
 
 diagnostics.append(
     Diagnostic.from_code(
-        code="ADAPTER_SCHEMA_UNSUPPORTED",
-        detail="schema version 9 is newer than this client supports",
+        "SOURCE_UNSUPPORTED_SCHEMA",
+        "schema version 9 is newer than this client supports",
+        item_ref=instance_key,
     )
 )
 ```

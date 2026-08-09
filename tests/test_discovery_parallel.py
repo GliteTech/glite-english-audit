@@ -269,7 +269,12 @@ def test_parallel_scanning_keeps_the_opened_path_audit(tmp_path: Path) -> None:
 
 
 class _StubAdapter:
-    """A minimal adapter that yields one record and no paths."""
+    """A minimal adapter that yields one record and no paths.
+
+    Implements the whole :class:`SourceAdapter` protocol, not just the part
+    these tests call: a partial stub would type-check as a different thing
+    from what ``run_discovery`` is handed at runtime.
+    """
 
     def __init__(self, adapter_id: str, *, delay: float = 0.0) -> None:
         self._adapter_id = adapter_id

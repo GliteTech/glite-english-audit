@@ -101,7 +101,9 @@ The path is identical everywhere and sits inside the Git-ignored runtime tree. H
 belongs to a checkout rather than to the machine: a fresh clone starts with no calibration history
 and rebuilds it from its own runs.
 
-Native Windows and WSL keep separate histories. The file is JSONL, one numerical measurement
+Native Windows and WSL keep separate histories whenever they use separate checkouts, which the
+project specification (3.6) requires: a WSL clone lives on the WSL filesystem, so it cannot share
+a history file with a native Windows clone. The file is JSONL, one numerical measurement
 record per line, with owner-only permissions. It contains no text, no source instance, path,
 project, session ID, timestamp of user content, example, or user identifier. Public adapter IDs
 such as `claude_code`, `codex`, or `wispr_flow` may appear because source shape affects cost.

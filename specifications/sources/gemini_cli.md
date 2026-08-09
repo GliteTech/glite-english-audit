@@ -1,7 +1,8 @@
 # Source specification: Google Gemini CLI (`gemini_cli`)
 
 Status: reviewed source specification for the `gemini_cli` adapter (spec section 4.2 research gate).
-Adapter ID: `gemini_cli`. Stability: stable (after release gates pass).
+Adapter ID: `gemini_cli`. Stability target: stable (after release gates pass); the shipped
+adapter is beta until a real-installation smoke test runs.
 Research basis: vendor source code (google-gemini/gemini-cli, TypeScript), vendor
 documentation, vendor blog, and maintainer PR/issue threads. Web evidence only: Gemini CLI
 is not installed on the reference machine, so no claim in this document rests on local
