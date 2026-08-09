@@ -74,9 +74,9 @@ Consult a reference only when the step you are on needs it:
 
 You are the authority on authorship at this step. Line shape cannot decide it. The common case is
 a short request such as "fix those issues" followed by thousands of words of pasted lint output,
-delivered as one field with no marker between the two. The deterministic pre-filter
-(`src/glite_english_audit/normalization/authorship.py`) removes only unambiguous machinery and
-bulk and leaves everything arguable for you; the judgment is yours.
+delivered as one field with no marker between the two. Nothing filters that field before you: you
+read exactly what the application stored, which is what makes every span you retain quotable
+against it character for character. The judgment is yours alone.
 
 Getting it wrong is silent and asymmetric. Retained words become the denominator: the versioned
 tokenizer (`src/glite_english_audit/normalization/tokenizer.py`) counts every word you keep, and

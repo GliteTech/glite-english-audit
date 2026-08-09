@@ -1,1 +1,1 @@
-"""Shared normalization: word counting, language spans, authorship, dedup."""
+"""Shared normalization: word counting, language spans, dedup."""

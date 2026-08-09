@@ -295,29 +295,6 @@ class CandidateUtterancesManifest(BaseModel):
         return value
 
 
-class EligibleCorpusManifest(BaseModel):
-    """Stage 3 manifest: eligible user-authored English after filtering."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    envelope: ArtifactEnvelope
-    tokenizer_version: str
-    utterance_count: int = Field(ge=0)
-    english_word_count: int = Field(ge=0)
-    quarantined_utterance_count: int = Field(ge=0)
-    deduplicated_utterance_count: int = Field(ge=0)
-    jsonl_relative_path: str
-    jsonl_sha256: str
-
-    @field_validator("jsonl_sha256")
-    @classmethod
-    def _sha256(cls, value: str) -> str:
-        if not _SHA256_PATTERN.fullmatch(value):
-            msg = "jsonl_sha256 must be a SHA-256 hex digest"
-            raise ValueError(msg)
-        return value
-
-
 class FindingsArtifactMeta(BaseModel):
     """Sidecar envelope for one human-readable stage 4 findings file.
 
