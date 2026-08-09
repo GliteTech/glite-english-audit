@@ -19,13 +19,19 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.paths import validate_run_id
 
-MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 3
 """2 renamed ``stages`` to ``steps`` and ``stage_id`` to ``step_id``.
 
-A manifest written by version 1 no longer validates, which the resume policy
-already handles: an incompatible artifact-schema version refuses the resume and
-offers a new run. Migrating it would mean carrying the old vocabulary in the
-code that reads it, which is the thing being removed.
+3 dropped ``SelectionState.processing_profile``. It stored the answer to a
+question that offered two model choices this product cannot make — steps c, d
+and e inherit the session's model — so every run recorded a selection nobody
+was asked for. The question is gone, and a field that records a choice that
+does not exist is worse than no field.
+
+A manifest written by an older version no longer validates, which the resume
+policy already handles: an incompatible artifact-schema version refuses the
+resume and offers a new run. Migrating it would mean carrying the old
+vocabulary in the code that reads it, which is the thing being removed.
 """
 
 
@@ -73,7 +79,6 @@ class SelectionState(BaseModel):
     selected_instance_keys: list[str]
     excluded_instance_keys: list[str] = Field(default_factory=list)
     period: PeriodSelection
-    processing_profile: str
     record_cutoff_at: datetime
     """Record-level source cutoff frozen when selection is confirmed.
 
@@ -93,6 +98,21 @@ class CompatibilityFingerprint(BaseModel):
     skill_versions: dict[str, int]
     prompt_versions: dict[str, int]
     model_ids: dict[str, str]
+    """What the session was observed to be running, not what anything chose.
+
+    Steps c, d and e inherit the model of the session that runs them; nothing
+    in this product pins one. So this holds an observation —
+    :func:`glite_english_audit.runtime_session.observed_model_ids` — under
+    ``session-model`` and ``session-effort``, with ``<unknown>`` where
+    detection returned nothing.
+
+    It was the models a calibration profile resolved to, which described what
+    had been measured rather than what would run: a manifest could say
+    ``claude-fable-5`` for a run every step of which was done by
+    ``claude-opus-5``. Resume compares this map and invalidates from the first
+    semantic step when it differs, so a value nobody observed silently reuses
+    work another model did.
+    """
     consent_policy_version: str
     client_version: str = CLIENT_VERSION
     """Version of this package.

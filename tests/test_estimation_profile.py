@@ -14,9 +14,9 @@ from glite_english_audit.estimation.profile import (
     TokenUsageProfileEntry,
     default_profile_path,
     load_token_usage_profile,
-    profiles_differ,
     resolve_models,
 )
+from glite_english_audit.paths import repo_root
 
 # The steps the pipeline actually runs. verify-findings was deleted and
 # create-safe-records was merged into find-mistakes, so neither may be priced.
@@ -278,29 +278,16 @@ def test_confirm_confidentiality_cell_reproduces_the_run_it_was_measured_from() 
     assert entry.messages_measured // 25 < 10
 
 
-def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
-    """Specification 10.8 requires the resolved models in the manifest.
+def test_a_profile_resolves_one_priced_cell_per_step() -> None:
+    """What the function is for: which measurement each step is priced from.
 
-    They were an empty dict, which cost two things: the manifest did not record
-    what ran, and resume compares this field to decide whether a model change
-    invalidates the semantic steps, so the check could never fire.
+    Not which model will run. Steps c, d and e inherit the session's model, so
+    a profile can only say what was measured — the test below holds it to that.
     """
     profile = load_token_usage_profile()
     resolved = resolve_models(profile, runtime="claude-code", processing_profile="recommended")
     assert set(resolved) == EXPECTED_STEPS
     assert all(model for model in resolved.values())
-
-
-def test_both_profiles_resolve_the_same_while_one_model_is_measured() -> None:
-    """Specification 10.8: "both profiles may resolve to the same model".
-
-    That is the state today, and it is why the setup must not step a choice
-    between them. If this starts failing, a second model has been measured and
-    the profile question becomes a real one again.
-    """
-    profile = load_token_usage_profile()
-    for runtime in ("claude-code", "codex"):
-        assert profiles_differ(profile, runtime=runtime) is False
 
 
 def test_an_unknown_processing_profile_is_refused() -> None:
@@ -310,11 +297,33 @@ def test_an_unknown_processing_profile_is_refused() -> None:
         )
 
 
-def test_the_manifest_records_the_resolved_models() -> None:
-    # The end the whole chain exists for: what a run says it used.
-    from glite_english_audit.estimation.profile import resolve_models as _resolve
+def test_nothing_presents_a_resolved_model_as_what_will_run() -> None:
+    """The defect this whole change exists to end.
 
-    expected = _resolve(
-        load_token_usage_profile(), runtime="claude-code", processing_profile="recommended"
+    A resolved model reached the run manifest as ``model_ids`` and the
+    preflight as "runs on Claude Fable 5", one screen before the user agreed to
+    let a model read everything they had written. A real run then did every one
+    of its 75 records on claude-opus-5, because the per-file agents inherit the
+    session's model and this product pins nothing.
+
+    So: the manifest records the session, the skill never names a profile
+    model, and the setup no longer offers a choice between two of them.
+    """
+    manifest_source = (repo_root() / "src/glite_english_audit/pipeline/start_run.py").read_text(
+        encoding="utf-8"
     )
-    assert expected, "a claude-code run must resolve at least one model"
+    assert "observed_model_ids()" in manifest_source
+    assert "resolve_models" not in manifest_source
+
+    skill = (repo_root() / "skills/run-english-audit/SKILL.md").read_text(encoding="utf-8")
+    for model in {
+        entry.model
+        for entry in load_token_usage_profile().entries
+        if entry.runtime == "claude-code"
+    }:
+        # Neither the identifier nor its product name: "Claude Fable 5" is how
+        # the preflight said it, and that sentence is the one being deleted.
+        assert model not in skill
+        assert model.replace("-", " ").title() not in skill
+    assert "profiles_differ" not in skill
+    assert "Maximum assurance" not in skill

@@ -119,7 +119,6 @@ def test_start_run_refuses_a_stale_inventory(tmp_path: Path) -> None:
             os_environment_value="macos",
             preset="everything",
             instance_keys=None,
-            processing_profile=None,
             runs_root=tmp_path / "runs",
             inventory_dir=inventory_dir,
             now=_NOW,

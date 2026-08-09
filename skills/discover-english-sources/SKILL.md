@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 12
+**Version**: 13
 
 ## Goal
 
@@ -161,7 +161,7 @@ agent sees only the derived `InstanceInventorySummary`.
    the command takes. If you have not measured it, do not say it.
 
 6. Ask so the user can answer in one gesture. Ask about apps and period as
-   separate questions; never bundle sources, period, profile, and cost into one.
+   separate questions; never bundle sources, period, and cost into one.
 
    In Claude Code, use `AskUserQuestion`: one multi-select for apps and one
    single-select for the period. Keep option labels under about a dozen

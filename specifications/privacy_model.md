@@ -143,6 +143,22 @@ hash — 15% of everything the agents read.
 An agent also writes only its decision. The artifacts are written by the drivers, so nothing a model
 emits becomes a file a later step reads without a check in between.
 
+### 3A.1 Which model that is
+
+Whatever model the session is running. The per-file agents of steps c, d and e inherit it; nothing
+in this product pins a model, and nothing will, because nothing here calls an inference API.
+
+Which model reads the learner's writing is the most privacy-relevant fact in a run, so the
+preflight states it — as an observation, read from the running session by
+`src/glite_english_audit/runtime_session.py`, and as "not known" when it cannot be read. It may
+never be answered from the calibration profile. That is what it used to do: the preflight named the
+profile's model one screen before the user agreed, while a real run of 75 records was read by the
+session's own model, and no mechanism existed to make the stated one true. Report, never promise.
+
+The same observation is frozen into the run manifest (`CompatibilityFingerprint.model_ids`), where
+resume compares it and recomputes the semantic steps when it changed. A value nobody observed must
+never be written there: it would silently reuse judgments another model made.
+
 ## 4. Where the obligation sits, and why the second gate is not the mechanism
 
 **Step d owes clean records.** Not "records the next step will clean" — clean records, on the

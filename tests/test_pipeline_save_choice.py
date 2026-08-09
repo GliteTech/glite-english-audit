@@ -98,7 +98,6 @@ def test_the_stored_choice_carries_no_paths_or_counts(tmp_path: Path) -> None:
     assert "candidate" not in blob
     assert set(PendingChoice.model_fields) == {
         "period_preset",
-        "processing_profile",
         "include_sources",
         "exclude_sources",
         "exclude_labels",
@@ -110,7 +109,6 @@ def test_start_run_adopts_the_remembered_choice(tmp_path: Path) -> None:
     inventory_dir = _seed(tmp_path)
     save_choice(
         period_preset="last-7-days",
-        processing_profile="maximum-assurance",
         exclude_labels=["Claude Code 4"],
         inventory_dir=inventory_dir,
     )
@@ -119,14 +117,12 @@ def test_start_run_adopts_the_remembered_choice(tmp_path: Path) -> None:
         os_environment_value="macos",
         preset=None,
         instance_keys=None,
-        processing_profile=None,
         runs_root=tmp_path / "runs",
         inventory_dir=inventory_dir,
         now=datetime(2026, 8, 9, tzinfo=UTC),
     )
     assert manifest.selection is not None
     assert manifest.selection.period.preset == "last-7-days"
-    assert manifest.selection.processing_profile == "maximum-assurance"
     assert "claude_code-Claude-Code-4" not in set(manifest.selection.selected_instance_keys)
 
 
@@ -138,7 +134,6 @@ def test_an_explicit_argument_beats_the_remembered_one(tmp_path: Path) -> None:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile=None,
         runs_root=tmp_path / "runs",
         inventory_dir=inventory_dir,
         now=datetime(2026, 8, 9, tzinfo=UTC),

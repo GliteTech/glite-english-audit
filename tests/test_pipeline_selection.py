@@ -22,7 +22,13 @@ from glite_english_audit.artifacts.enums import (
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
+from glite_english_audit.estimation.profile import load_token_usage_profile, resolve_models
 from glite_english_audit.pipeline.start_run import resolve_selection, start_run
+from glite_english_audit.runtime_session import (
+    SESSION_EFFORT_KEY,
+    SESSION_MODEL_KEY,
+    UNKNOWN_SESSION_VALUE,
+)
 
 _NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
 
@@ -121,7 +127,6 @@ def test_the_choice_reaches_the_manifest(tmp_path: Path) -> None:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=tmp_path / "runs",
         inventory_dir=inventory_dir,
         exclude_labels=["Claude Code 4"],
@@ -135,6 +140,79 @@ def test_the_choice_reaches_the_manifest(tmp_path: Path) -> None:
     assert "claude_code-Claude-Code-4" in set(manifest.selection.excluded_instance_keys)
 
 
+def _observing(monkeypatch: pytest.MonkeyPatch, *, model: str | None, effort: str | None) -> None:
+    """Make detection report a session, through the real chain start_run uses."""
+    from glite_english_audit import runtime_session
+
+    monkeypatch.setattr(runtime_session, "detect_model", lambda **_: model)
+    monkeypatch.setattr(runtime_session, "detect_effort", lambda **_: effort)
+
+
+def test_the_manifest_records_the_model_the_session_is_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Observed, never resolved from the calibration profile.
+
+    The profile assumes claude-fable-5 for two of the three semantic steps, and
+    the manifest recorded that. A real run had all 75 of its records read by
+    claude-opus-5 — the per-file agents inherit the session's model and nothing
+    pins one — so the manifest named a model that had read nothing, and a
+    resume comparing it would have reused another model's judgments.
+    """
+    inventory_dir = ensure_private_dir(tmp_path / "inv")
+    write_model(inventory_dir / "source-inventory.json", _inventory())
+    _observing(monkeypatch, model="claude-opus-5", effort="xhigh")
+
+    manifest = start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        runs_root=tmp_path / "runs",
+        inventory_dir=inventory_dir,
+        now=_NOW,
+    )
+
+    assert manifest.fingerprint.model_ids == {
+        SESSION_MODEL_KEY: "claude-opus-5",
+        SESSION_EFFORT_KEY: "xhigh",
+    }
+    resolved = resolve_models(
+        load_token_usage_profile(), runtime="claude-code", processing_profile="recommended"
+    )
+    assert "claude-fable-5" in set(resolved.values()), "the profile still assumes another model"
+    assert "claude-fable-5" not in set(manifest.fingerprint.model_ids.values())
+    # Nor keyed by step, which is how a per-step resolution reached this field
+    # and how it would read as three choices rather than one inheritance.
+    assert set(resolved).isdisjoint(manifest.fingerprint.model_ids)
+
+
+def test_a_session_it_cannot_read_is_recorded_as_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex sessions and any host without a readable transcript land here. The
+    # honest record is that nobody knows, not the profile's model wearing the
+    # authority of a manifest.
+    inventory_dir = ensure_private_dir(tmp_path / "inv")
+    write_model(inventory_dir / "source-inventory.json", _inventory())
+    _observing(monkeypatch, model=None, effort=None)
+
+    manifest = start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        runs_root=tmp_path / "runs",
+        inventory_dir=inventory_dir,
+        now=_NOW,
+    )
+
+    assert manifest.fingerprint.model_ids == {
+        SESSION_MODEL_KEY: UNKNOWN_SESSION_VALUE,
+        SESSION_EFFORT_KEY: UNKNOWN_SESSION_VALUE,
+    }
+
+
 def test_consent_is_absent_unless_the_caller_states_it(tmp_path: Path) -> None:
     # A consent timestamp is evidence that someone was asked and agreed.
     # Creating a run must never invent one.
@@ -145,7 +223,6 @@ def test_consent_is_absent_unless_the_caller_states_it(tmp_path: Path) -> None:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=tmp_path / "runs",
         inventory_dir=inventory_dir,
         now=datetime(2026, 8, 9, tzinfo=UTC),
@@ -162,7 +239,6 @@ def test_each_consent_is_recorded_only_when_given(tmp_path: Path) -> None:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=tmp_path / "runs",
         inventory_dir=inventory_dir,
         local_scan_consent=True,
@@ -185,7 +261,6 @@ def test_collect_refuses_to_read_source_data_without_local_scan_consent(tmp_path
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=runs_root,
         inventory_dir=inventory_dir,
         now=datetime(2026, 8, 9, tzinfo=UTC),

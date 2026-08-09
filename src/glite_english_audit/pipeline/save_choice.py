@@ -13,9 +13,13 @@ This writes the answer beside the pending inventory so it survives.
 reused rather than restated on the command line.
 
 What is stored is only what the user said: application names, opaque labels
-they excluded, a period preset, and a profile. No paths, no counts, no text.
-Consent is deliberately not stored here — a remembered answer is a
-convenience, and consent is not something to remember on someone's behalf.
+they excluded, and a period preset. No paths, no counts, no text. Consent is
+deliberately not stored here — a remembered answer is a convenience, and
+consent is not something to remember on someone's behalf.
+
+A processing profile was stored too, until the question that produced it was
+removed: it offered two model choices the run cannot make, because steps c, d
+and e inherit the session's model.
 """
 
 import argparse
@@ -39,7 +43,6 @@ class PendingChoice(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     period_preset: str
-    processing_profile: str = "recommended"
     include_sources: list[str] = Field(default_factory=list)
     exclude_sources: list[str] = Field(default_factory=list)
     exclude_labels: list[str] = Field(default_factory=list)
@@ -63,7 +66,6 @@ def choice_path(*, inventory_dir: Path | None = None) -> Path:
 def save_choice(
     *,
     period_preset: str,
-    processing_profile: str = "recommended",
     include_sources: list[str] | None = None,
     exclude_sources: list[str] | None = None,
     exclude_labels: list[str] | None = None,
@@ -73,7 +75,6 @@ def save_choice(
     """Write the user's answer beside the pending inventory."""
     choice = PendingChoice(
         period_preset=period_preset,
-        processing_profile=processing_profile,
         include_sources=include_sources or [],
         exclude_sources=exclude_sources or [],
         exclude_labels=exclude_labels or [],
@@ -112,7 +113,6 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="Remember the user's setup choice")
     parser.add_argument("--period", required=True)
-    parser.add_argument("--profile", default="recommended")
     parser.add_argument("--include-source", action="append", default=None, metavar="APP")
     parser.add_argument("--exclude-source", action="append", default=None, metavar="APP")
     parser.add_argument("--exclude-label", action="append", default=None, metavar="LABEL")
@@ -127,7 +127,6 @@ def main(argv: list[str] | None = None) -> int:
 
     choice = save_choice(
         period_preset=arguments.period,
-        processing_profile=arguments.profile,
         include_sources=arguments.include_source,
         exclude_sources=arguments.exclude_source,
         exclude_labels=arguments.exclude_label,
@@ -138,7 +137,6 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "saved_to": str(choice_path(inventory_dir=arguments.inventory_dir)),
                 "period": choice.period_preset,
-                "profile": choice.processing_profile,
                 "include_sources": choice.include_sources,
                 "exclude_sources": choice.exclude_sources,
                 "exclude_labels": choice.exclude_labels,

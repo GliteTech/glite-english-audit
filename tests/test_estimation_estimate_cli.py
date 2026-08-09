@@ -10,6 +10,7 @@ uncalibrated cell as measured, and output that carries no label or path.
 """
 
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -30,8 +31,10 @@ from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimate import (
     EstimateReport,
     RuntimeSteps,
+    SessionModel,
     build_notes,
     build_report,
+    describe_session,
     distinct_rows,
     select_runtime_steps,
     step_units,
@@ -396,11 +399,12 @@ def test_lists_inside_a_note_are_joined_as_english_not_as_a_column() -> None:
 def test_the_undated_source_note_agrees_in_number() -> None:
     """The count decides the noun, the verb, and the pronoun after it."""
     steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    one = build_notes(steps=steps, undated_instances=1)
+    session = describe_session(steps)
+    one = build_notes(steps=steps, session=session, undated_instances=1)
     assert any("1 source reports no dates" in note and "it counts in full" in note for note in one)
     assert not any("1 sources" in note for note in one)
 
-    several = build_notes(steps=steps, undated_instances=3)
+    several = build_notes(steps=steps, session=session, undated_instances=3)
     assert any(
         "3 sources report no dates" in note and "they count in full" in note for note in several
     )
@@ -431,12 +435,20 @@ def test_a_session_that_matches_what_was_measured_is_not_a_mismatch(
 
     monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "medium")
-    assert module._measured_elsewhere(_steps_measured_on("claude-fable-5", "medium")) is False
+    matching = describe_session(_steps_measured_on("claude-fable-5", "medium"))
+    assert matching.measured_elsewhere is False
+    assert matching.model == "claude-fable-5"
 
     monkeypatch.setattr(module, "detect_model", lambda: None)
     monkeypatch.setattr(module, "detect_effort", lambda: None)
     steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    assert module._measured_elsewhere(steps) is False
+    unknown = describe_session(steps)
+    assert unknown.measured_elsewhere is False
+    # Unknown is reported as unknown. Filling it in from the cells it is being
+    # compared against is the substitution this whole change removes.
+    assert unknown.model is None
+    assert unknown.effort is None
+    assert unknown.measured_models == ("claude-fable-5", "claude-opus-5")
 
 
 def test_matching_one_cell_out_of_three_is_not_calibration(
@@ -458,10 +470,65 @@ def test_matching_one_cell_out_of_three_is_not_calibration(
     monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
     steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
     assert "claude-opus-5" in {entry.model for entry in steps.entries()}
-    assert module._measured_elsewhere(steps) is True
-    notes = build_notes(steps=steps, undated_instances=0)
+    session = describe_session(steps)
+    assert session.measured_elsewhere is True
+    notes = build_notes(steps=steps, session=session, undated_instances=0)
     assert any("can take longer and use more" in note for note in notes)
     assert not any("claude-opus-5" in note for note in notes)
+
+
+def test_the_report_hands_the_preflight_the_running_model_and_the_measured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The preflight has to state one and disclaim the other, so it gets both.
+
+    It used to be handed neither, and said the calibration profile's model —
+    one screen before the user agreed to let a model read everything they had
+    written, and with nothing in the product able to make it true.
+    """
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: "claude-opus-5")
+    monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+
+    assert report.session.model == "claude-opus-5"
+    assert report.session.effort == "xhigh"
+    assert "claude-fable-5" in report.session.measured_models
+    assert report.session.measured_elsewhere is True
+
+
+def test_a_model_that_cannot_be_read_is_null_rather_than_the_measured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Null is what the preflight turns into "I cannot tell you which model".
+    # Any substitute here becomes a sentence the product cannot keep.
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: None)
+    monkeypatch.setattr(module, "detect_effort", lambda: None)
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+
+    assert report.session.model is None
+    assert report.session.effort is None
+    assert report.session.measured_models
+    payload = json.loads(report.model_dump_json())
+    assert payload["session"]["model"] is None
+
+
+def test_every_session_field_the_preflight_quotes_exists() -> None:
+    """The preflight tells an agent to read `session.model` and its neighbours.
+
+    Prose drifts from code silently, and this project has shipped that defect
+    three times. The model line is the one sentence in a run that may not be
+    improvised, so every name it quotes is checked against the model that
+    produces it — a stale name there sends an agent back to inventing one.
+    """
+    skill = (_REPO / "skills/run-english-audit/SKILL.md").read_text(encoding="utf-8")
+    quoted = set(re.findall(r"`session\.([a-z_]+)`", skill))
+    assert quoted, "the preflight must say where the model it states comes from"
+    assert quoted <= set(SessionModel.model_fields)
+    assert "session" in EstimateReport.model_fields
 
 
 def test_a_matching_model_with_a_wrong_effort_still_counts_as_measured_elsewhere(
@@ -473,4 +540,4 @@ def test_a_matching_model_with_a_wrong_effort_still_counts_as_measured_elsewhere
 
     monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
-    assert module._measured_elsewhere(_steps_measured_on("claude-fable-5", "medium")) is True
+    assert describe_session(_steps_measured_on("claude-fable-5", "medium")).measured_elsewhere

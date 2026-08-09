@@ -25,7 +25,7 @@ runtime/runs/<run-id>/steps/
 └── e-verified/        confidentiality confirmed        agent   one per file
 ```
 
-Four properties hold, and code that breaks one of them is wrong even if its tests pass:
+Five properties hold, and code that breaks one of them is wrong even if its tests pass:
 
 - **Same names throughout.** A session that produced nothing is an empty file, never a missing
   one. Missing and empty mean different things, and only one of them is what happened.
@@ -37,6 +37,16 @@ Four properties hold, and code that breaks one of them is wrong even if its test
 - **Step d owes clean records; step e only confirms.** Step e may drop a record, never rewrite
   one, and the system must stay correct if step e is deleted. A scanner hit in step d is a defect
   in step d, not a filter doing its job.
+- **The model is inherited, never chosen.** The per-file agents of steps c, d and e run on
+  whatever model the session is running. Nothing pins one, and nothing will — this repository
+  makes no inference call, so there is nowhere to pin one. Anything the product says about which
+  model reads the learner's writing is an observation from
+  `src/glite_english_audit/runtime_session.py`, which returns `None` rather than guessing; the
+  run manifest records that observation, and `<unknown>` when there is none. It follows that
+  `calibration/token-usage-profile.json` is a description of what was measured, not a statement
+  about this run: the same corpus scored 91% precision on one model and 66% on another, so a
+  profile keyed by a model the session is not running describes a different run. Code that pins
+  a model, offers a choice of one, or prints a profile's model as what will run is wrong.
 
 Filenames are opaque sequence numbers (`session-0001.jsonl`) with the mapping in a local
 `session-index.json`. `session_hash` is not a path component: it has no validator, two adapters

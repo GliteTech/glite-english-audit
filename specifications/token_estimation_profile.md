@@ -146,6 +146,24 @@ numerical coefficients described above, written to `calibration/token-usage-prof
 Every cell states its own unit and its own provenance, because they differ. A profile edit that
 changes a number without changing this section is undocumented.
 
+**A profile describes what was measured. It does not say what will run.** The per-file agents of
+steps c, d and e inherit the model of the session that launches them; nothing in this product pins
+a model, and nothing will. So the `model` and `effort` keys are provenance — they say who produced
+these numbers — and the run may be on something else entirely. It usually is: the cells below were
+measured on `claude-fable-5` at medium and `claude-opus-5` at xhigh, and a session runs whatever the
+user's runtime is set to.
+
+The difference is not academic. On one corpus of 101 flagged constructions, judged blind by two
+independent judges at 90% inter-rater agreement, `claude-fable-5` reached 91% precision at 151,078
+output tokens and a 799-second median, `claude-opus-5` 90% at 77,153 and 456 seconds, and
+`claude-sonnet-5` 66% — a third of its flags were false positives — at 325,071 tokens and 1,023
+seconds. Two of those three would be described badly by any one cell here.
+
+What follows for code: `resolve_models` picks which cells an estimate is priced against and is
+never what a user is told will run; the run manifest records
+`runtime_session.observed_model_ids()`; and the estimate's `session` object reports the running
+model beside the measured one so the preflight can say plainly when they differ.
+
 | Step | Unit priced | Measured on |
 |---|---|---|
 | `judge-authorship` | One candidate utterance | Claude Code, `claude-fable-5`, medium, 198 utterances (2026-08-08/09) |

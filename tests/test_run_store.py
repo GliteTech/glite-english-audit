@@ -1,6 +1,8 @@
 """Run store: create/load, unfinished listing, resume policy, retention."""
 
+import os
 import shutil
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -194,6 +196,35 @@ def test_resume_invalidates_downstream_from_the_first_agent_step(
     assessment = describe_resume(manifest, _fingerprint(**overrides), now=_NOW)
     assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
     assert assessment.earliest_affected_step is StepId.C_AUTHORED
+
+
+def test_an_unrecorded_model_resumes_as_unrecorded_and_never_as_a_named_one(
+    tmp_path: Path,
+) -> None:
+    """What ``<unknown>`` compares as, which is a decision and not an accident.
+
+    ``model_ids`` holds an observation of the session, and detection can fail:
+    a Codex run, a machine whose transcript cannot be read. Two unknowns match,
+    so such a run still resumes — refusing would end resume for every host this
+    cannot read, and two failed detections are no evidence that anything
+    changed. An unknown never matches a named model, so a session that became
+    readable recomputes from the first step a model produced rather than
+    inheriting judgments whose author was never recorded.
+    """
+    unknown = {"session-model": "<unknown>", "session-effort": "<unknown>"}
+    manifest = _create(tmp_path, _fingerprint(model_ids=unknown))
+    write_checkpoint(manifest, root=tmp_path, now=_NOW)
+
+    still_blind = describe_resume(manifest, _fingerprint(model_ids=dict(unknown)), now=_NOW)
+    assert still_blind.decision is ResumeDecision.CONTINUE
+
+    now_readable = describe_resume(
+        manifest,
+        _fingerprint(model_ids={"session-model": "claude-opus-5", "session-effort": "xhigh"}),
+        now=_NOW,
+    )
+    assert now_readable.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
+    assert now_readable.earliest_affected_step is StepId.C_AUTHORED
 
 
 @pytest.mark.parametrize(
@@ -594,3 +625,45 @@ def test_a_resumable_run_carries_no_refusal_code(tmp_path: Path) -> None:
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
     assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
     assert assessment.diagnostic is None
+
+
+def test_a_run_whose_manifest_this_version_cannot_read_is_still_swept(tmp_path: Path) -> None:
+    """Retention is a promise about text on disk, not about parseable manifests.
+
+    A schema bump makes older manifests fail validation, and both the launcher
+    and the retention sweep used to skip what they could not parse. So such a
+    run was never offered for resume and never expired: its extracted sentences
+    stayed on disk for good, while the README went on promising thirty days.
+    Reproduced before the fix; this is the shape that must never return.
+    """
+    run = tmp_path / ("run-" + "b" * 32)
+    (run / "steps" / "a-collected").mkdir(parents=True)
+    text = run / "steps" / "a-collected" / "session-0001.jsonl"
+    text.write_text('{"text": "the learner\'s own sentence"}\n', encoding="utf-8")
+    stale = time.time() - (RETENTION_DAYS + 10) * 86400
+    os.utime(text, (stale, stale))
+    # A manifest carrying a field the current schema forbids.
+    (run / RUN_MANIFEST_FILENAME).write_text('{"manifest_schema_version": 1}\n', encoding="utf-8")
+
+    expire_stale_runs(root=tmp_path, now=datetime.now(UTC))
+
+    assert not text.exists()
+    assert not (run / "steps").exists()
+    # The manifest stays, as it does for every other expiry, so a person can
+    # still tell what the directory was.
+    assert (run / RUN_MANIFEST_FILENAME).is_file()
+
+
+def test_an_unreadable_run_inside_its_retention_window_is_left_alone(tmp_path: Path) -> None:
+    # Unreadable is a reason to sweep on schedule, not a reason to sweep early:
+    # a run interrupted an hour ago may still be resumable once the manifest is
+    # repaired, and deleting its text would make that impossible.
+    run = tmp_path / ("run-" + "c" * 32)
+    (run / "steps" / "a-collected").mkdir(parents=True)
+    text = run / "steps" / "a-collected" / "session-0001.jsonl"
+    text.write_text('{"text": "recent"}\n', encoding="utf-8")
+    (run / RUN_MANIFEST_FILENAME).write_text("{not json", encoding="utf-8")
+
+    expire_stale_runs(root=tmp_path, now=datetime.now(UTC))
+
+    assert text.exists()

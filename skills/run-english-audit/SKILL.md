@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 11
+**Version**: 12
 
 ## Goal
 
@@ -109,7 +109,7 @@ runtime; naming both is confusing and wrong.
    `skills/discover-english-sources/SKILL.md`. Present only the aggregate inventory
    it returns.
 6. Selection. Ask several small questions, one at a time — sources, then period, then
-   profile, then cost. Skip questions that do not apply.
+   cost. Skip questions that do not apply.
    1. Sources: show a short table of detected sources with opaque instance labels
       (such as "Claude Code 1"), candidate counts, date ranges, and stability. Stable
       sources with a supported schema and eligible provenance are selected by
@@ -132,44 +132,20 @@ runtime; naming both is confusing and wrong.
       `notes` — three of them, four when a source reports no dates. Warn when a
       preset is unlikely to fit the remaining allowance. These are estimates, not
       guarantees, and a range stays a range when you repeat it.
-   3. Processing profile. First find out whether there is a choice to offer:
+   3. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
 
-      ```
-      uv run python -c "from glite_english_audit.estimation.profile import
-      load_token_usage_profile, profiles_differ, resolve_models;
-      p=load_token_usage_profile(); r='claude-code';
-      print(profiles_differ(p, runtime=r), resolve_models(p, runtime=r,
-      processing_profile='recommended'))"
-      ```
+   There is no model question. There was one — "Recommended" against "Maximum
+   assurance" — and both sides of it named models this run cannot select: the
+   per-file agents of steps c, d and e inherit the model of the session you are
+   running in, nothing here pins one, and nothing will. A question whose options
+   do not reach the outcome is worse than no question, because the user reads
+   the answer as a decision they made. What the calibration profile still
+   chooses is which measured cells the estimate is priced against, and that is
+   not a choice to put to a person. The preflight reports the model instead.
 
-      Use the runtime you are running in. It prints whether the two profiles
-      resolve to different models, and which models Recommended resolves to.
-
-      When they do NOT differ — which is the case today, because only one model
-      per step has been measured — do not ask. A question with one real answer
-      wastes the user's attention and implies a control they do not have. Say
-      which model will run the work and move on:
-
-      Do: "Every step that reads your writing runs on Claude Fable 5, the only
-      model measured for this runtime, so there is nothing to choose between
-      here." Name the model, never the measured cells behind it: two of those
-      names belong to steps this pipeline no longer has.
-      Don't: offering "Recommended" and "Maximum assurance" as alternatives when
-      both resolve to the same model, with option text describing a cost tradeoff
-      that does not exist in this run.
-
-      When they DO differ, offer both and name the actual models in each option,
-      not the policy that picked them. "Recommended" tells the user nothing;
-      "Claude Fable 5 for every step" tells them what will read their writing.
-
-      Either way `start_run` records the resolved models in the manifest, so the
-      preflight can state them and a later model change invalidates the semantic
-      steps instead of passing unnoticed.
-   4. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
    In Claude Code, ask through `AskUserQuestion`: multi-select for which apps to
-   include, pre-selected to the default rule; single-select for the period, with
-   each preset's words and estimated time in its description; and a single-select
-   for the profile only when the profiles actually differ.
+   include, pre-selected to the default rule; and single-select for the period,
+   with each preset's words and estimated time in its description.
 
    In Codex, ask in plain text, following
    `skills/discover-english-sources/SKILL.md` under "Asking a Choice Question in
@@ -190,8 +166,8 @@ runtime; naming both is confusing and wrong.
    instead. List facts; save prose for the recommendation.
 
    Do: ask "Which period should I audit?" with the estimates on each option, then
-   ask about the profile separately.
-   Don't: combine sources, period, profile, budget, and consent into one question.
+   ask about the cost separately.
+   Don't: combine sources, period, budget, and consent into one question.
 7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
    Ask this on every audit. A confirmation stored by a previous run does not count.
@@ -211,18 +187,42 @@ runtime; naming both is confusing and wrong.
    invented.
 
    Show, in this order: the sources and period selected; estimated messages and
-   English words; the model that will read the writing; expected tokens with a
+   English words; which model this session is running; expected tokens with a
    conservative upper bound and the estimated duration; how much of the
    subscription allowance is used and when it resets, whenever the run can read
    them; what stays unknown about money, and whether paid overage is on; and that
    a throttled provider ends in a checkpoint rather than a hang. When API billing
    is detected, show the expected cost range and take a spend ceiling instead.
 
+   The model line is an observation, and everything you may say in it comes from
+   the same command's `session` object — `session.model`, `session.effort`,
+   `session.measured_models`, `session.measured_elsewhere`
+   (`src/glite_english_audit/estimation/estimate.py`). Three cases, and they are
+   all of them:
+   - `session.model` is set, `session.measured_elsewhere` false: name it, and
+     say the estimates were measured on it.
+   - `session.model` is set, `session.measured_elsewhere` true: name it, and in
+     the same breath say the estimates were measured on a different model, so
+     they describe a different run. This is the usual case today.
+   - `session.model` is null: say the model could not be read and you cannot
+     tell them which one it is. Do not put the measured model there instead.
+
+   Quote the identifier the command printed, unchanged. Never take a model name
+   from the calibration profile, from this file, or from memory. This bullet is
+   the run's most privacy-relevant fact — one screen later the user agrees to
+   let that model read everything they have written — and a name that did not
+   come from `session.model` is a promise the product has no mechanism to keep.
+   It made exactly that promise until this version: the preflight stated the
+   calibration profile's model while every record of a real run was read by the
+   session's own.
+
    Do:
    ```text
    - Sources: Codex and Cursor. Period: last 7 days.
    - Estimated volume: 145 messages, 58,205 English words.
-   - Reading your writing: Claude Fable 5.
+   - Reading your writing: <session.model>, which is the model this session is
+     running. The estimates below were measured on <session.measured_models>,
+     so they describe a run on a different model.
    - Expected use: 14.7M tokens, 27.2M as the conservative upper bound; 0.4–1.8 hours.
    - Your allowance: 12% of the weekly limit used, resets Friday 15:00 (read 20
      minutes ago).
@@ -231,7 +231,9 @@ runtime; naming both is confusing and wrong.
    - If your provider throttles I wait, and if the wait runs long I save a
      checkpoint and stop with a run you can resume.
    ```
-   Don't: naming the four measured cells behind that model. Don't: "58,232 a
+   Don't: "runs on <a model you did not read from `session.model`>", which is
+   what this line said before, and which no part of the product enforces. Don't:
+   naming the measured cells behind the estimate. Don't: "58,232 a
    minute ago — the window slid", which is the product narrating its own
    arithmetic at someone deciding whether to spend two hours. Don't: how many
    sessions run at once — the user does not choose it, and the estimate no longer
@@ -303,7 +305,7 @@ runtime; naming both is confusing and wrong.
    driver already had — but it is the smaller half.
 
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
-     --runtime <claude_code|codex> --period <preset> --profile <profile>
+     --runtime <claude_code|codex> --period <preset>
      --local-scan-consent --provider-transfer-consent`. It adopts the inventory
      discovery left pending, prints the `<run-id>`, and freezes the record cutoff.
      Pass the user's choice in the words they used, since instance keys are private
@@ -316,6 +318,13 @@ runtime; naming both is confusing and wrong.
      `--runtime` names the runtime you are actually running in; it defaults to
      `claude_code`, so a Codex run that omits it records the wrong runtime in the
      manifest.
+
+     It also records the model and effort this session is running, read from the
+     session rather than chosen — the steps below inherit whatever the session
+     is — and prints them back as `session_model` and `session_effort`. That
+     record is what makes a model change invalidate the semantic steps on
+     resume instead of passing unnoticed; where detection fails it records
+     `<unknown>`, which resumes as unknown and never matches a named model.
 
      The two consent flags are what write the timestamps into `ConsentState`. Pass
      each one only if that consent moment actually happened: `--local-scan-consent`
@@ -580,9 +589,10 @@ conversation — the numbers are estimates worked out from each app's date range
 the run can exceed them, and no price is available. Token totals stay in the
 command's JSON for the preflight.
 
-The user picks Last 30 days and the Recommended profile, confirms provider transfer
-("Send the selected text to your current AI provider through Claude Code?"), and
-confirms the preflight. Processing runs without further questions.
+The user picks Last 30 days, confirms provider transfer ("Send the selected text to
+your current AI provider through Claude Code?"), and confirms the preflight, which
+named the model this session is running and said the estimates were measured on a
+different one. Processing runs without further questions.
 
 Exact output (one progress update during step d), as `render_progress` emits it:
 

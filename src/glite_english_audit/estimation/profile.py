@@ -218,22 +218,32 @@ class CalibrationRecord(BaseModel):
 def resolve_models(
     profile: TokenUsageProfile, *, runtime: str, processing_profile: str
 ) -> dict[str, str]:
-    """Which model each semantic step will use, per specification 10.8.
+    """Which measured cell each step is priced against. Not what will run.
 
-    Recommended takes the cheapest model measured inside the top-quality band;
-    maximum assurance takes the highest measured eligible one. Both are read
-    from the committed calibration profile, because a model this project has
-    not measured is a model it cannot honestly offer.
+    Read that twice, because the function used to be read the other way and
+    the manifest, the preflight, and a setup question all repeated it. Steps c,
+    d and e run on whatever model the session is running — nothing here selects
+    a model, and this repository has no place to select one. What a calibration
+    profile can say is which measurements an estimate is computed from, and
+    that is all this returns.
 
-    Today every runtime has exactly one measured model per step, so the two
-    processing profiles resolve identically. Specification 10.8 anticipates
-    that: "If no cheaper model meets that band, both profiles may resolve to
-    the same model." Callers should ask :func:`profiles_differ` before offering
-    the user a choice between them.
-
-    Ordering within a step is by measured p90 cost per message, which is the
-    only cost signal this project has actually measured. It is a proxy for
+    ``recommended`` takes the cheapest measured cell per step; ``maximum-
+    assurance`` takes the most expensive. Ordering is by measured p90 cost per
+    message, the only cost signal this project has measured; it is a proxy for
     price, not a price.
+
+    What the run actually ran is
+    :func:`glite_english_audit.runtime_session.observed_model_ids`, and that is
+    what the run manifest freezes. Nothing this function returns may be shown
+    to a user as the model that will read their writing.
+
+    Nothing in ``src/`` calls this. The estimate prices against the most
+    expensive measured cell, and the run manifest records what the session was
+    observed running, so neither needs a per-step map. It is kept because the
+    committed profile is keyed per step and a reader comparing the two needs
+    something that reads it — but a caller that presents its result to a user as
+    what will run would reintroduce the defect this module's history is about,
+    and there is no such caller by design.
     """
     if processing_profile not in ("recommended", "maximum-assurance"):
         msg = f"unknown processing profile: {processing_profile!r}"
@@ -260,15 +270,3 @@ def resolve_models(
         if better:
             chosen[entry.step] = entry.model
     return chosen
-
-
-def profiles_differ(profile: TokenUsageProfile, *, runtime: str) -> bool:
-    """Whether the two processing profiles would resolve to different models.
-
-    When they would not, asking the user to choose between them is a question
-    with one real answer, and the honest move is to say which models will be
-    used rather than to step a choice.
-    """
-    return resolve_models(
-        profile, runtime=runtime, processing_profile="recommended"
-    ) != resolve_models(profile, runtime=runtime, processing_profile="maximum-assurance")

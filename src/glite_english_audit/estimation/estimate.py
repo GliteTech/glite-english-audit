@@ -14,6 +14,13 @@ stay in the JSON for the preflight, where the run skill quotes them beside the
 subscription figure that gives them a denominator; the statement that no price
 is available is a note rather than a column repeated on every row.
 
+The JSON also carries ``session``: which model and effort this session is
+running, and which the numbers were measured on. The preflight states the
+first, because the user is about to let a model read everything they wrote.
+It is an observation — the per-file agents inherit the session's model, and
+nothing in this product selects one — so it is ``null`` when it cannot be read
+rather than filled in from the calibration profile.
+
 This module reads the same pending inventory
 :mod:`glite_english_audit.pipeline.start_run` later adopts and applies that
 module's selection rules, so the estimate describes the run the user is about
@@ -195,6 +202,30 @@ class RuntimeSteps(BaseModel):
         )
 
 
+class SessionModel(BaseModel):
+    """The model this session is running, beside the ones that were measured.
+
+    Two different facts, and the preflight has to state both. ``model`` and
+    ``effort`` are observations of the session that will do the work — the
+    per-file agents inherit it, and nothing in this product selects one.
+    ``measured_models`` and ``measured_efforts`` describe where the numbers in
+    this report come from. ``measured_elsewhere`` is true when they are not the
+    same, which is the case the user has to be told about in plain words.
+
+    ``model`` is ``None`` when detection found nothing. That is reported as not
+    known, never filled in with the profile's model: naming a model the run
+    does not choose is the defect this field exists to end.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model: str | None
+    effort: str | None
+    measured_models: tuple[str, ...]
+    measured_efforts: tuple[str, ...]
+    measured_elsewhere: bool
+
+
 class PresetRow(BaseModel):
     """One preset's estimate, as the agent receives it."""
 
@@ -221,6 +252,7 @@ class EstimateReport(BaseModel):
     selected_instances: int
     undated_instances: int
     concurrent_batches: int
+    session: SessionModel
     presets: tuple[PresetRow, ...]
     notes: tuple[str, ...]
     table: str
@@ -411,7 +443,9 @@ def distinct_rows(rows: Sequence[PresetRow]) -> list[PresetRow]:
     ]
 
 
-def build_notes(*, steps: RuntimeSteps, undated_instances: int) -> tuple[str, ...]:
+def build_notes(
+    *, steps: RuntimeSteps, session: SessionModel, undated_instances: int
+) -> tuple[str, ...]:
     """The caveats that must reach the user with the numbers.
 
     Three, or four when a source cannot be placed in time. Each one is here
@@ -433,51 +467,61 @@ def build_notes(*, steps: RuntimeSteps, undated_instances: int) -> tuple[str, ..
                 f"{undated_instances} sources report no dates, so they count in full in "
                 "every period and overstate the short ones."
             )
-    if steps_confidence(steps) is EstimateConfidence.LOW or _measured_elsewhere(steps):
+    if steps_confidence(steps) is EstimateConfidence.LOW or session.measured_elsewhere:
         notes.append(UNDERSTATED_NOTE)
     notes.append(NO_PRICE_NOTE)
     return tuple(notes)
 
 
-def _measured_elsewhere(steps: RuntimeSteps) -> bool:
-    """Whether this session is not the one the numbers were measured on.
+def describe_session(steps: RuntimeSteps) -> SessionModel:
+    """The running session beside the cells these numbers were measured on.
 
     The calibration profile is keyed by model and effort, and nothing compared
     either against the session actually running. On the machine this was written
     the profile assumed one model at medium effort while the session ran a
-    different model at xhigh, so every hour and token above described a run the
-    user would not get.
+    different model at xhigh, so every hour and token described a run the user
+    would not get. Neither the profile nor anything else chooses that model:
+    the per-file agents inherit it from the session, which is why this is
+    reported and not resolved.
 
-    That fact used to be a note naming both models and both efforts. Model IDs
-    and an effort level are this repository's vocabulary, not the user's, and
-    the user cannot pick either at the period question; what the mismatch means
-    to them is that the numbers may be off, which is what
-    :data:`UNDERSTATED_NOTE` says. So the mismatch stayed as a reason to print
-    that note and stopped being a sentence of its own. Sample count alone would
-    not do: once every cell is measured ten times the run is called calibrated,
-    and a profile measured on another model would then say so silently.
+    ``measured_elsewhere`` drives one user-facing note and one preflight
+    sentence. It used to be a note naming both models and both efforts. Model
+    IDs and an effort level are this repository's vocabulary, not the user's,
+    and the user cannot pick either at the period question; what the mismatch
+    means to them there is that the numbers may be off, which is what
+    :data:`UNDERSTATED_NOTE` says. At the preflight it means something else and
+    the model is named: the user is about to agree to let a model read
+    everything they have written, and which model that is is the most
+    privacy-relevant fact in the run.
+
+    Sample count alone would not do as the trigger: once every cell is measured
+    ten times the run is called calibrated, and a profile measured on another
+    model would then say so silently.
 
     The comparison is per cell, not against the set of everything measured. The
-    profile now holds cells measured on more than one model, and asking only
+    profile holds cells measured on more than one model, and asking only
     whether the running model appears somewhere in that set would call an
     estimate calibrated when two of its three steps were measured elsewhere —
     the caveat would disappear exactly as it started to matter.
 
-    ``False`` when detection finds nothing, because an unknown session is not
-    evidence of a mismatch.
+    Not a mismatch when detection finds nothing: an unknown session is not
+    evidence of one.
     """
     running_model = detect_model()
     running_effort = detect_effort()
-    if running_model is None and running_effort is None:
-        return False
-
     wrong_model = running_model is not None and any(
         entry.model != running_model for entry in steps.entries()
     )
     wrong_effort = running_effort is not None and any(
         entry.effort != running_effort for entry in steps.entries()
     )
-    return wrong_model or wrong_effort
+    return SessionModel(
+        model=running_model,
+        effort=running_effort,
+        measured_models=tuple(sorted({entry.model for entry in steps.entries()})),
+        measured_efforts=tuple(sorted({entry.effort for entry in steps.entries()})),
+        measured_elsewhere=wrong_model or wrong_effort,
+    )
 
 
 def render_table(rows: list[PresetRow], *, notes: tuple[str, ...]) -> str:
@@ -533,7 +577,8 @@ def build_report(
                 concurrent_batches=concurrent_batches,
             )
         )
-    notes = build_notes(steps=steps, undated_instances=undated)
+    session = describe_session(steps)
+    notes = build_notes(steps=steps, session=session, undated_instances=undated)
     return EstimateReport(
         runtime=runtime_id,
         producer_version=PRODUCER_VERSION,
@@ -542,6 +587,7 @@ def build_report(
         selected_instances=len(records),
         undated_instances=undated,
         concurrent_batches=concurrent_batches,
+        session=session,
         presets=tuple(rows),
         notes=notes,
         table=render_table(rows, notes=notes),
