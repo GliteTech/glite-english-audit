@@ -1,6 +1,6 @@
 ---
 name: "filter-authored-english"
-description: "Judge, utterance by utterance, which spans of a stage-3 candidate batch the learner actually wrote, and record verbatim retained spans plus stable exclusion reason codes as a decisions JSONL file. Use during stage 3 of an audit run, after the pre-filter emits candidate batches and before the eligible-English corpus is assembled."
+description: "Judge, utterance by utterance, which spans of one session file the learner actually wrote, and write the same session file back under the same name with every item kept in order and its text replaced by those verbatim spans. Use during step c of an audit run, one agent per session file, after deduplication and before mistakes are found."
 ---
 
 # filter-authored-english wrapper

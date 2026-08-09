@@ -1,9 +1,9 @@
 ---
 name: "run-english-audit"
 description: "Orchestrate a complete Glite English audit: resume check, consent,
-source discovery, selection, preflight, autonomous stages 0-8, and the final local
-review. Use when the user says 'Run an English audit' or asks to continue an
-unfinished audit."
+source discovery, selection, preflight, the five autonomous steps a-e, and the
+final local review. Use when the user says 'Run an English audit' or asks to
+continue an unfinished audit."
 ---
 
 # run-english-audit wrapper

@@ -1,6 +1,6 @@
 ---
 name: "verify-mistake-confidentiality"
-description: "Adversarially check candidate privacy-safe mistake records for anything that could identify a person or organization, including combinations of harmless-looking details, and report per-record pass/fail with PRIVACY_ diagnostic codes. Use in a fresh context during stage 7, after stage-6 candidates exist, never in the creator's conversation."
+description: "Read one step-d session file of mistake records, judge each one as an adversary would — could a motivated reader identify a person or organization from it? — and write the same file name into step e carrying only the records that pass: clean lines copied verbatim, leaking ones dropped, nothing rewritten. Use during step e, one agent per session file, in a fresh context, never in the conversation that wrote the records."
 ---
 
 # verify-mistake-confidentiality wrapper
