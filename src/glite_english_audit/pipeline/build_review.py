@@ -42,10 +42,9 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.english import plural
-from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import step_dir, submission_dir
 from glite_english_audit.pipeline.authorship import INDEX_NAME as CORPUS_INDEX_NAME
-from glite_english_audit.pipeline.authorship import AuthoredCorpusIndex
+from glite_english_audit.pipeline.authorship import AuthoredCorpusIndex, english_words
 from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
 from glite_english_audit.pipeline.mistakes import REPORT_NAME, read_records, verify_records
 from glite_english_audit.pipeline.record_step import (
@@ -65,8 +64,8 @@ def _modality_counts(
     subset = [u for u in corpus if u.modality is modality]
     analyzed = [u for u in subset if u.utterance_id in analyzed_ids]
     return ModalityCounts(
-        eligible_words=sum(count_words(u.text) for u in subset),
-        analyzed_words=sum(count_words(u.text) for u in analyzed),
+        eligible_words=sum(english_words(u.text) for u in subset),
+        analyzed_words=sum(english_words(u.text) for u in analyzed),
         eligible_utterances=len(subset),
         analyzed_utterances=len(analyzed),
     )
@@ -218,8 +217,16 @@ def build_review(
 
     analyzed = [u for u in corpus if u.utterance_id in processed]
     counts = AuditCounts(
-        eligible_english_words=sum(count_words(u.text) for u in corpus),
-        analyzed_english_words=sum(count_words(u.text) for u in analyzed),
+        # english_words, not count_words. These fields are named
+        # eligible_english_words and analyzed_english_words, they are the
+        # denominator of every rate the review page shows and the submission
+        # package carries, and step c records the English slice while
+        # verify_corpus re-derives it the same way. Counting all words here made
+        # the one number that leaves the machine the only one computed by a
+        # different rule — larger than the verified corpus by however much
+        # non-English the learner wrote, and larger in a way no check compared.
+        eligible_english_words=sum(english_words(u.text) for u in corpus),
+        analyzed_english_words=sum(english_words(u.text) for u in analyzed),
         eligible_utterances=len(corpus),
         analyzed_utterances=len(analyzed),
         written=_modality_counts(corpus, Modality.WRITTEN, analyzed_ids=processed),
