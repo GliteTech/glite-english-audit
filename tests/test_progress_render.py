@@ -173,3 +173,30 @@ def test_the_work_unit_follows_the_step() -> None:
     state.work_unit = "messages"
     assert "messages processed" in render_progress(state)
     assert "sessions processed" not in render_progress(state)
+
+
+def test_progress_models_have_no_field_that_could_carry_source_text() -> None:
+    """Privacy by construction (specification, 9.1).
+
+    ``ProgressState`` claims no rendered update can leak content because the
+    model has no field able to hold any. That claim is only true while the
+    field set is what it is, so the field set is the test. ``waiting_note`` and
+    ``step_title`` are free text the orchestration writes about itself, never
+    about a message; every other field is a number, an ID, or an opaque label.
+    """
+    assert set(ProgressState.model_fields) == {
+        "run_id",
+        "overall_percent",
+        "step_number",
+        "step_total",
+        "step_title",
+        "per_source",
+        "collected_messages",
+        "collected_words",
+        "est_remaining_tokens",
+        "est_remaining_minutes",
+        "work_unit",
+        "waiting_note",
+    }
+    assert set(SourceProgress.model_fields) == {"label", "done", "total"}
+    assert set(EstimateRange.model_fields) == {"low", "high"}
