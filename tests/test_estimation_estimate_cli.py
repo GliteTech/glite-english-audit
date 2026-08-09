@@ -136,11 +136,14 @@ def test_an_undated_instance_is_counted_in_full_and_reported() -> None:
 
 
 def test_step_units_shrink_downstream() -> None:
+    # Authorship judgment reads every candidate; the later steps read only
+    # what it kept, which is why the units fall away down the pipeline.
     units = step_units(1000)
-    assert units.find_mistakes == 1000
-    assert units.verify_findings == 400
-    assert units.create_safe_records == 180
-    assert units.total == 1580
+    assert units.judge_authorship == 1000
+    assert units.find_mistakes == 970
+    assert units.verify_findings == 388
+    assert units.create_safe_records == 175
+    assert units.total == 2533
 
 
 def test_every_preset_gets_a_row_in_preset_order(tmp_path: Path) -> None:

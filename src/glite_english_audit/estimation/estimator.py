@@ -55,7 +55,20 @@ SECONDS_PER_UNIT_HIGH: float = 11.4
 VERIFY_UNITS_PER_MESSAGE: float = 0.40
 SAFE_RECORD_UNITS_PER_MESSAGE: float = 0.18
 
-# Profile step identifiers for the three calibrated semantic steps.
+# What survives the stage-3 authorship judgment, measured on the 2026-08-09
+# real-data run: of 198 candidate utterances holding 8,956 words, 192
+# utterances and 4,265 words were judged the learner's own. Nearly every
+# utterance keeps something, but under half its words do, because the bulk of
+# what a learner pastes into a coding agent was written by someone else.
+#
+# Every step after stage 3 reads the retained text, so estimating them from the
+# candidate word count overstates them by roughly a factor of two. Both ratios
+# move with the corpus — a learner who pastes less keeps more.
+AUTHORED_WORD_RETENTION: float = 0.48
+AUTHORED_UTTERANCE_RETENTION: float = 0.97
+
+# Profile step identifiers for the four calibrated semantic steps.
+STEP_JUDGE_AUTHORSHIP: str = "judge-authorship"
 STEP_FIND_MISTAKES: str = "find-mistakes"
 STEP_VERIFY_FINDINGS: str = "verify-findings"
 STEP_CREATE_SAFE_RECORDS: str = "create-safe-records"

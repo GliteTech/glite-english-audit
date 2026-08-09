@@ -16,7 +16,12 @@ from glite_english_audit.estimation.profile import (
     load_token_usage_profile,
 )
 
-EXPECTED_STEPS = {"find-mistakes", "verify-findings", "create-safe-records"}
+EXPECTED_STEPS = {
+    "judge-authorship",
+    "find-mistakes",
+    "verify-findings",
+    "create-safe-records",
+}
 EXPECTED_RUNTIMES = {"claude-code", "codex"}
 
 
@@ -182,3 +187,31 @@ def test_record_rejects_negative_counts() -> None:
         _record(fresh_input_tokens=-1)
     with pytest.raises(ValidationError):
         _record(batch_size=0)
+
+
+def test_judge_authorship_cell_reproduces_the_run_it_was_measured_from() -> None:
+    """The stage-3 cell must still predict the run that produced it.
+
+    On 2026-08-09 a real audit judged authorship for 198 candidate utterances
+    in eight concurrent batches and consumed 4,418,856 tokens end to end
+    (803,449 fresh input, 3,578,485 cached input, 36,922 output). A profile
+    edit that drifts far from that is either a new measurement, which should
+    replace these numbers, or a mistake.
+
+    The band is deliberately wide. Eight batches is a small sample and the
+    coefficients are per-message medians, so exact agreement would be a
+    coincidence rather than a check.
+    """
+    measured_tokens = 4_418_856
+    measured_utterances = 198
+
+    entry = load_token_usage_profile().entry_for(
+        step="judge-authorship", runtime="claude-code", model="claude-fable-5", effort="medium"
+    )
+    assert entry is not None
+    predicted = entry.p50_total_tokens_per_message * measured_utterances
+    assert 0.8 <= predicted / measured_tokens <= 1.2, (
+        f"the committed cell predicts {predicted:,.0f} tokens for the run that measured "
+        f"{measured_tokens:,}"
+    )
+    assert entry.messages_measured == measured_utterances

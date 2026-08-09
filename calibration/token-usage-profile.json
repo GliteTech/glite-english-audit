@@ -2,6 +2,22 @@
   "schema_version": 1,
   "entries": [
     {
+      "step": "judge-authorship",
+      "runtime": "claude-code",
+      "model": "claude-fable-5",
+      "effort": "medium",
+      "messages_measured": 198,
+      "average_words_per_message": 45.2,
+      "fixed_input_tokens_per_batch": 100431,
+      "input_tokens_per_message": 0.0,
+      "input_tokens_per_word": 0.0,
+      "cached_input_tokens_per_message": 18073.2,
+      "output_tokens_per_message": 186.5,
+      "retry_rate": 0.005,
+      "p50_total_tokens_per_message": 22439.0,
+      "p90_total_tokens_per_message": 26105.5
+    },
+    {
       "step": "find-mistakes",
       "runtime": "claude-code",
       "model": "claude-fable-5",
@@ -48,6 +64,22 @@
       "retry_rate": 0.0,
       "p50_total_tokens_per_message": 25907.5,
       "p90_total_tokens_per_message": 28089.0
+    },
+    {
+      "step": "judge-authorship",
+      "runtime": "codex",
+      "model": "uncalibrated-default",
+      "effort": "medium",
+      "messages_measured": 0,
+      "average_words_per_message": 40.0,
+      "fixed_input_tokens_per_batch": 6000,
+      "input_tokens_per_message": 240.0,
+      "input_tokens_per_word": 6.0,
+      "cached_input_tokens_per_message": 400.0,
+      "output_tokens_per_message": 180.0,
+      "retry_rate": 0.1,
+      "p50_total_tokens_per_message": 820.0,
+      "p90_total_tokens_per_message": 1450.0
     },
     {
       "step": "find-mistakes",

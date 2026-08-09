@@ -34,6 +34,7 @@ import argparse
 import json
 import math
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -45,10 +46,13 @@ from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.estimation.estimator import (
+    AUTHORED_UTTERANCE_RETENTION,
+    AUTHORED_WORD_RETENTION,
     HIGH_CONFIDENCE_MIN_RECORDS,
     SAFE_RECORD_UNITS_PER_MESSAGE,
     STEP_CREATE_SAFE_RECORDS,
     STEP_FIND_MISTAKES,
+    STEP_JUDGE_AUTHORSHIP,
     STEP_VERIFY_FINDINGS,
     VERIFY_UNITS_PER_MESSAGE,
     EstimateConfidence,
@@ -117,28 +121,40 @@ class StepUnits(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    judge_authorship: int = Field(ge=0)
     find_mistakes: int = Field(ge=0)
     verify_findings: int = Field(ge=0)
     create_safe_records: int = Field(ge=0)
 
     @property
     def total(self) -> int:
-        """Units across all three steps."""
-        return self.find_mistakes + self.verify_findings + self.create_safe_records
+        """Units across all four steps."""
+        return (
+            self.judge_authorship
+            + self.find_mistakes
+            + self.verify_findings
+            + self.create_safe_records
+        )
 
 
 class RuntimeSteps(BaseModel):
-    """The three calibrated semantic cells used for one runtime."""
+    """The four calibrated semantic cells used for one runtime."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    judge_authorship: TokenUsageProfileEntry
     find_mistakes: TokenUsageProfileEntry
     verify_findings: TokenUsageProfileEntry
     create_safe_records: TokenUsageProfileEntry
 
     def entries(self) -> tuple[TokenUsageProfileEntry, ...]:
-        """The three entries in pipeline order."""
-        return (self.find_mistakes, self.verify_findings, self.create_safe_records)
+        """The four entries in pipeline order."""
+        return (
+            self.judge_authorship,
+            self.find_mistakes,
+            self.verify_findings,
+            self.create_safe_records,
+        )
 
 
 class PresetRow(BaseModel):
@@ -223,14 +239,17 @@ def window_counts(
 def step_units(utterances: int) -> StepUnits:
     """Units each step processes for a window of ``utterances`` messages.
 
-    Only the first step sees every message; verification sees the findings
-    produced and safe-record creation sees the findings retained, both scaled
-    by the measured ratios in :mod:`estimator`.
+    Only authorship judgment sees every candidate message. Mistake-finding
+    sees what that judgment kept, verification sees the findings produced, and
+    safe-record creation sees the findings retained, each scaled by the
+    measured ratios in :mod:`estimator`.
     """
+    analyzed = math.ceil(utterances * AUTHORED_UTTERANCE_RETENTION)
     return StepUnits(
-        find_mistakes=utterances,
-        verify_findings=math.ceil(utterances * VERIFY_UNITS_PER_MESSAGE),
-        create_safe_records=math.ceil(utterances * SAFE_RECORD_UNITS_PER_MESSAGE),
+        judge_authorship=utterances,
+        find_mistakes=analyzed,
+        verify_findings=math.ceil(analyzed * VERIFY_UNITS_PER_MESSAGE),
+        create_safe_records=math.ceil(analyzed * SAFE_RECORD_UNITS_PER_MESSAGE),
     )
 
 
@@ -255,6 +274,9 @@ def select_runtime_steps(profile: TokenUsageProfile, *, runtime: str) -> Runtime
     happens.
     """
     return RuntimeSteps(
+        judge_authorship=_most_expensive_entry(
+            profile, step=STEP_JUDGE_AUTHORSHIP, runtime=runtime
+        ),
         find_mistakes=_most_expensive_entry(profile, step=STEP_FIND_MISTAKES, runtime=runtime),
         verify_findings=_most_expensive_entry(profile, step=STEP_VERIFY_FINDINGS, runtime=runtime),
         create_safe_records=_most_expensive_entry(
@@ -280,18 +302,24 @@ def steps_confidence(steps: RuntimeSteps) -> EstimateConfidence:
 
 
 def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
-    """Total tokens across the three semantic steps for one window.
+    """Total tokens across the four semantic steps for one window.
 
-    Only the first step is fed the real word count; the later steps read
-    findings rather than source text, so they are estimated at their own
-    calibrated average length instead of being scaled by source words.
+    Authorship judgment is fed every candidate word, because deciding which
+    words the learner wrote requires reading all of them. Mistake-finding is
+    fed only the share that judgment keeps. The last two steps read findings
+    rather than source text, so they are estimated at their own calibrated
+    average length instead of being scaled by source words.
     """
     units = step_units(counts.utterances)
+    analyzed_words = round(counts.words * AUTHORED_WORD_RETENTION)
     downstream = (
         (units.verify_findings, steps.verify_findings),
         (units.create_safe_records, steps.create_safe_records),
     )
-    stages = [estimate_stage(counts.words, units.find_mistakes, steps.find_mistakes)]
+    stages = [
+        estimate_stage(counts.words, units.judge_authorship, steps.judge_authorship),
+        estimate_stage(analyzed_words, units.find_mistakes, steps.find_mistakes),
+    ]
     stages.extend(
         estimate_stage(round(count * entry.average_words_per_message), count, entry)
         for count, entry in downstream
@@ -326,14 +354,44 @@ def estimate_preset(
     )
 
 
+def saturated_presets(rows: Sequence[PresetRow]) -> tuple[str, ...]:
+    """Preset labels whose window already covers the user's whole history.
+
+    When someone's oldest message is three months old, the last-three-months,
+    last-year, and everything rows carry identical numbers. Three identical
+    rows read as a broken table rather than as the fact they represent, so the
+    labels are returned here for a note that says what is really going on.
+    """
+    everything = next((row for row in rows if row.preset == "everything"), None)
+    if everything is None or everything.words == 0:
+        return ()
+    return tuple(
+        row.label
+        for row in rows
+        if row.preset != "everything"
+        and row.words == everything.words
+        and row.utterances == everything.utterances
+    )
+
+
 def build_notes(
-    *, steps: RuntimeSteps, runtime: str, undated_instances: int, concurrent_batches: int
+    *,
+    steps: RuntimeSteps,
+    runtime: str,
+    undated_instances: int,
+    concurrent_batches: int,
+    saturated: Sequence[str] = (),
 ) -> tuple[str, ...]:
     """The caveats that must reach the user with the numbers."""
     notes = [
         "Words and messages are candidates, counted before stage 3 drops text you did not "
         "write, and interpolated from each source's date range. Only Everything is exact.",
     ]
+    if saturated:
+        notes.append(
+            f"{', '.join(saturated)} match Everything because your history does not reach "
+            "back that far. The rows are identical on purpose."
+        )
     if undated_instances:
         notes.append(
             f"{undated_instances} source instances report no date range, so they count in "
@@ -344,8 +402,9 @@ def build_notes(
         "so the totals are large and are not billed at the fresh-input rate."
     )
     notes.append(
-        "Covers the three measured model steps. Stage 3, which decides which text you "
-        "wrote, has no calibrated cell yet, so its cost is missing from these totals."
+        f"Covers all four model steps. Every candidate word is read once to decide what you "
+        f"wrote; the later steps read only the {round(AUTHORED_WORD_RETENTION * 100)}% that "
+        "typically survives, so pasting less means a shorter run."
     )
     uncalibrated = [entry.step for entry in steps.entries() if entry.is_uncalibrated]
     low = [
@@ -446,6 +505,7 @@ def build_report(
         runtime=runtime_id,
         undated_instances=undated,
         concurrent_batches=concurrent_batches,
+        saturated=saturated_presets(rows),
     )
     return EstimateReport(
         runtime=runtime_id,
