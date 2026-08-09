@@ -19,8 +19,8 @@ and they map one to one onto directories under `runtime/runs/<run-id>/steps/`.
 | a | `a-collected` | One `NormalizedUtterance` per line, one file per session | Adapter `extract()` via `pipeline/collect.py` | Deterministic verifier plus adapter `verify()` structural checks |
 | b | `b-deduplicated` | The same files with duplicate messages removed | `pipeline/deduplicate.py` — a script, no model | Deterministic: every survivor appears in step a, every removal is recorded |
 | c | `c-authored` | The same files with everything the learner did not write removed | The `filter-authored-english` skill, one agent per file | Span verifier: every retained span is a verbatim substring of its step-b utterance, in order, non-overlapping |
-| d | `d-mistakes` | One privacy-clean mistake record per line | The `find-english-mistakes` skill, one agent per file | Deterministic: schema, span resolution against step c, double-count detection, privacy scanner |
-| e | `e-verified` | The same records, confidentiality confirmed | The `verify-mistake-confidentiality` skill, one agent per file | Deterministic: every step-e record is byte-identical to a step-d record |
+| d | `d-mistakes` | One privacy-clean `MistakeRecord` per line | The `find-english-mistakes` skill, one agent per file | `pipeline/mistakes.py --apply`: schema, span resolution against step c, double-count detection, privacy scanner |
+| e | `e-verified` | The same records, confidentiality confirmed | The `verify-mistake-confidentiality` skill, one agent per file | `pipeline/verify.py --apply`: step e must be step d with lines removed and nothing else |
 
 Everything under `steps/` is private and never leaves the local machine. Only the exported
 `SubmissionPackage` under `submission/` may leave, and only through the allowlist in
@@ -117,21 +117,36 @@ Authorship is a judgment, so a model makes it; counting is arithmetic, so code d
 this way keeps the word count deterministic while letting the harder question be answered by
 something that can read.
 
-1. `normalization/authorship.py` removes only unambiguous machinery and bulk — fenced code, stack
-   traces, log lines, structured payloads — so the project does not pay to send a five-thousand
-   word lint dump to a model. It is biased toward keeping: anything arguable survives for the
-   model to judge. It is not an authorship decision and must not be treated as one.
-2. One agent per session file runs the `filter-authored-english` skill and returns, for each
-   utterance, the spans the learner wrote — verbatim, in original order.
-3. `pipeline/authorship.py` locates every returned span in the step-b text by a single forward scan,
+1. One agent per session file runs the `filter-authored-english` skill and returns each utterance
+   with `text` replaced by the spans the learner wrote — verbatim, in original order.
+2. `pipeline/authorship.py` locates every returned span in the step-b text by a single forward scan,
    which enforces verbatim wording, original order, and non-overlap together. A span that is absent,
    reordered, or overlapping quarantines its **whole file** rather than entering the corpus, so a
    paraphrase or an invented sentence cannot reach the word denominator.
-4. Surviving spans are joined, classified for language, and counted with the versioned tokenizer.
+3. The retained text is counted with the versioned tokenizer, over its English slice only.
 
-Measured on one real corpus, the pre-filter alone kept 93.4% of the words it was given while the
-model kept 52.8% — so skipping the model step understates a learner's error rate by roughly a
-factor of 1.8 on heavily pasted sources.
+**The agent reads the raw step-b text, with no pre-filter in front of it.** There was one: a
+deterministic pass that stripped fenced code, stack traces, and log lines before the model saw
+them. It was dropped because it bought 6.6% of the words — measured on a real corpus, it kept
+93.4% of what it was given — and cost the property that makes step c checkable: every retained
+span is a verbatim substring of what the source application actually stored. Verifying
+against a derived text means a bug in the deriving code silently deletes the learner's words and
+nothing catches it.
+
+Measured on that same corpus, the model kept 52.8% of the words — so skipping the model step
+entirely overstates a learner's word count by roughly a factor of two on heavily pasted sources,
+and understates every rate divided by it.
+
+### 4.1 The count and the file deliberately disagree
+
+The step-c file holds what the learner wrote, in whatever language they wrote it. The word count
+holds only the English part of that, via `normalization/language.py`.
+
+The nine-stage pipeline instead rewrote each utterance to its English slice, which made the count
+right by making the artifact a paraphrase of what was said. Keeping the text verbatim and narrowing
+only the count answers both questions honestly: what did this person write, and how much of it was
+English they could get wrong. A Russian sentence dictated between two English ones is not an
+English mistake waiting to be found, and it is not part of the denominator.
 
 ## 5. Step d owes clean records; step e only confirms
 
@@ -144,11 +159,20 @@ repair one. In normal operation it drops nothing. The whole system must remain c
 deleted — a step the product does not depend on must never become the thing quietly holding it
 together.
 
-A step-d record carries the six shareable fields of `SafeMistakeRecord` — `mistake`, `rule`,
-`example`, `example_type`, `source_type`, `modality` — plus the `utterance_id` and evidence span
-needed to check it locally. It does **not** carry the original text. The span addresses the step-c
-file, which the run keeps, so the quote is resolved from there. That makes fabricating a quote
-impossible rather than merely detectable.
+A step-d record (`MistakeRecord`) carries the six shareable fields of `SafeMistakeRecord` —
+`mistake`, `rule`, `example`, `example_type`, `source_type`, `modality` — plus the `utterance_id`
+and evidence span needed to check it locally. It does **not** carry the original text. The span
+addresses the step-c file, which the run keeps, so the quote is resolved from there. That makes
+fabricating a quote impossible rather than merely detectable.
+
+Its identity is derived rather than declared: `record_id` is `utterance_id:start-end`, which the
+non-overlap rule makes unique within a run and identical across reruns. An ID a model chooses is
+neither, and a resumed run needs to know whether it is looking at the same record or a new one.
+
+Step e writes back its step-d file with lines removed and nothing else. Not a subset by content
+but a **subsequence by full record equality**, so an added, altered, repeated, or reordered
+record fails with its own diagnostic rather than passing as a drop. What it removed is recorded in
+`dropped.json`, the way step b records `removed.json`.
 
 There is no separate findings-accuracy verifier, by decision. When precision or recall slips, the
 fix belongs in the `find-english-mistakes` skill.

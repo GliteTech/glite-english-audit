@@ -473,6 +473,71 @@ class SafeMistakeRecord(BaseModel):
         return value
 
 
+class MistakeRecord(BaseModel):
+    """One mistake as steps d and e carry it: shareable content plus its address.
+
+    Two things separate it from :class:`PrivateMistake`, which it replaces.
+
+    It is shareable when written. Step d emits the six fields of
+    :class:`SafeMistakeRecord` with a synthetic example, so no later step has to
+    turn a private record into a safe one and step e confirms rather than
+    repairs. A privacy-scanner hit on a step-d file is therefore a defect in
+    step d, not a filter.
+
+    It carries no ``original_text``. The old record quoted the learner's words
+    and a verifier compared the quote with the span it claimed; a fabricated
+    pair that agreed with itself passed that check. Here the span alone
+    addresses the step-c file the run keeps, and the quote is resolved from
+    there, which makes an invented quote impossible rather than detectable.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    utterance_id: str
+    evidence_span: EvidenceSpan
+    mistake: str
+    rule: str
+    example: str
+    example_type: ExampleType
+    source_type: str
+    modality: Modality
+
+    @field_validator("utterance_id")
+    @classmethod
+    def _utterance_id(cls, value: str) -> str:
+        return _validate_utterance_id(value)
+
+    @property
+    def record_id(self) -> str:
+        """Local identity, derived from the address rather than declared.
+
+        Two records for one utterance may not cover overlapping spans, so the
+        pair is unique within a run and identical across reruns — an ID a model
+        chooses is neither. It stays on the machine: a submission carries
+        :meth:`shareable` alone.
+        """
+        return f"{self.utterance_id}:{self.evidence_span.start}-{self.evidence_span.end}"
+
+    def shareable(self) -> SafeMistakeRecord:
+        """The six fields exactly as Glite would receive them."""
+        return SafeMistakeRecord(
+            mistake=self.mistake,
+            rule=self.rule,
+            example=self.example,
+            example_type=self.example_type,
+            source_type=self.source_type,
+            modality=self.modality,
+        )
+
+    @model_validator(mode="after")
+    def _shareable_on_arrival(self) -> "MistakeRecord":
+        # Every rule SafeMistakeRecord enforces applies at step d rather than at
+        # the submission boundary. A record that cannot become one is a defect
+        # the producing agent fixes while it still has the session in hand.
+        self.shareable()
+        return self
+
+
 class SafeRecordCandidate(BaseModel):
     """Stage 6/7 private wrapper linking a safe record to its private mistake."""
 

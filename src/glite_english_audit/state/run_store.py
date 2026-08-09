@@ -380,8 +380,8 @@ def describe_resume(
             decision=ResumeDecision.INVALIDATE_DOWNSTREAM,
             detail=(
                 f"Changed since the checkpoint: {', '.join(names)}. "
-                f"Step {paths.step_dir_name(earliest)[0]} and later are recomputed after a refreshed "
-                "preflight."
+                f"Step {paths.step_dir_name(earliest)[0]} and later are recomputed "
+                "after a refreshed preflight."
             ),
             earliest_affected_stage=earliest,
         )
