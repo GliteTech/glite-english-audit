@@ -55,14 +55,20 @@ language, nationality, or where the learner lives.
 **2. `redacted` — substitute.** When the stretch is disqualified, replace each offending value with
 a different concrete value and keep everything else the learner's. The replacement is:
 
-- **The same grammatical kind.** Proper noun for proper noun, singular countable for singular
-  countable, number for number. Swapping a bare proper noun for a noun phrase with an article
-  silently repairs an article error and makes the record false about what the learner did.
-- **Unrelated, not adjacent.** One neighbouring language, one nearby city, or one competitor in the
-  same niche still narrows to the same guess.
-- **An ordinary real thing, not a placeholder.** A common profession, a common city, a widely known
-  everyday tool. Never a newly invented brand-shaped name, which is a plausible-looking company that
-  did not exist before the record.
+- **The same grammatical kind.** Singular countable for singular countable, uncountable for
+  uncountable, number for number. Swapping a bare noun for a noun phrase with an article silently
+  repairs an article error and makes the record false about what the learner did.
+- **Never a name for a name.** A person, company, product, client, project, repository, or place is
+  replaced by an ordinary common noun, never by another name of the same kind. No step after step d
+  can distinguish a substituted name from a real one — step e is given the published fields and
+  nothing to compare them against — so a name that survives into a record is a name that ships, and
+  the ban in the list above holds for substitutes exactly as it holds for quotes. When no common
+  noun preserves the construction, the record falls to rung 3.
+- **Unrelated, not adjacent.** For what remains substitutable — a language, a profession, a weekday,
+  an ordinary object — one neighbouring language or one competitor in the same niche still narrows
+  to the same guess.
+- **An ordinary real thing, not a placeholder.** A common profession, an everyday object, another
+  language. Not a bracketed slot, not a category word the reader can see was emptied.
 - **Itself safe.** The substitute passes rung 1, so a replacement number is one or two digits with
   no decimal, percent, or currency sign.
 
@@ -117,18 +123,24 @@ language keeps the error intact and the attribute out:
 ```
 
 The learner wrote "I live in Helsinki for 14 years." — a city and a duration, in a session that also
-gives their age. Both values are replaced, each by one of the same kind:
+gives their age. The city is a place name, so it becomes a common noun rather than another city; the
+duration becomes a different number:
 
 ```json
 {
   "mistake": "Used the simple present for a state continuing over a stated period up to now.",
   "rule": "A state that began in the past and still holds takes the present perfect: 'I have lived'.",
-  "example": "I live in Osaka for 7 years.",
+  "example": "I live in the countryside for 7 years.",
   "example_type": "redacted",
   "source_type": "codex",
   "modality": "written"
 }
 ```
+
+A language stays a language and a city does not stay a city because the two carry different risks
+downstream. "Portuguese" points at nobody and cannot be mistaken for a disclosure; a plausible city
+name is indistinguishable from the learner's own, and the only thing standing between it and
+publication is the claim that it was substituted.
 
 ### Do — rung 3
 

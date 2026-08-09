@@ -88,7 +88,9 @@ Consult a reference only when the step you are on needs it:
 Check every judged field of every record — `mistake`, `rule`, `example` — then the record as a
 whole. A field fails when it carries any of these:
 
-* names of people, companies, products, clients, projects, repositories, or places;
+* names of people, companies, products, clients, projects, repositories, or places — including in a
+  `redacted` example, where step d is required to replace such a name with a common noun rather than
+  another name, precisely because you cannot tell a substituted name from a real one;
 * exact dates, amounts, percentages, user counts, prices, metrics, or uncommon quantities;
 * URLs, domains, emails, phone numbers, identifiers, paths, or code;
 * rare job titles or distinctive technical descriptions;
@@ -164,7 +166,8 @@ category of the problem, not the private value.
    item: no name, no exact quantity, no URL or path or identifier, no rare job title, no personal
    attribute, nothing saying what the writer or their organization is doing. A `redacted` example
    fails the same way an unedited one does when the substitution sits next to what it replaced —
-   a neighbouring language or a nearby city narrows to the same guess.
+   a neighbouring language narrows to the same guess — and it fails outright when it carries a name
+   at all, since a substituted name and a real one are the same thing from where you sit.
 4. Make the adversarial whole-record pass: combine every detail in the record and ask the
    identification question from the Judgment Rules. Drop plausible combination risks with
    `PRIVACY_REIDENTIFICATION_RISK`.

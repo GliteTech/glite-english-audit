@@ -405,15 +405,19 @@ nationality, or where the learner lives.
 **2. `redacted` — substitute.** When the stretch is disqualified, replace each offending value with
 a different concrete value and keep everything else the learner's. The replacement is:
 
-* **The same grammatical kind.** Proper noun for proper noun, singular countable for singular
-  countable, number for number. Swapping a bare proper noun for a noun phrase with an article
-  silently repairs an article error, and then the record says the learner made a mistake they did
-  not make.
-* **Unrelated, not adjacent.** One neighbouring language, one nearby city, or one competitor in the
-  same niche still narrows to the same guess as the original.
-* **An ordinary real thing, not a placeholder.** A common profession, a common city, a widely known
-  everyday tool. Never a newly invented brand-shaped name: that is a plausible-looking company that
-  did not exist until you wrote it.
+* **The same grammatical kind.** Singular countable for singular countable, uncountable for
+  uncountable, number for number. Swapping a bare noun for a noun phrase with an article silently
+  repairs an article error, and then the record says the learner made a mistake they did not make.
+* **Never a name for a name.** A person, company, product, client, project, repository, or place is
+  replaced by an ordinary common noun — "the supplier", "the spreadsheet", "the office" — never by
+  another name of the same kind. Nothing downstream can tell a substituted name from a real one, so
+  a name that survives into a record is a name that ships. When no common noun preserves the
+  construction, the record falls to rung 3.
+* **Unrelated, not adjacent.** For what is left — a language, a profession, a weekday, an ordinary
+  object — one neighbouring language or one competitor in the same niche still narrows to the same
+  guess as the original.
+* **An ordinary real thing, not a placeholder.** A common profession, an everyday object, another
+  language. Not `[company]`, not "this language", not a slot the reader can see was emptied.
 * **Itself safe.** The substitute passes rung 1, so a replacement number is one or two digits with
   no decimal, percent, or currency sign.
 
@@ -455,14 +459,20 @@ nobody but pins their first language, and it is not the error; the missing inver
 ~~~
 
 Do — rung 2 again, where the learner wrote "I live in Helsinki for 14 years." in a session that also
-gives their age. Both values go, each replaced by one of the same kind:
+gives their age. The city is a place name, so it goes to a common noun rather than to another city;
+the duration goes to a different number:
 
 ~~~json
 {"mistake": "Used the simple present for a state continuing over a stated period up to now.",
  "rule": "A state that began in the past and still holds takes the present perfect: 'I have lived'.",
- "example": "I live in Osaka for 7 years.",
+ "example": "I live in the countryside for 7 years.",
  "example_type": "redacted"}
 ~~~
+
+Why a common noun here and a real language above: nothing after you can tell a substituted city from
+the learner's own, so a place name in a record is a place name that ships. "Portuguese" is safe for
+the same reason "the countryside" is — neither points at anybody — and it stays a language because
+the record is about a question missing its inversion, which the substitution must not disturb.
 
 Do — rung 3, where the learner wrote "Our migration off the legacy invoicing platform depends from
 the Berlin team's rollout script." Replacing the platform and the city would still leave a sentence
@@ -474,6 +484,15 @@ describing one organization's migration, so no substitution reaches safety:
  "example": "The result depends from the input.",
  "example_type": "synthetic"}
 ~~~
+
+Don't — invent where quoting was safe: where the learner wrote "Please explain me how this feature
+works.", the example "Please explain me how the system operates." is a rung-3 answer to a rung-1
+record.
+Why: nothing in the learner's clause disqualified it, so the invention bought no privacy and cost
+the learner the sentence they actually wrote. The rungs are tried in order, and stopping at the
+first that holds is the whole instruction — an example is invented because the two rungs above it
+failed, never because inventing feels safer. A run where every example is invented is a run that
+never tried.
 
 Don't:
 
