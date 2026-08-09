@@ -98,12 +98,13 @@ Example:
 
 ```markdown
 ---
-name: "verify-english-findings"
-description: "Independently verify a findings artifact against its normalized
-utterances. Use after the analysis stage produces findings for a run."
+name: "find-english-mistakes"
+description: "Read one step-c session file and write the same file name into
+step d, holding one privacy-clean mistake record per line. Use during step d,
+one agent per session file."
 ---
 
-# Verify English Findings
+# Find English Mistakes
 ```
 
 ### Optional Frontmatter

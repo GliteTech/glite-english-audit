@@ -42,7 +42,7 @@ def run(tmp_path: Path) -> str:
             adapter_versions={"claude_code": "1.0.0"},
             artifact_schema_version=1,
             tokenizer_version="1.0.0",
-            skill_versions={"analyze-english-text": 1},
+            skill_versions={"find-english-mistakes": 1},
             prompt_versions={"find-mistakes": 1},
             model_ids={"find-mistakes": "example-model-1"},
             consent_policy_version="1",

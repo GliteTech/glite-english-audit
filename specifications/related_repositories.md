@@ -47,7 +47,7 @@ Adopted: typed Pydantic serialization boundaries, per-item caches with atomic wr
 prompt/model/code-version cache invalidation, bounded validation retries, separation of I/O, pure
 calculation, and orchestration, and actual token/cost accounting.
 Rejected: immutable-only assets, supersession chains, and JSONL metadata headers. This project uses
-replaceable derived artifacts: the run manifest points to one current artifact per stage, and
+replaceable derived artifacts: the run manifest points to one current output per step, and
 replacement invalidates downstream outputs.
 
 ### glite-analytics

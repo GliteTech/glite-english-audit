@@ -45,7 +45,7 @@ def _fingerprint(**overrides: object) -> CompatibilityFingerprint:
         "adapter_versions": {"claude_code": "1.0.0", "codex": "1.0.0"},
         "artifact_schema_version": 1,
         "tokenizer_version": "1.0.0",
-        "skill_versions": {"analyze-english-text": 1},
+        "skill_versions": {"find-english-mistakes": 1},
         "prompt_versions": {"find-mistakes": 1},
         "model_ids": {"find-mistakes": "example-model-1"},
         "consent_policy_version": "1",
@@ -176,7 +176,7 @@ def test_resume_continue_when_fingerprints_match(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"skill_versions": {"analyze-english-text": 2}},
+        {"skill_versions": {"find-english-mistakes": 2}},
         {"prompt_versions": {"find-mistakes": 2}},
         {"model_ids": {"find-mistakes": "example-model-2"}},
     ],
@@ -238,7 +238,7 @@ def test_resume_client_change_never_widens_an_earlier_invalidation(tmp_path: Pat
     # so a client change on top of a skill change must add nothing: the run
     # whose client version also changed stops exactly where the one whose did
     # not stops.
-    changed_skill = _fingerprint(skill_versions={"analyze-english-text": 2})
+    changed_skill = _fingerprint(skill_versions={"find-english-mistakes": 2})
     also_changed_client = _create(tmp_path, _fingerprint(client_version="0.0.1"))
     write_checkpoint(also_changed_client, root=tmp_path, now=_NOW)
     skill_change_only = _create(tmp_path)
