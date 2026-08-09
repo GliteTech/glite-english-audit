@@ -97,6 +97,13 @@ class ResumeAssessment(BaseModel):
     decision: ResumeDecision
     detail: str
     earliest_affected_stage: StageId | None = None
+    diagnostic: Diagnostic | None = None
+    """The stable code for this refusal, when there is one.
+
+    ``detail`` is what a person reads and may be reworded freely. The code is
+    what the README, the troubleshooting docs, and any future log line refer
+    to, and both documents named codes that nothing emitted until this field
+    existed."""
 
 
 class RunSummary(BaseModel):
@@ -286,6 +293,11 @@ def describe_resume(
                 f"This run cannot resume. {reason} Its private artifacts were deleted. "
                 "Start a new audit."
             ),
+            diagnostic=Diagnostic.from_code(
+                "STATE_EXPIRED_INPUT",
+                "the run's private artifacts were deleted when it ended",
+                item_ref=manifest.run_id,
+            ),
         )
     if moment - _last_checkpoint(manifest) > timedelta(days=RETENTION_DAYS):
         return ResumeAssessment(
@@ -293,6 +305,11 @@ def describe_resume(
             detail=(
                 f"The last checkpoint is more than {RETENTION_DAYS} days old, so this run "
                 "cannot resume. Start a new audit."
+            ),
+            diagnostic=Diagnostic.from_code(
+                "STATE_EXPIRED_INPUT",
+                f"the last checkpoint passed the {RETENTION_DAYS}-day retention limit",
+                item_ref=manifest.run_id,
             ),
         )
 
@@ -319,6 +336,11 @@ def describe_resume(
             detail=(
                 f"Changed since the checkpoint: {', '.join(restart_changes)}. "
                 "Checkpointed artifacts cannot be reused. Start a new run."
+            ),
+            diagnostic=Diagnostic.from_code(
+                "STATE_RESUME_INCOMPATIBLE",
+                f"the checkpoint fingerprint differs in: {', '.join(restart_changes)}",
+                item_ref=manifest.run_id,
             ),
         )
 

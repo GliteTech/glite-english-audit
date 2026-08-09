@@ -21,6 +21,7 @@ from glite_english_audit.artifacts.manifest import (
 )
 from glite_english_audit.state.machine import advance_run, advance_stage
 from glite_english_audit.state.run_store import (
+    RETENTION_DAYS,
     RUN_MANIFEST_FILENAME,
     ResumeDecision,
     RunStoreError,
@@ -537,3 +538,34 @@ def test_invalidate_from_the_first_stage_invalidates_the_whole_run(tmp_path: Pat
     _promote(manifest, *StageId)
 
     assert invalidate_from(manifest, StageId.SOURCE_INVENTORY, now=_NOW) == list(StageId)
+
+
+def test_a_refused_resume_carries_the_code_the_documents_promise(tmp_path: Path) -> None:
+    """README's troubleshooting section names these codes to the user.
+
+    Both were registered, documented in specifications/diagnostic_codes.md, and
+    emitted by nothing: describe_resume returned prose only. A code a user is
+    told to look for and that no code path can produce is a documentation
+    promise the software does not keep.
+    """
+    manifest = _create(tmp_path)
+    write_checkpoint(manifest, root=tmp_path, now=_NOW - timedelta(days=RETENTION_DAYS + 1))
+
+    expired = describe_resume(manifest, _fingerprint(), now=_NOW)
+    assert expired.decision is ResumeDecision.EXPIRED
+    assert expired.diagnostic is not None
+    assert expired.diagnostic.code == "STATE_EXPIRED_INPUT"
+
+    fresh = _create(tmp_path)
+    write_checkpoint(fresh, root=tmp_path, now=_NOW)
+    incompatible = describe_resume(fresh, _fingerprint(tokenizer_version="9.9.9"), now=_NOW)
+    assert incompatible.decision is ResumeDecision.RESTART
+    assert incompatible.diagnostic is not None
+    assert incompatible.diagnostic.code == "STATE_RESUME_INCOMPATIBLE"
+
+
+def test_a_resumable_run_carries_no_refusal_code(tmp_path: Path) -> None:
+    manifest = _create(tmp_path)
+    write_checkpoint(manifest, root=tmp_path, now=_NOW)
+    assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
+    assert assessment.diagnostic is None
