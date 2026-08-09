@@ -62,7 +62,7 @@ agent sees only the derived `InstanceInventorySummary`.
    - Runs entirely on your machine
    - Nothing goes to a model or over the network
    - I get back counts and dates only, never your messages
-   - Takes a few minutes on a large history
+   - Usually finishes in a few seconds
    ```
    Don't: the same four promises run together in one paragraph, where the reader
    has to take them on trust because none is separable enough to check.
@@ -76,7 +76,9 @@ agent sees only the derived `InstanceInventorySummary`.
    Pass no run identifier: discovery comes before the run exists, because the user
    chooses sources from this output and `pipeline.start_run` creates the run from
    that choice. The private artifact waits in the pending inventory location until
-   `start_run` adopts it. On a large history this takes a few minutes; say so before
+   `start_run` adopts it. It is fast — a few seconds even on millions of words, because
+   the scan runs across every core. Do not promise minutes; a user who is told to
+   expect a wait and gets an answer immediately learns the estimates are guesses.
    starting rather than leaving the user with a silent terminal.
 3. Read the summary JSON. Do not open the private artifact or any source path.
 4. Report what was found as a list, then judge it in prose. A list is faster to
@@ -89,6 +91,14 @@ agent sees only the derived `InstanceInventorySummary`.
    what they mean instead: an adapter is an app, an instance is a project, and a
    beta source is one this project has not yet tested against a real
    installation of that app — which is why it is off unless they ask.
+
+   Say nothing is held back only after checking that nothing is. When an untested
+   app did find English, name it and say it is off unless they ask; that is
+   actionable, because there is writing here the audit will skip. When every
+   untested app found nothing, there is nothing to hold back and nothing to
+   mention. The claim is cheap to verify and expensive to get wrong: a user told
+   nothing was skipped, whose largest source was skipped, has been misinformed
+   about the one thing this step exists to tell them.
 
    Do:
    ```text
@@ -132,14 +142,48 @@ agent sees only the derived `InstanceInventorySummary`.
    Don't: "Last 30 days will take about 6 hours" — a single number the tool
    never produced, with the uncertainty removed.
 
+   Relay every note the command returns, not the ones that seem important. They
+   are already the short list: the command emits only the caveats that apply to
+   this inventory, and each one exists because a number above it is wrong in a
+   specific way without it. Count them and check you have that many. A real run
+   dropped one of seven, and the dropped one is invisible to the reader by
+   definition.
+
+   If you comment on which app or period to drop, do the subtraction first. Rerun
+   the command with `--exclude-source` for the app you are about to name, and
+   compare against the presets. On real data the claim "dropping either app
+   changes the run more than any period choice" was false: dropping the largest
+   app cut 57.8%, while three of the five periods cut more than that, one of them
+   by 76%. Advice like this steers the whole setup, so it is worth the two seconds
+   the command takes. If you have not measured it, do not say it.
+
 6. Ask so the user can answer in one gesture. Ask about apps and period as
    separate questions; never bundle sources, period, profile, and cost into one.
 
-   In Claude Code, use `AskUserQuestion`: one multi-select question for which
-   apps to include, pre-selected to the default rule, and one single-select for
-   the period. Keep option labels under about a dozen characters. Each period
-   option's description carries that preset's words and estimated time from
-   step 5; the apps question carries their candidate words.
+   In Claude Code, use `AskUserQuestion`: one multi-select for apps and one
+   single-select for the period. Keep option labels under about a dozen
+   characters. Each period option's description carries that preset's words and
+   estimated time from step 5; the apps question carries their candidate words.
+
+   Ask the apps question as an EXCLUSION: "Which apps should I skip?" Its options
+   are the apps the default rule would include, and checking one drops it.
+
+   This is not a style preference. The picker cannot pre-check anything — an
+   option carries a label and a description and nothing else — so a question
+   phrased as "which apps should I read from", above boxes that are all empty,
+   says the opposite of what an accompanying "all are on by default" claims, and
+   the most likely action in the world is to glance at it and submit. Asked as an
+   exclusion, empty boxes mean exactly what they look like: skip nothing, keep
+   the default. The sentence and the checkboxes agree, and the safe reading and
+   the fast reading are the same reading.
+
+   Then pass each checked app to `save_choice` and `start_run` as
+   `--exclude-source`, in the words the option used.
+
+   Do: "Which apps should I skip? Leave everything unchecked to audit all five."
+   Don't: "Which apps should I read English from? All five are on by default."
+   above five empty boxes. Either the sentence or the boxes is lying, and the
+   user cannot tell which.
 
    In Codex, ask in plain text, using the pattern in the section below. Codex
    does have a picker (`request_user_input`), but it is single-select and works
