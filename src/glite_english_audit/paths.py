@@ -18,7 +18,7 @@ Layout::
     <repository>/runtime/
     ├── runs/<run-id>/
     │   ├── run-manifest.json
-    │   ├── stages/<n>/
+    │   ├── stages/<n>-<name>/
     │   ├── logs/
     │   ├── snapshots/        # copies of source data, removed after extraction
     │   └── submission/
@@ -117,7 +117,34 @@ def stage_dir(
     ``root`` overrides the runs root for tests.
     """
     base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
-    return base / "stages" / str(int(stage))
+    stages = base / "stages"
+    # Runs written before stages carried names keep the numeric layout, so a
+    # rename does not strand a resumable run. One numeric directory anywhere
+    # settles it for the whole run: a run half in each naming would be worse
+    # than either.
+    if (stages / str(int(stage))).exists() or _has_numeric_stages(stages):
+        return stages / str(int(stage))
+    return stages / stage_dir_name(stage)
+
+
+def stage_dir_name(stage: StageId) -> str:
+    """The on-disk directory name for one stage: ``4-plain-findings``.
+
+    The number leads because it is what the specification, the skills, and the
+    manifest all call this stage, and because it sorts. The name follows
+    because a person looking inside a run should not have to hold a table of
+    nine numbers in their head to know what they are reading — and this project
+    is built around that folder being the one place to inspect.
+    """
+    return f"{int(stage)}-{stage.name.lower().replace('_', '-')}"
+
+
+def _has_numeric_stages(stages: Path) -> bool:
+    """Whether this run was written under the older numeric layout."""
+    try:
+        return any(child.name.isdigit() for child in stages.iterdir() if child.is_dir())
+    except OSError:
+        return False
 
 
 def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:

@@ -18,6 +18,7 @@ from glite_english_audit.paths import (
     runtime_root,
     snapshot_dir,
     stage_dir,
+    stage_dir_name,
     validate_run_id,
 )
 
@@ -44,7 +45,7 @@ def test_every_private_location_nests_under_the_runtime_root(tmp_path: Path) -> 
     assert calibration_history_path(repo=tmp_path) == root / "calibration" / "local-history.jsonl"
     assert (
         stage_dir(_RUN_ID, StageId.PLAIN_FINDINGS, repo=tmp_path)
-        == root / "runs" / _RUN_ID / "stages" / "4"
+        == root / "runs" / _RUN_ID / "stages" / "4-plain-findings"
     )
 
 
@@ -135,3 +136,43 @@ def test_run_dir_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
 def test_stage_dir_rejects_malformed_run_id(tmp_path: Path, run_id: str) -> None:
     with pytest.raises(ValueError, match="run identifier"):
         stage_dir(run_id, StageId.SOURCE_INVENTORY, root=tmp_path)
+
+
+def test_a_stage_directory_names_its_stage(tmp_path: Path) -> None:
+    """A person looking inside a run should not need a table of nine numbers.
+
+    The number leads because it is what the specification, the skills, and the
+    manifest all call the stage, and because it sorts. The name follows because
+    this folder is the one place the design asks people to inspect.
+    """
+    assert stage_dir_name(StageId.SOURCE_INVENTORY) == "0-source-inventory"
+    assert stage_dir_name(StageId.PRIVATE_MISTAKES) == "5-private-mistakes"
+    assert stage_dir_name(StageId.REVIEWED_SUBMISSION) == "8-reviewed-submission"
+    names = [stage_dir_name(stage) for stage in StageId]
+    assert names == sorted(names), "the number must lead so the directories sort in order"
+
+
+def test_a_run_written_under_the_numeric_layout_still_resolves(tmp_path: Path) -> None:
+    """Renaming must not strand a resumable run.
+
+    Runs already on disk have stages/4; new code looking for
+    stages/4-plain-findings would find an empty directory and conclude the
+    stage had never run.
+    """
+    stages = tmp_path / "runs" / _RUN_ID / "stages"
+    (stages / "4").mkdir(parents=True)
+    assert stage_dir(_RUN_ID, StageId.PLAIN_FINDINGS, root=tmp_path / "runs").name == "4"
+
+
+def test_one_numeric_stage_settles_the_layout_for_the_whole_run(tmp_path: Path) -> None:
+    # A run half in each naming would be worse than either, so the presence of
+    # any numeric directory decides for stages that do not exist yet.
+    stages = tmp_path / "runs" / _RUN_ID / "stages"
+    (stages / "2").mkdir(parents=True)
+    assert stage_dir(_RUN_ID, StageId.SAFE_RECORDS, root=tmp_path / "runs").name == "6"
+
+
+def test_a_fresh_run_uses_names(tmp_path: Path) -> None:
+    (tmp_path / "runs" / _RUN_ID / "stages").mkdir(parents=True)
+    resolved = stage_dir(_RUN_ID, StageId.SAFE_RECORDS, root=tmp_path / "runs")
+    assert resolved.name == "6-safe-records"
