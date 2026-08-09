@@ -96,10 +96,11 @@ def thread_count(*, item_count: int, environ: Mapping[str, str] | None = None) -
 def _leased_pool(workers: int) -> Iterator[ProcessPoolExecutor]:
     """Lend the one shared process pool, creating it on first use.
 
-    Adapters run concurrently and each fans out over files, so without sharing
-    they would multiply the machine's worker count by the adapter count. The
-    pool is shut down as soon as the last caller leaves: no worker outlives
-    the discovery pass that created it.
+    Adapters run concurrently and each fans out over its own work, so without
+    sharing they would multiply the machine's worker count by the adapter
+    count. The first lease fixes the pool size; later leases join it. The pool
+    is shut down as soon as the last caller leaves, so no worker outlives the
+    discovery pass that created it.
     """
     global _pool, _pool_leases
     with _pool_lock:

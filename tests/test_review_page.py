@@ -792,3 +792,14 @@ def test_verification_state_is_never_carried_by_color_alone() -> None:
         assert wording in script
     assert "Check both confirmations to send." in page
     assert 'aria-disabled="true"' in page
+
+
+def test_a_decision_the_server_refused_is_undone_and_reported() -> None:
+    script = _script(_page_direct())
+    assert "function revert(box)" in script
+    assert "box.checked = !box.checked" in script
+    assert '"Not saved. The change did not reach the local server."' in script
+    assert script.count("catch(function () { revert(box); })") == 2
+    # A refused decision must not reach applyCounts, or the announced count
+    # becomes "undefined" for anyone listening to the live region.
+    assert 'if (!response.ok) { throw new Error("decision refused"); }' in script

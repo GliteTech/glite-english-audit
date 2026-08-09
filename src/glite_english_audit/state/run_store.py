@@ -273,20 +273,18 @@ def describe_resume(
     moment = now if now is not None else utc_now()
     if manifest.status in _FINISHED_STATUSES:
         # Both endings delete the run's private artifacts: completion by
-        # `cleanup_completed`, expiry by `expire_stale_runs`. There is nothing
-        # left to continue from, whatever the clock says.
-        finished = manifest.status is not RunStatus.EXPIRED
+        # `cleanup_completed`, expiry by `expire_stale_runs`. Nothing is left
+        # to continue from, whatever the clock says.
+        reason = (
+            f"It expired under the {RETENTION_DAYS}-day rule."
+            if manifest.status is RunStatus.EXPIRED
+            else "It already finished."
+        )
         return ResumeAssessment(
             decision=ResumeDecision.EXPIRED,
             detail=(
-                "This audit already finished, and its private artifacts were deleted. "
+                f"This run cannot resume. {reason} Its private artifacts were deleted. "
                 "Start a new audit."
-                if finished
-                else (
-                    "This run expired under the "
-                    f"{RETENTION_DAYS}-day rule and its private artifacts were deleted. "
-                    "Start a new audit."
-                )
             ),
         )
     if moment - _last_checkpoint(manifest) > timedelta(days=RETENTION_DAYS):

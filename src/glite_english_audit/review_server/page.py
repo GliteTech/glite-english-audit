@@ -294,7 +294,10 @@ _SCRIPT = """
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Glite-Review": token },
       body: JSON.stringify(payload)
-    }).then(function (response) { return response.json(); }).then(applyCounts);
+    }).then(function (response) {
+      if (!response.ok) { throw new Error("decision refused"); }
+      return response.json();
+    }).then(applyCounts);
   }
 
   function refreshPackage() {
@@ -314,6 +317,13 @@ _SCRIPT = """
     });
   }
 
+  function revert(box) {
+    // The server owns the decision. A box that shows a change the server never
+    // accepted would let the user send something they did not choose.
+    box.checked = !box.checked;
+    setStatus("status-fail", "Not saved. The change did not reach the local server.");
+  }
+
   Array.prototype.forEach.call(
     document.querySelectorAll(".record-toggle"),
     function (box) {
@@ -321,7 +331,7 @@ _SCRIPT = """
         postDecision({
           mistake_id: box.getAttribute("data-mistake-id"),
           included: box.checked
-        }).then(refreshPackage);
+        }).then(refreshPackage).catch(function () { revert(box); });
       });
     }
   );
@@ -332,7 +342,7 @@ _SCRIPT = """
       box.addEventListener("change", function () {
         var payload = {};
         payload[box.getAttribute("data-confirm")] = box.checked;
-        postDecision(payload);
+        postDecision(payload).catch(function () { revert(box); });
       });
     }
   );

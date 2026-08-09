@@ -342,8 +342,8 @@ def _write_findings(
     return produced
 
 
-def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) -> list[str]:
-    """Turn stage-4 findings into stage-5 records. Returns the mistake IDs."""
+def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) -> None:
+    """Turn stage-4 findings into stage-5 records, one per marked construction."""
     findings = _findings_dir(workspace, run_id)
     target = ensure_private_dir(
         stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=workspace.runs_root)
@@ -394,7 +394,6 @@ def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) 
             jsonl_sha256=sha256_hex(path.read_bytes()),
         ),
     )
-    return [mistake.mistake_id for mistake in mistakes]
 
 
 def _write_safe_candidates(workspace: Workspace, run_id: str) -> None:
@@ -621,7 +620,11 @@ def test_run_interrupted_before_its_manifest_offers_nothing_to_resume(
 
 @pytest.mark.parametrize("stage", list(StageId), ids=lambda stage: f"stage{int(stage)}")
 def test_interrupt_before_checkpoint_reruns_the_stage(workspace: Workspace, stage: StageId) -> None:
-    """The artifacts are durable but the checkpoint never landed."""
+    """The artifacts are durable but the checkpoint never landed.
+
+    The two tests below cover the other shape of the same interruption, where
+    the stage stopped part way through its own work.
+    """
     manifest = _start(workspace)
     run_id = manifest.run_id
     previous = StageId(stage - 1) if stage > StageId.SOURCE_INVENTORY else None
@@ -780,6 +783,7 @@ def test_interrupt_after_checkpoint_does_not_reprocess(
 _RESUME_PROBE = """
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from glite_english_audit.state.run_store import (
@@ -791,8 +795,9 @@ from glite_english_audit.state.run_store import (
 
 runs_root = Path(sys.argv[1])
 run_id = sys.argv[2]
+moment = datetime.fromisoformat(sys.argv[3])
 manifest = load_manifest(run_id, root=runs_root)
-assessment = describe_resume(manifest, manifest.fingerprint)
+assessment = describe_resume(manifest, manifest.fingerprint, now=moment)
 stage = next_incomplete_stage(manifest)
 print(
     json.dumps(
@@ -800,7 +805,9 @@ print(
             "decision": assessment.decision.value,
             "detail": assessment.detail,
             "next_stage": None if stage is None else int(stage),
-            "unfinished": [summary.run_id for summary in list_unfinished(runs_root)],
+            "unfinished": [
+                summary.run_id for summary in list_unfinished(runs_root, now=moment)
+            ],
         }
     )
 )
@@ -842,8 +849,11 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
     probe = tmp_path / "resume_probe.py"
     probe.write_text(_RESUME_PROBE, encoding="utf-8")
     # cwd is deliberately outside the checkout: a resumed run reads the run
-    # store, never the working directory it was started from.
-    payload = _fresh_process(probe, str(workspace.runs_root), run_id, cwd=tmp_path)
+    # store, never the working directory it was started from. The clock is
+    # passed in, so the assertions below do not age.
+    payload = _fresh_process(
+        probe, str(workspace.runs_root), run_id, _LATER.isoformat(), cwd=tmp_path
+    )
 
     assert payload["decision"] == ResumeDecision.CONTINUE.value
     assert payload["next_stage"] == int(StageId.PRIVACY_APPROVED)
@@ -995,6 +1005,56 @@ def test_resume_invalidate_downstream_recomputes_from_the_semantic_stages(
         for stage in StageId
         if stage >= StageId.PLAIN_FINDINGS
     )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"skill_versions": {"filter-authored-english": 3}},
+        {"prompt_versions": {"find-mistakes": 2}},
+        {"model_ids": {"find-mistakes": "example-model-2"}},
+    ],
+    ids=["skill", "prompt", "model"],
+)
+def test_resume_detects_a_changed_skill_prompt_or_model(
+    workspace: Workspace, overrides: dict[str, object]
+) -> None:
+    manifest = _start(workspace)
+    run_id = manifest.run_id
+    _advance_through(workspace, manifest, StageId.PLAIN_FINDINGS, at=_NOW)
+    kept = _stage_files(workspace, run_id, StageId.ELIGIBLE_ENGLISH, content_only=False)
+
+    resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, **overrides))
+
+    assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
+    assert resumed.assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
+    assert resumed.stages_run[0] is StageId.PLAIN_FINDINGS
+    assert _stage_files(workspace, run_id, StageId.ELIGIBLE_ENGLISH, content_only=False) == kept
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"adapter_versions": {"claude_code": "99.0.0"}},
+        {"artifact_schema_version": 2},
+        {"tokenizer_version": "9.9.9"},
+        {"consent_policy_version": "2"},
+    ],
+    ids=["adapter", "schema", "tokenizer", "consent"],
+)
+def test_resume_detects_an_incompatible_change(
+    workspace: Workspace, overrides: dict[str, object]
+) -> None:
+    # No versioned deterministic artifact migration exists yet, so every one of
+    # these changes takes the conservative branch: reuse nothing
+    # (specification, 9.4).
+    manifest = _start(workspace)
+    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+
+    resumed = _resume(workspace, manifest.run_id, _changed(manifest.fingerprint, **overrides))
+
+    assert resumed.assessment.decision is ResumeDecision.RESTART
+    assert resumed.stages_run == ()
 
 
 def test_invalidate_from_clears_pointers_and_keeps_a_quarantined_stage(
@@ -1157,7 +1217,10 @@ def test_quarantined_failures_and_diagnostics_survive_a_resume(workspace: Worksp
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
     assert resumed.stages_run[0] is StageId.ELIGIBLE_ENGLISH
-    # The repaired rerun does not erase what the failed pass recorded.
+    # The resume re-asks for the quarantined unit and this time the judgment
+    # verifies, so the utterance rejoins the corpus.
+    assert any("I very like" in utterance.text for utterance in _corpus(workspace, run_id))
+    # The repair does not erase what the failed pass recorded.
     assert [event.kind for event in read_events(run_directory)] == ["item_quarantined"]
     assert (
         load_manifest(run_id, root=workspace.runs_root).stages[StageId.ELIGIBLE_ENGLISH].status
