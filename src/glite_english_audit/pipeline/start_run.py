@@ -141,9 +141,19 @@ def start_run(
     include_sources: list[str] | None = None,
     exclude_sources: list[str] | None = None,
     exclude_labels: list[str] | None = None,
+    local_scan_consent: bool = False,
+    provider_transfer_consent: bool = False,
     now: datetime | None = None,
 ) -> RunManifest:
-    """Create the run directory, manifest, and frozen selection."""
+    """Create the run directory, manifest, and frozen selection.
+
+    Consent is recorded only when the caller states it was given. Neither flag
+    defaults to true: a consent timestamp is evidence that a person was asked
+    and agreed, and inventing one for a step that may never have happened is
+    worse than inferring it from a previous run, which specification 2.2 already
+    forbids. A run may legitimately exist with neither: creating it records the
+    selection, and processing is what needs the agreement.
+    """
     from glite_english_audit.artifacts.enums import OsEnvironment
 
     moment = now if now is not None else utc_now()
@@ -182,8 +192,8 @@ def start_run(
         status=RunStatus.AWAITING_PREFLIGHT,
         consent=ConsentState(
             consent_policy_version=CONSENT_POLICY_VERSION,
-            local_scan_confirmed_at=moment,
-            provider_transfer_confirmed_at=moment,
+            local_scan_confirmed_at=moment if local_scan_consent else None,
+            provider_transfer_confirmed_at=moment if provider_transfer_consent else None,
         ),
         selection=SelectionState(
             selected_instance_keys=sorted(selected),
@@ -256,6 +266,17 @@ def main(argv: list[str] | None = None) -> int:
         metavar="LABEL",
         help='drop one instance by the label the user saw, such as "Claude Code 4" (repeatable)',
     )
+    parser.add_argument(
+        "--local-scan-consent",
+        action="store_true",
+        help="the user confirmed that local scripts may read their source data",
+    )
+    parser.add_argument(
+        "--provider-transfer-consent",
+        action="store_true",
+        help="the user confirmed that the selected text may go to their AI provider; "
+        "pass this only after asking, on this run",
+    )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
 
@@ -267,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
         include_sources=arguments.include_source,
         exclude_sources=arguments.exclude_source,
         exclude_labels=arguments.exclude_label,
+        local_scan_consent=arguments.local_scan_consent,
+        provider_transfer_consent=arguments.provider_transfer_consent,
         processing_profile=arguments.profile,
         runs_root=arguments.runs_root,
         inventory_dir=(
@@ -288,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
                 "period_start": selection.period.start.isoformat(),
                 "period_end": selection.period.end.isoformat(),
                 "processing_profile": selection.processing_profile,
+                "local_scan_consent": manifest.consent.local_scan_confirmed_at is not None,
+                "provider_transfer_consent": (
+                    manifest.consent.provider_transfer_confirmed_at is not None
+                ),
             },
             indent=2,
         )

@@ -27,8 +27,39 @@ ASSUMED_BATCH_SIZE: int = 25
 # observed in early development runs falls roughly in this band. Both bounds
 # are deliberately explicit constants so calibration can replace them in one
 # place. Unit: total tokens per wall-clock minute.
+#
+# These bounds predate the 2026-08-08 real-data profile and do not fit it: the
+# measured claude-code cells are dominated by cached input, which the provider
+# re-reads far faster than it generates output, so dividing their totals by a
+# fresh-token throughput overstates duration by roughly two orders of
+# magnitude. Preset and preflight durations use :func:`estimate_unit_time`
+# instead; :func:`estimate_time` stays for callers that genuinely bill time by
+# fresh throughput.
 THROUGHPUT_TOKENS_PER_MINUTE_LOW: int = 4000
 THROUGHPUT_TOKENS_PER_MINUTE_HIGH: int = 9000
+
+# Wall-clock band per processed unit inside one worker. Duration tracks units,
+# not tokens: each unit is one agentic loop with a file write, and its cost is
+# turn latency rather than token volume. Measured in the 2026-08-08 real-data
+# calibration (temp/findings/token-calibration-method.md): ten concurrent
+# find-mistakes batches of 25 units, launched together, finished 105-190
+# seconds later — 4.2-7.6 seconds per unit per worker. One sample on one
+# machine and one runtime, so the upper bound is widened by half.
+SECONDS_PER_UNIT_LOW: float = 4.2
+SECONDS_PER_UNIT_HIGH: float = 11.4
+
+# Downstream volume per candidate message, from the same calibration run: 250
+# find-mistakes units produced the findings that 100 verify-findings units
+# re-checked, and 45 of those findings reached create-safe-records. Both ratios
+# move with the corpus and with the strict threshold, so they are estimates,
+# not constants of the product.
+VERIFY_UNITS_PER_MESSAGE: float = 0.40
+SAFE_RECORD_UNITS_PER_MESSAGE: float = 0.18
+
+# Profile step identifiers for the three calibrated semantic steps.
+STEP_FIND_MISTAKES: str = "find-mistakes"
+STEP_VERIFY_FINDINGS: str = "verify-findings"
+STEP_CREATE_SAFE_RECORDS: str = "create-safe-records"
 
 # A calibration cell is high-confidence only after at least this many
 # compatible completed batches (specification, 13.7).
@@ -195,6 +226,47 @@ def estimate_time(estimate: TokenEstimate) -> TimeRange:
     )
 
 
+def estimate_unit_time(units: int, *, concurrent_batches: int = 1) -> TimeRange:
+    """Wall-clock range for a semantic step that processes ``units`` items.
+
+    Uses the measured per-unit band rather than a token throughput, because a
+    unit costs turn latency and the token totals are mostly cached input.
+    ``concurrent_batches`` divides the range: one worker is the conservative
+    default, since nothing in the orchestration guarantees parallelism.
+    """
+    if units < 0:
+        msg = "units must be non-negative"
+        raise ValueError(msg)
+    if concurrent_batches < 1:
+        msg = "concurrent_batches must be at least 1"
+        raise ValueError(msg)
+    divisor = 60.0 * concurrent_batches
+    return TimeRange(
+        low_minutes=units * SECONDS_PER_UNIT_LOW / divisor,
+        high_minutes=units * SECONDS_PER_UNIT_HIGH / divisor,
+    )
+
+
+def apply_time_confidence(time: TimeRange, confidence: EstimateConfidence) -> TimeRange:
+    """Widen the slow bound of a low-confidence duration range."""
+    if confidence is EstimateConfidence.HIGH:
+        return time
+    return TimeRange(
+        low_minutes=time.low_minutes,
+        high_minutes=time.high_minutes * LOW_CONFIDENCE_UPPER_WIDENING,
+    )
+
+
+def profile_batches(entry: TokenUsageProfileEntry) -> int:
+    """Completed batches behind a committed cell, at the assumed batch size.
+
+    The confidence rule counts batches (specification, 13.7) while the profile
+    records messages, so the committed sample is converted here rather than at
+    each call site.
+    """
+    return entry.messages_measured // ASSUMED_BATCH_SIZE
+
+
 def _percentile(sorted_values: Sequence[float], fraction: float) -> float:
     """Linear-interpolation percentile over already sorted values."""
     if not sorted_values:
@@ -270,6 +342,22 @@ def format_time_range(time: TimeRange | None) -> str:
     return f"{_format_hours(time.low_minutes)}–{_format_hours(time.high_minutes)} h"
 
 
+def _format_token_count(tokens: int) -> str:
+    if tokens >= 1_000_000:
+        scaled = f"{tokens / 1_000_000:.1f}".removesuffix(".0")
+        return f"{scaled}M"
+    if tokens >= 1_000:
+        return f"{round(tokens / 1_000)}K"
+    return str(tokens)
+
+
+def format_token_range(estimate: TokenEstimate | None) -> str:
+    """Format a token estimate like ``0.9M–1.6M``; blank when unknown."""
+    if estimate is None:
+        return ""
+    return f"{_format_token_count(estimate.p50_tokens)}–{_format_token_count(estimate.p90_tokens)}"
+
+
 def render_preset_table(rows: Sequence[PresetEstimate]) -> str:
     """Render the period-preset comparison as aligned plain text.
 
@@ -304,3 +392,17 @@ def render_preset_table(rows: Sequence[PresetEstimate]) -> str:
         )
         lines.append(rendered.rstrip())
     return "\n".join(lines)
+
+
+def render_estimate_report(rows: Sequence[PresetEstimate], *, notes: Sequence[str]) -> str:
+    """The preset table plus the caveats that must travel with its numbers.
+
+    The table alone reads as measurement. Interpolated word counts, an
+    uncalibrated cell, and an unavailable price all have to reach the user
+    with the numbers rather than in a separate paragraph a caller may drop, so
+    they are rendered into the same block.
+    """
+    table = render_preset_table(rows)
+    if not notes:
+        return table
+    return table + "\n\n" + "\n".join(f"- {note}" for note in notes)

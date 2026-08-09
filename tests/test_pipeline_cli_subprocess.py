@@ -69,6 +69,7 @@ def test_start_run_and_collect_work_in_a_fresh_process(tmp_path: Path) -> None:
         str(runs_root),
         "--period",
         "everything",
+        "--local-scan-consent",
     )
     run_id = str(started["run_id"])
     assert started["selected_instances"]

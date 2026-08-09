@@ -11,6 +11,8 @@ reach the run.
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from glite_english_audit.artifacts.enums import (
     Accessibility,
     AgentRuntime,
@@ -128,3 +130,62 @@ def test_the_choice_reaches_the_manifest(tmp_path: Path) -> None:
     assert "claude_code-Claude-Code-4" not in chosen
     assert "cursor-Cursor-1" in chosen
     assert "claude_code-Claude-Code-4" in set(manifest.selection.excluded_instance_keys)
+
+
+def test_consent_is_absent_unless_the_caller_states_it(tmp_path: Path) -> None:
+    # A consent timestamp is evidence that someone was asked and agreed.
+    # Creating a run must never invent one.
+    inventory_dir = ensure_private_dir(tmp_path / "inv")
+    write_model(inventory_dir / "source-inventory.json", _inventory())
+    manifest = start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        processing_profile="recommended",
+        runs_root=tmp_path / "runs",
+        inventory_dir=inventory_dir,
+        now=datetime(2026, 8, 9, tzinfo=UTC),
+    )
+    assert manifest.consent.local_scan_confirmed_at is None
+    assert manifest.consent.provider_transfer_confirmed_at is None
+
+
+def test_each_consent_is_recorded_only_when_given(tmp_path: Path) -> None:
+    inventory_dir = ensure_private_dir(tmp_path / "inv")
+    write_model(inventory_dir / "source-inventory.json", _inventory())
+    manifest = start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        processing_profile="recommended",
+        runs_root=tmp_path / "runs",
+        inventory_dir=inventory_dir,
+        local_scan_consent=True,
+        now=datetime(2026, 8, 9, tzinfo=UTC),
+    )
+    # Agreeing to a local scan says nothing about sending text to a provider,
+    # which specification 2.2 requires to be asked separately on every audit.
+    assert manifest.consent.local_scan_confirmed_at is not None
+    assert manifest.consent.provider_transfer_confirmed_at is None
+
+
+def test_collect_refuses_to_read_source_data_without_local_scan_consent(tmp_path: Path) -> None:
+    from glite_english_audit.pipeline.collect import collect
+
+    inventory_dir = ensure_private_dir(tmp_path / "inv")
+    write_model(inventory_dir / "source-inventory.json", _inventory())
+    runs_root = tmp_path / "runs"
+    manifest = start_run(
+        runtime=AgentRuntime.CLAUDE_CODE,
+        os_environment_value="macos",
+        preset="everything",
+        instance_keys=None,
+        processing_profile="recommended",
+        runs_root=runs_root,
+        inventory_dir=inventory_dir,
+        now=datetime(2026, 8, 9, tzinfo=UTC),
+    )
+    with pytest.raises(ValueError, match="local-scan consent"):
+        collect(manifest.run_id, runs_root=runs_root)

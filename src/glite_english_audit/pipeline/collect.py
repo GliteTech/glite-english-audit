@@ -68,6 +68,15 @@ def collect(
     if selection is None:
         msg = "the run has no confirmed selection; run start_run first"
         raise ValueError(msg)
+    if manifest.consent.local_scan_confirmed_at is None:
+        # This stage copies and reads the user's own application data. A
+        # recorded consent that nobody checks is decoration, so the check lives
+        # here, at the step that actually touches their files.
+        msg = (
+            "this run has no recorded local-scan consent, so its source data "
+            "must not be read; ask the user and record it before collecting"
+        )
+        raise ValueError(msg)
 
     # Registering here rather than at import time keeps the registry under a
     # test's control, but this driver runs in its own process and must populate
