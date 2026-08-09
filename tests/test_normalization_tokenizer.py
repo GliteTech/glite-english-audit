@@ -101,3 +101,44 @@ def test_mixed_sentence() -> None:
 def test_empty_and_whitespace() -> None:
     assert count_words("") == 0
     assert count_words("   \n\t  ") == 0
+
+
+# A fixed paragraph exercising the tricky rules together rather than one at a
+# time: contractions, a hyphenated compound, a URL, an email, a source path
+# with line and column, a filename, decomposed and precomposed accents, a
+# diaeresis, standalone numbers, a version-like token, and a trailing
+# semicolon. Real prose combines these; the rule-by-rule tests above do not.
+GOLDEN_TEXT = (
+    "I very like this plan, but I am agree with Dana that we should not deploy on Friday. "
+    "She wrote: it's a well-known problem — see https://example.invalid/docs and "
+    "reports@example.invalid for the details. Run npm run build, check src/app.ts:14:3, "
+    "then read the naïve café notes (2026-08-09, 42 items, 3.5x faster). "
+    "Résumé, coöperate, and re-run; don't forget the 5m folder."
+)
+GOLDEN_COUNT = 55
+
+
+def test_the_golden_paragraph_still_counts_the_same() -> None:
+    """The word count is the denominator of every rate this product reports.
+
+    The rule-by-rule tests above each pin one behavior, so a rewrite that
+    satisfies all of them can still count real prose differently — and every
+    reported error rate would move with it, silently, because nothing compares
+    a whole paragraph to a known total.
+
+    If this number changes, the tokenizer's behavior changed. That is allowed,
+    but it makes every previously reported rate incomparable, so TOKENIZER_VERSION
+    must change with it and this constant must be updated deliberately.
+    """
+    assert count_words(GOLDEN_TEXT) == GOLDEN_COUNT
+    assert TOKENIZER_VERSION == "1.0.0", (
+        "the tokenizer version changed; update GOLDEN_COUNT deliberately and "
+        "record that older runs' rates are not comparable"
+    )
+
+
+def test_the_golden_count_is_not_trivially_reachable() -> None:
+    # Guards the vector itself: if count_words became "split on whitespace" it
+    # would return a different, larger number, so the constant is evidence of
+    # the real rules rather than of any counting at all.
+    assert len(GOLDEN_TEXT.split()) > GOLDEN_COUNT
