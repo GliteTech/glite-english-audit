@@ -16,6 +16,7 @@ matters is carried by text and shape, never by color alone.
 
 import html
 
+from glite_english_audit.artifacts.enums import ExampleType
 from glite_english_audit.artifacts.models import ReviewedRecord
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
@@ -39,6 +40,20 @@ EXCLUSION_EXPLANATION_TEXT = (
     "Uncheck any example you do not want to share. Its complete record will be "
     "removed, and the anonymous withheld count will increase by one."
 )
+EXAMPLE_ORIGIN_LABELS: dict[ExampleType, str] = {
+    ExampleType.VERBATIM: "your words",
+    ExampleType.REDACTED: "your words, changed",
+    ExampleType.SYNTHETIC: "invented",
+}
+"""How each example's provenance reads on the row you decide from.
+
+``example_type`` has always been in the record and has always been one click
+away in the info popover. It belongs on the row now because it stopped being
+uniform: an example may be the sentence you wrote. Consenting to send your own
+writing and consenting to send an invented sentence carrying the same error are
+different decisions, and the page that asks for consent has to say which one it
+is asking for without being opened first.
+"""
 PACKAGE_NOTE_TEXT = (
     "This JSON is byte for byte what Glite would receive. Long lines scroll sideways."
 )
@@ -171,8 +186,12 @@ li.record {
   align-items: start;
   min-height: 2.75rem;
 }
-.record-example {
+.record-text {
   align-self: center;
+  min-width: 0;
+}
+.record-example {
+  display: block;
   padding: 0.3rem 0;
   font-weight: 600;
   line-height: 1.4;
@@ -183,6 +202,12 @@ li.record {
 .record:has(.record-toggle:not(:checked)) .record-example {
   color: var(--ink-soft);
   font-weight: 450;
+}
+.record-origin {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  line-height: 1.3;
 }
 .record-info {
   width: 2.75rem;
@@ -677,6 +702,7 @@ def _record_row(index: int, total: int, entry: ReviewedRecord) -> str:
     record = entry.record
     checkbox_id = f"include-{index}"
     example_id = f"record-{index}-example"
+    origin = EXAMPLE_ORIGIN_LABELS[record.example_type]
     info_id = f"record-{index}-info"
     details_id = f"record-{index}-details"
     heading_id = f"record-{index}-details-heading"
@@ -695,9 +721,12 @@ def _record_row(index: int, total: int, entry: ReviewedRecord) -> str:
         f'<input type="checkbox" id="{checkbox_id}" class="record-toggle" '
         f'data-mistake-id="{_escape(entry.mistake_id)}" '
         f"{checked}>"
+        '<div class="record-text">'
         f'<label class="record-example" id="{example_id}" for="{checkbox_id}">'
         f'<span class="visually-hidden">Include mistake {index + 1} of {total}: </span>'
         f"{_escape(record.example)}</label>"
+        f'<span class="record-origin">{_escape(origin)}</span>'
+        "</div>"
         f'<button type="button" class="record-info" id="{info_id}" '
         f'aria-label="Show all fields for mistake {index + 1} of {total}" '
         f'aria-expanded="false" aria-controls="{details_id}" data-pinned="false">'
@@ -748,8 +777,10 @@ def _records_section(state: ReviewSessionState) -> str:
     return (
         '<section aria-labelledby="records-heading">'
         f'<h2 id="records-heading">Mistakes to include ({total})</h2>'
-        "<p>Each checked sentence is the privacy-safe example Glite will receive. "
-        "Examples may be synthetic. Use the info button to see the complete record.</p>"
+        "<p>Each checked sentence is exactly what Glite will receive. Some are your own "
+        "words, some are your words with an identifying detail replaced by an unrelated "
+        "one, and some are invented. Each sentence says which it is. Use the info button "
+        "to see the complete record.</p>"
         f"<p>{_escape(EXCLUSION_EXPLANATION_TEXT)}</p>"
         f'<ul class="records" role="list">{rows}</ul>'
         '<p class="will-send" id="will-send" aria-live="polite" aria-atomic="true">'

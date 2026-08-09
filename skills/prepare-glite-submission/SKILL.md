@@ -50,8 +50,9 @@ Consult a reference only when the step you are on needs it:
 The review page is the only browser page in this project. It runs on this computer at
 `127.0.0.1` behind a one-time address, and it stops on its own after 30 minutes
 without activity. Users can include or exclude records; they cannot edit them. The
-compact list shows the privacy-safe example that will be sent, which may be synthetic,
-and an info control reveals every field in that record. The exact package JSON remains
+compact list shows the privacy-safe example that will be sent and whether it is the
+user's own words, their words with an identifying detail replaced, or invented; an
+info control reveals every field in that record. The exact package JSON remains
 available in a closed disclosure. The primary action posts that exact package to the
 Glite website and opens the report there. The two confirmations are required before
 that handoff. Download remains available without them. A separately configured direct
@@ -111,8 +112,9 @@ uses.
    Say each of these on its own short line:
    - the address, and that opening it in a browser is the next thing to do
    - opening and reviewing the page does not send anything
-   - the compact list shows each submitted example, which may be synthetic; its info
-     button shows every field, and all records start included
+   - the compact list shows each submitted example and says whether it is their own
+     words, their words with a detail changed, or invented; its info button shows
+     every field, and all records start included
    - excluding a record drops its details but still adds one to the anonymous
      withheld count
    - Create report sends the selected package to the Glite website and opens the

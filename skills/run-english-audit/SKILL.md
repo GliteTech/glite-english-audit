@@ -454,8 +454,10 @@ runtime; naming both is confusing and wrong.
      `{"i", "span", "mistake", "rule", "example", "example_type"}` draft per mistake,
      and an empty file for a session holding none.
 
-     Step d owes **clean** records: privacy-safe, with synthetic examples, on the
-     first attempt. `--apply` expands each draft into a record — re-deriving the
+     Step d owes **clean** records: privacy-safe on the first attempt, each example
+     the most of the learner's own words that is safe to send — quoted, quoted with
+     an identifying value replaced, or invented, in that order of preference.
+     `--apply` expands each draft into a record — re-deriving the
      utterance ID, source type and modality from the utterance the index addresses —
      resolves every evidence span against that session's own step-c file, refuses two
      records that count one mistake twice, and runs the privacy scanner. A scanner hit

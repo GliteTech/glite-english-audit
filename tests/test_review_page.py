@@ -23,7 +23,7 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
 )
-from glite_english_audit.review_server.page import render_page
+from glite_english_audit.review_server.page import EXAMPLE_ORIGIN_LABELS, render_page
 from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
@@ -49,12 +49,18 @@ def _spoken_modality() -> ModalityCounts:
     )
 
 
-def _safe_record(*, mistake: str, rule: str, example: str) -> SafeMistakeRecord:
+def _safe_record(
+    *,
+    mistake: str,
+    rule: str,
+    example: str,
+    example_type: ExampleType = ExampleType.SYNTHETIC,
+) -> SafeMistakeRecord:
     return SafeMistakeRecord(
         mistake=mistake,
         rule=rule,
         example=example,
-        example_type=ExampleType.SYNTHETIC,
+        example_type=example_type,
         source_type="claude_code",
         modality=Modality.WRITTEN,
     )
@@ -571,6 +577,55 @@ def test_record_checkbox_label_is_the_submitted_example() -> None:
         assert f'<label class="record-example" id="record-{index}-example"' in page
         assert f"{example}</label>" in page
         assert f"Include mistake {index + 1} of 2:" in page
+
+
+def _every_example_type_state() -> ReviewSessionState:
+    """One included record per ``ExampleType``, in enum order."""
+    base = _artifact()
+    records = [
+        ReviewedRecord(
+            mistake_id=f"m-{position}",
+            record=_safe_record(
+                mistake="Wrote 'more easy' instead of 'easier'.",
+                rule="Short adjectives form the comparative with -er.",
+                example=f"Sentence number {position}.",
+                example_type=example_type,
+            ),
+            included=True,
+            privacy_creator_version="0.1.0",
+            privacy_verifier_version="0.1.0",
+        )
+        for position, example_type in enumerate(ExampleType)
+    ]
+    counts = base.counts.model_copy(
+        update={
+            "shared_mistakes": len(records),
+            "verified_total_mistakes": len(records) + base.counts.withheld_for_privacy,
+        }
+    )
+    return ReviewSessionState(
+        ReviewedSubmissionArtifact(envelope=base.envelope, records=records, counts=counts)
+    )
+
+
+def test_each_record_row_names_where_its_example_came_from() -> None:
+    # The row is where the user decides. Consenting to send a sentence you wrote
+    # and consenting to send an invented one carrying the same error are
+    # different decisions, so the provenance cannot live only behind the info
+    # button.
+    page = render_page(_every_example_type_state(), _download_only(), _FAKE_TOKEN)
+    rows = re.findall(r'<div class="record-text">(.*?)</div>', page, re.DOTALL)
+    assert len(rows) == len(ExampleType)
+    for row, expected in zip(rows, ("your words", "your words, changed", "invented"), strict=True):
+        assert f'<span class="record-origin">{expected}</span>' in row
+
+
+def test_every_example_type_has_a_row_label() -> None:
+    # A missing key would raise at render time rather than print a blank marker,
+    # but only for the type that is missing, on a run that may be months away.
+    for example_type in ExampleType:
+        assert EXAMPLE_ORIGIN_LABELS[example_type].strip()
+    assert len(set(EXAMPLE_ORIGIN_LABELS.values())) == len(ExampleType)
 
 
 def test_info_disclosure_contains_all_record_fields() -> None:
