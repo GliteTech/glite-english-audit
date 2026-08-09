@@ -70,7 +70,7 @@ from glite_english_audit.pipeline import (
     start_run,
 )
 from glite_english_audit.pipeline.record_stage import advance_to
-from glite_english_audit.sessions import read_index, session_files
+from glite_english_audit.sessions import read_all, read_index, session_files
 from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.verification.deterministic import (
     verify_package_against_review,
@@ -138,6 +138,27 @@ def _repo_with_ignored_temp(tmp_path: Path) -> Path:
         check=True,
     )
     return repo
+
+
+def _pool_candidates_for_step_c(run_id: str, *, runs_root: Path) -> None:
+    """Hand step c the one pooled file its drivers still declare they read.
+
+    From step a onward a session is a file, but both step-c drivers —
+    ``filter_corpus`` and ``authorship_batches.read_candidate_utterances`` —
+    still open a single pooled ``candidates.jsonl`` in step a's directory, the
+    shape the old stage-2 layout produced. A test that runs those drivers has
+    to write the file they name, so this writes step b's output into it: step b
+    is the step that c actually follows, and reading step a's would hand the
+    corpus the duplicates step b was run to remove.
+
+    This is the one place the test stands in for driver code rather than for a
+    model, and it goes away when step c reads session files.
+    """
+    step_b = step_dir(run_id, StepId.B_DEDUPLICATED, root=runs_root)
+    write_jsonl_models(
+        step_dir(run_id, StepId.A_COLLECTED, root=runs_root) / authorship_batches.CANDIDATES_NAME,
+        [utterance for _, members in read_all(step_b) for utterance in members],
+    )
 
 
 def _seeded_run(tmp_path: Path, runs_root: Path) -> str:
@@ -267,6 +288,7 @@ def test_waterfall_runs_step_by_step(tmp_path: Path, only_claude_code: None) -> 
     assert (step_b / "removed.json").is_file()
 
     # Step c, fallback path: the pre-filter alone builds a verifiable corpus.
+    _pool_candidates_for_step_c(run_id, runs_root=runs_root)
     corpus_manifest = filter_corpus(run_id, runs_root=runs_root)
     assert corpus_manifest.english_word_count > 0
     assert verify_corpus(run_id, runs_root=runs_root) == []
@@ -546,6 +568,7 @@ def test_the_review_reports_the_utterances_it_could_not_judge(
     run_id = _seeded_run(tmp_path, runs_root)
     collect.collect(run_id, runs_root=runs_root, repo=repo)
     deduplicate.deduplicate(run_id, runs_root=runs_root)
+    _pool_candidates_for_step_c(run_id, runs_root=runs_root)
     filter_corpus(run_id, runs_root=runs_root)
 
     corpus_dir = step_dir(run_id, StepId.C_AUTHORED, root=runs_root)
@@ -648,6 +671,7 @@ def test_the_review_refuses_a_run_whose_mistakes_double_count(
     run_id = _seeded_run(tmp_path, runs_root)
     collect.collect(run_id, runs_root=runs_root, repo=repo)
     deduplicate.deduplicate(run_id, runs_root=runs_root)
+    _pool_candidates_for_step_c(run_id, runs_root=runs_root)
     filter_corpus(run_id, runs_root=runs_root)
 
     corpus = list(

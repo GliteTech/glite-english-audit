@@ -211,17 +211,11 @@ def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
     )
     # The run's own copy of the inventory is one file beside the manifest, not
     # a step (``paths.inventory_path``), and collect resolves the selected
-    # instance keys against it. It is written here from the same fixture home
-    # discovery read, so the copy always describes the workspace this run was
-    # started from — which is what the stage-0 production used to do.
-    #
-    # The directory removed first is start_run's: it treats inventory_path as a
-    # directory and writes the inventory inside it, while every reader opens
-    # that path as a file. Remove this once start_run writes the file.
-    target = inventory_path(manifest.run_id, root=workspace.runs_root)
-    if target.is_dir():
-        shutil.rmtree(target)
-    _write_inventory(workspace.home, target)
+    # instance keys against it. start_run carries it in; it is rewritten here
+    # from a fresh read of this workspace's fixture home so the copy always
+    # describes the machine this run was started from, whichever inventory the
+    # pending directory happened to hold.
+    _write_inventory(workspace.home, inventory_path(manifest.run_id, root=workspace.runs_root))
     return manifest
 
 
@@ -567,6 +561,9 @@ def _promote_step(
     targets = [StageStatus.PRODUCED, StageStatus.VERIFIED_DETERMINISTIC]
     if state.status is not StageStatus.IN_PROGRESS:
         targets.insert(0, StageStatus.IN_PROGRESS)
+    # No step needs a second reader today, so this branch never fires; it is
+    # read from the real set rather than dropped so that these tests keep
+    # walking the true path if a verifier is added back.
     if step in SEMANTIC_STEPS:
         targets.append(StageStatus.VERIFIED_SEMANTIC)
     targets.append(StageStatus.PROMOTED)
@@ -1011,29 +1008,37 @@ def test_resume_invalidate_downstream_recomputes_from_the_semantic_steps(
     manifest = _start(workspace)
     run_id = manifest.run_id
     _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    # Steps a and b are the whole deterministic prefix: collection is a script
+    # and so is deduplication, so no skill, prompt or model change can reach
+    # either of them.
     kept = {
         step: _step_files(workspace, run_id, step, content_only=False)
         for step in StepId
-        if step <= StepId.C_AUTHORED
+        if step <= StepId.B_DEDUPLICATED
     }
-    corpus_artifact = manifest.stages[StepId.C_AUTHORED].current_artifact_id
+    deduplicated_artifact = manifest.stages[StepId.B_DEDUPLICATED].current_artifact_id
 
     changed = _changed(manifest.fingerprint, skill_versions={"analyze-english-text": 2})
     resumed = _resume(workspace, run_id, changed)
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert resumed.assessment.earliest_affected_stage is StepId.D_MISTAKES
-    assert resumed.steps_run == (StepId.D_MISTAKES, StepId.E_VERIFIED)
+    # The skill that changed is step d's, but the fingerprint holds one map of
+    # skill versions for the whole run rather than one entry per step, so the
+    # policy cannot attribute a change to the step that owns it. It takes the
+    # conservative reading and recomputes from the first step a model produces,
+    # which is c, the authorship judgment (``run_store.EARLIEST_SEMANTIC_STEP``).
+    assert resumed.assessment.earliest_affected_stage is StepId.C_AUTHORED
+    assert resumed.steps_run == (StepId.C_AUTHORED, StepId.D_MISTAKES, StepId.E_VERIFIED)
     # Everything upstream of the change is kept, byte for byte and by pointer.
     for step, before in kept.items():
         assert _step_files(workspace, run_id, step, content_only=False) == before
     final = load_manifest(run_id, root=workspace.runs_root)
-    assert final.stages[StepId.C_AUTHORED].current_artifact_id == corpus_artifact
+    assert final.stages[StepId.B_DEDUPLICATED].current_artifact_id == deduplicated_artifact
     assert final.fingerprint == changed
     assert all(
         final.stages[step].status is StageStatus.PROMOTED
         for step in StepId
-        if step >= StepId.D_MISTAKES
+        if step >= StepId.C_AUTHORED
     )
 
 
@@ -1049,17 +1054,21 @@ def test_resume_invalidate_downstream_recomputes_from_the_semantic_steps(
 def test_resume_detects_a_changed_skill_prompt_or_model(
     workspace: Workspace, overrides: dict[str, object]
 ) -> None:
+    # Which of the three fields moved, and which step's skill or prompt it
+    # names, does not change the answer: all three describe how a model is
+    # asked, so all three land on the earliest step a model produces and leave
+    # the deterministic steps before it alone.
     manifest = _start(workspace)
     run_id = manifest.run_id
     _advance_through(workspace, manifest, StepId.D_MISTAKES, at=_NOW)
-    kept = _step_files(workspace, run_id, StepId.C_AUTHORED, content_only=False)
+    kept = _step_files(workspace, run_id, StepId.B_DEDUPLICATED, content_only=False)
 
     resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, **overrides))
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert resumed.assessment.earliest_affected_stage is StepId.D_MISTAKES
-    assert resumed.steps_run[0] is StepId.D_MISTAKES
-    assert _step_files(workspace, run_id, StepId.C_AUTHORED, content_only=False) == kept
+    assert resumed.assessment.earliest_affected_stage is StepId.C_AUTHORED
+    assert resumed.steps_run[0] is StepId.C_AUTHORED
+    assert _step_files(workspace, run_id, StepId.B_DEDUPLICATED, content_only=False) == kept
 
 
 @pytest.mark.parametrize(
@@ -1157,9 +1166,10 @@ def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
     run_directory = _run_directory(workspace, run_id)
     # The state file is kept and every private artifact is deleted. Naming the
     # survivors rather than a list of directories is what keeps this true of
-    # the layout rather than of one version of it: the step directories, the
-    # run's inventory copy and the snapshot manifests are all private, and all
-    # three moved when the nine stages became five steps.
+    # the layout rather than of one version of it: when the nine stages became
+    # five steps, the run's inventory copy and the snapshot manifests moved out
+    # of the step tree and up to the run root, and the inventory names the
+    # user's applications and the absolute paths they keep their data under.
     assert sorted(
         str(path.relative_to(run_directory)) for path in run_directory.rglob("*") if path.is_file()
     ) == [RUN_MANIFEST_FILENAME]

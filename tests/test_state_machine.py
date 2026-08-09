@@ -2,8 +2,9 @@
 
 import pytest
 
-from glite_english_audit.artifacts.enums import RunStatus, StepId, StageStatus
+from glite_english_audit.artifacts.enums import RunStatus, StageStatus, StepId
 from glite_english_audit.diagnostics.codes import Severity
+from glite_english_audit.state import machine
 from glite_english_audit.state.machine import (
     InvalidTransitionError,
     advance_run,
@@ -63,17 +64,14 @@ _EXPECTED_STAGE: dict[StageStatus, frozenset[StageStatus]] = {
     StageStatus.INVALIDATED: frozenset({StageStatus.IN_PROGRESS}),
 }
 
-# Stages 4-7 carry model judgment, so promotion requires both verifiers
-# (specification, 6.1 and 6.6). Stages 0-3 and 8 are deterministic.
-_SEMANTIC_STEPS = frozenset(
-    {
-        StepId.D_MISTAKES,
-        StepId.D_MISTAKES,
-        StepId.D_MISTAKES,
-        StepId.E_VERIFIED,
-    }
-)
-_DETERMINISTIC_STAGES = frozenset(StepId) - _SEMANTIC_STEPS
+# No step waits on a second, independent reader before promotion, so every
+# step promotes on the deterministic verifier alone. Step c is checked
+# deterministically and quarantines what fails, step d's independent findings
+# verifier was removed on purpose, and step e is itself the second reader and
+# cannot wait on itself (see state/machine.py for the full reasoning). Mirrored
+# empty so that listing a step here again is a reviewed contract change.
+_EXPECTED_SEMANTIC_STEPS: frozenset[StepId] = frozenset()
+_DETERMINISTIC_STEPS = frozenset(StepId) - _EXPECTED_SEMANTIC_STEPS
 
 _TERMINAL_RUN_STATES = (
     RunStatus.COMPLETED,
@@ -82,9 +80,9 @@ _TERMINAL_RUN_STATES = (
 )
 
 
-def _expected_stage_targets(stage: StepId, current: StageStatus) -> frozenset[StageStatus]:
+def _expected_stage_targets(step: StepId, current: StageStatus) -> frozenset[StageStatus]:
     targets = _EXPECTED_STAGE[current]
-    if stage in _SEMANTIC_STEPS and current is StageStatus.VERIFIED_DETERMINISTIC:
+    if step in _EXPECTED_SEMANTIC_STEPS and current is StageStatus.VERIFIED_DETERMINISTIC:
         return targets - {StageStatus.PROMOTED}
     return targets
 
@@ -112,55 +110,69 @@ def test_every_forbidden_run_transition_raises() -> None:
             assert exc_info.value.diagnostic.code == "STATE_INVALID_TRANSITION"
 
 
-@pytest.mark.parametrize("stage", list(StepId))
-def test_every_allowed_stage_transition_succeeds(stage: StepId) -> None:
+@pytest.mark.parametrize("step", list(StepId))
+def test_every_allowed_stage_transition_succeeds(step: StepId) -> None:
     for current in StageStatus:
-        for target in _expected_stage_targets(stage, current):
-            assert can_advance_stage(current, target, stage=stage)
-            assert advance_stage(current, target, stage=stage) is target
+        for target in _expected_stage_targets(step, current):
+            assert can_advance_stage(current, target, stage=step)
+            assert advance_stage(current, target, stage=step) is target
 
 
-@pytest.mark.parametrize("stage", list(StepId))
-def test_every_forbidden_stage_transition_raises(stage: StepId) -> None:
+@pytest.mark.parametrize("step", list(StepId))
+def test_every_forbidden_stage_transition_raises(step: StepId) -> None:
     for current in StageStatus:
-        allowed = _expected_stage_targets(stage, current)
+        allowed = _expected_stage_targets(step, current)
         for target in StageStatus:
             if target in allowed:
                 continue
-            assert not can_advance_stage(current, target, stage=stage)
+            assert not can_advance_stage(current, target, stage=step)
             with pytest.raises(InvalidTransitionError) as exc_info:
-                advance_stage(current, target, stage=stage)
+                advance_stage(current, target, stage=step)
             assert exc_info.value.diagnostic.code == "STATE_INVALID_TRANSITION"
 
 
-@pytest.mark.parametrize("stage", sorted(_SEMANTIC_STEPS))
-def test_semantic_stage_cannot_promote_after_only_the_deterministic_verifier(
-    stage: StepId,
+def test_no_step_waits_on_a_second_reader_before_promotion() -> None:
+    # The empty set is the contract, not an oversight: none of the five steps
+    # has an independent semantic verifier to wait for. Re-listing a step here
+    # reinstates the VERIFIED_SEMANTIC gate below, so it must be deliberate.
+    assert machine.SEMANTIC_STEPS == _EXPECTED_SEMANTIC_STEPS
+
+
+def test_a_step_listed_as_semantic_may_not_promote_on_the_deterministic_verifier(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Specification 6.1: promotion only after both verifiers pass. The
-    # confidentiality verifier is the second line of privacy defence (6.6).
+    # The gate is unreachable while SEMANTIC_STEPS is empty, so listing a step
+    # is the only way to exercise it. It is kept in the machine for the day a
+    # verifier is added back; an untested gate would rot before then.
+    monkeypatch.setattr(machine, "SEMANTIC_STEPS", frozenset({StepId.D_MISTAKES}))
     assert not can_advance_stage(
-        StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=stage
+        StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=StepId.D_MISTAKES
     )
     with pytest.raises(InvalidTransitionError) as exc_info:
-        advance_stage(StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=stage)
+        advance_stage(
+            StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=StepId.D_MISTAKES
+        )
     assert exc_info.value.diagnostic.code == "STATE_INVALID_TRANSITION"
     assert can_advance_stage(
-        StageStatus.VERIFIED_DETERMINISTIC, StageStatus.VERIFIED_SEMANTIC, stage=stage
+        StageStatus.VERIFIED_DETERMINISTIC, StageStatus.VERIFIED_SEMANTIC, stage=StepId.D_MISTAKES
     )
     assert (
-        advance_stage(StageStatus.VERIFIED_SEMANTIC, StageStatus.PROMOTED, stage=stage)
+        advance_stage(StageStatus.VERIFIED_SEMANTIC, StageStatus.PROMOTED, stage=StepId.D_MISTAKES)
         is StageStatus.PROMOTED
     )
+    # The gate binds the listed step only; an unlisted step keeps its shortcut.
+    assert can_advance_stage(
+        StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=StepId.C_AUTHORED
+    )
 
 
-@pytest.mark.parametrize("stage", sorted(_DETERMINISTIC_STAGES))
-def test_deterministic_stage_may_promote_after_the_deterministic_verifier(
-    stage: StepId,
+@pytest.mark.parametrize("step", sorted(_DETERMINISTIC_STEPS))
+def test_deterministic_step_may_promote_after_the_deterministic_verifier(
+    step: StepId,
 ) -> None:
-    assert can_advance_stage(StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=stage)
+    assert can_advance_stage(StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=step)
     assert (
-        advance_stage(StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=stage)
+        advance_stage(StageStatus.VERIFIED_DETERMINISTIC, StageStatus.PROMOTED, stage=step)
         is StageStatus.PROMOTED
     )
 
@@ -180,8 +192,8 @@ def test_self_transitions_are_forbidden() -> None:
     for status in RunStatus:
         assert not can_advance_run(status, status)
     for stage_status in StageStatus:
-        for stage in StepId:
-            assert not can_advance_stage(stage_status, stage_status, stage=stage)
+        for step in StepId:
+            assert not can_advance_stage(stage_status, stage_status, stage=step)
 
 
 def test_invalid_transition_error_carries_error_diagnostic() -> None:

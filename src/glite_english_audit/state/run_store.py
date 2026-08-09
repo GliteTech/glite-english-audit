@@ -47,7 +47,7 @@ RETENTION_DAYS = 30
 EARLIEST_SEMANTIC_STEP = StepId.C_AUTHORED
 """First stage whose output depends on skills, prompts, or model choice."""
 
-EARLIEST_CLIENT_CODE_STAGE = StepId.D_MISTAKES
+EARLIEST_CLIENT_CODE_STEP = StepId.D_MISTAKES
 """First stage a pure-Python change invalidates.
 
 Step d depends on the deterministic privacy scanner and the packaging
@@ -367,7 +367,7 @@ def describe_resume(
             ("model ids", EARLIEST_SEMANTIC_STEP, recorded.model_ids == current.model_ids),
             (
                 "client version",
-                EARLIEST_CLIENT_CODE_STAGE,
+                EARLIEST_CLIENT_CODE_STEP,
                 recorded.client_version == current.client_version,
             ),
         )
@@ -528,8 +528,8 @@ def expire_stale_runs(
     """Apply the 30-day retention rule to unfinished runs (specification, 3.6).
 
     Marks each stale manifest EXPIRED via the state machine, then deletes every
-    private subtree, snapshots included. The manifest itself is kept. Returns
-    the expired run IDs.
+    private subtree, snapshots included, and the private run-root files. Only
+    the manifest is kept. Returns the expired run IDs.
 
     Each directory is read and written through itself. A directory whose name
     disagrees with its manifest is left alone: writing through the claimed ID
@@ -562,6 +562,12 @@ def expire_stale_runs(
         _save_manifest_in(child, manifest)
         for name in _PRIVATE_SUBDIRS:
             _delete_subtree(child, name)
+        for name in _CLEANUP_ONLY_FILES:
+            # Expiry deleted only subtrees, so the run-root files outlived the
+            # retention rule. source-inventory.json names the user's local
+            # applications and the absolute paths they store data under, which
+            # is the most locating thing a finished run can leave behind.
+            (child / name).unlink(missing_ok=True)
         expired.append(manifest.run_id)
     return expired
 
@@ -570,8 +576,9 @@ def cleanup_completed(manifest_dir: Path) -> None:
     """Apply completed-run retention to one run directory (specification, 3.6).
 
     Keeps only the ``submission/`` package and the run manifest; deletes
-    ``stages/``, ``logs/``, any snapshot left behind by a source whose
-    extraction failed, and the private selection and progress files.
+    ``steps/``, ``logs/``, the snapshot manifests, any snapshot left behind by
+    a source whose extraction failed, and the private run-root files including
+    the source inventory.
     """
     _refuse_symlinked_run_directory(manifest_dir)
     manifest_path = manifest_dir / RUN_MANIFEST_FILENAME
