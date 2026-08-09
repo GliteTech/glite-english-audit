@@ -33,6 +33,7 @@ from glite_english_audit.artifacts.io import (
     write_model,
 )
 from glite_english_audit.artifacts.models import (
+    EligibleCorpusManifest,
     EvidenceSpan,
     NormalizedUtterance,
     PrivateMistake,
@@ -477,3 +478,43 @@ def test_an_adapter_that_fails_its_own_checks_loses_only_its_own_source(
     entries = cast(list[dict[str, str]], collected["excluded_instances"])
     reasons = [entry["reason"] for entry in entries]
     assert reasons and all("SOURCE_SNAPSHOT_UNSAFE_PATH" in reason for reason in reasons)
+
+
+def test_stage_eight_reports_the_utterances_it_could_not_judge(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], only_claude_code: None
+) -> None:
+    """Coverage loss must not hide inside a denominator.
+
+    Utterances stage 3 quarantines never become eligible, so they are absent
+    from every count the review shows. A run that failed to read a third of the
+    input would report a rate over the surviving two thirds and say nothing
+    about the rest.
+    """
+    runs_root = tmp_path / "runs"
+    repo = _repo_with_ignored_temp(tmp_path)
+    run_id = _seeded_run(tmp_path, runs_root)
+    collect.collect(run_id, runs_root=runs_root, repo=repo)
+    filter_corpus(run_id, runs_root=runs_root)
+
+    corpus_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
+    manifest = read_model(corpus_dir / "eligible-corpus-manifest.json", EligibleCorpusManifest)
+    write_model(
+        corpus_dir / "eligible-corpus-manifest.json",
+        manifest.model_copy(update={"quarantined_utterance_count": 7}),
+    )
+
+    mistakes_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root))
+    write_jsonl_models(mistakes_dir / "mistakes.jsonl", [])
+    safe_dir = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root))
+    write_jsonl_models(safe_dir / "candidates.jsonl", [])
+    write_confidentiality_report(run_id, [], runs_root=runs_root)
+    # filter_corpus is the fallback stage-3 path and records nothing, so the
+    # two stages this test does not drive through their real producers are
+    # promoted here as stand-ins.
+    for stage in (StageId.ELIGIBLE_ENGLISH, StageId.PLAIN_FINDINGS):
+        advance_to(run_id, stage, StageStatus.PROMOTED, runs_root=runs_root)
+    promote_records.promote(run_id, runs_root=runs_root)
+
+    build_review.main(["--run-id", run_id, "--runs-root", str(runs_root)])
+    reported = json.loads(capsys.readouterr().out)
+    assert reported["unjudged_utterances"] == 7

@@ -132,8 +132,12 @@ problem, not the private value itself.
    * `PRIVACY_CONTEXT_DEPENDENT_RULE` — a rule sentence that leans on hidden context.
    * `PRIVACY_REIDENTIFICATION_RISK` — a combination of harmless-looking details that could
      identify someone.
+   * `PRIVACY_INVISIBLE_CHARACTER` — text that renders differently from how it is stored: a
+     zero-width space, a right-to-left override, a Latin lookalike from another alphabet. You
+     read the rendered form, so this is a category only you and the scanner can catch, and the
+     list closed without it left you with no way to report one.
 
-   All twelve are registered in `src/glite_english_audit/diagnostics/codes.py`. Use no code
+   All thirteen are registered in `src/glite_english_audit/diagnostics/codes.py`. Use no code
    outside this list and the two schema codes in step 1.
 6. Compute the counts, set `systemic_failure` to true when failed records exceed 20% of checked
    records or number 5 or more — the signal for the orchestrator to pause the privacy stage —

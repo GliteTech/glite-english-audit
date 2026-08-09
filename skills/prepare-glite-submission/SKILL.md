@@ -190,7 +190,14 @@ uses.
 - Agent-facing: step 3 prints one JSON object with `records`,
   `eligible_english_words`, `analyzed_english_words`, `eligible_utterances`,
   `analyzed_utterances`, `verified_total_mistakes`, `shared_mistakes`,
-  `withheld_for_privacy`, and `other_withheld`. Step 4 prints the review address.
+  `withheld_for_privacy`, `other_withheld`, `unjudged_utterances`, and
+  `deduplicated_utterances`. The last two are absent from every other count, so
+  a rate computed from those counts describes a smaller corpus than the user
+  gave. When `unjudged_utterances` is not zero, say so in the outcome message —
+  "3 messages could not be read and are not in these numbers" — because a
+  denominator quietly missing part of the input is the one number in this
+  product that must never be quietly wrong. They are not in the package: they
+  describe this run's processing, not the learner. Step 4 prints the review address.
 - Conversation: the opening message, the address message, and one outcome message
   with counts.
 

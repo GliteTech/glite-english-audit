@@ -178,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     artifact = build_review(arguments.run_id, runs_root=arguments.runs_root)
     counts = artifact.counts
+    corpus_manifest = read_model(
+        stage_dir(arguments.run_id, StageId.ELIGIBLE_ENGLISH, root=arguments.runs_root)
+        / CORPUS_MANIFEST_NAME,
+        EligibleCorpusManifest,
+    )
     sys.stdout.write(
         json.dumps(
             {
@@ -190,6 +195,14 @@ def main(argv: list[str] | None = None) -> int:
                 "shared_mistakes": counts.shared_mistakes,
                 "withheld_for_privacy": counts.withheld_for_privacy,
                 "other_withheld": counts.other_withheld,
+                # Utterances stage 3 could not judge at all. They are absent
+                # from every count above, so a rate computed from those counts
+                # silently describes a smaller corpus than the user gave. The
+                # number stays out of the submission package — it is a fact
+                # about this run's processing, not about the learner — and is
+                # reported here so the agent can say it out loud.
+                "unjudged_utterances": corpus_manifest.quarantined_utterance_count,
+                "deduplicated_utterances": corpus_manifest.deduplicated_utterance_count,
             },
             indent=2,
         )
