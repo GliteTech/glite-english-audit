@@ -242,7 +242,7 @@ name allowlisted columns explicitly and must never use `SELECT *`.
 ## 5. Sessions, timestamps, deduplication
 
 - Session: Wispr Flow has no session concept for dictation; each row is one dictation event.
-  `session_hash` = salted local hash of `conversationId` when non-empty (groups related
+  `session_hash` = local SHA-256 of `conversationId` when non-empty (groups related
   dictations), else of `transcriptEntityId` (single-utterance session). `conversationId`
   semantics are only partially documented (section 9); grouping is best-effort and never
   affects inclusion.

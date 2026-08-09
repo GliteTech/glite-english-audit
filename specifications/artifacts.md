@@ -1,44 +1,77 @@
-# Artifacts, stages, and lineage
+# Artifacts, steps, and lineage
 
-This document specifies the audit waterfall: the nine stages, the artifact each stage produces,
-who produces and verifies it, the shared artifact envelope, serialization conventions, the
-deterministic plain-findings format, and how replacement and invalidation work.
+This document specifies the audit pipeline: the five steps, what each one reads and writes, who
+produces and checks it, the shared artifact envelope, serialization conventions, and how
+replacement and invalidation work.
 
-Authoritative code: `src/glite_english_audit/artifacts/`. Pydantic models are the definitions of
-record for every project-owned machine-readable artifact. This document must stay in sync with
-them; where prose and model disagree, fix the mismatch instead of coding around it.
+Authoritative code: `src/glite_english_audit/artifacts/` and `src/glite_english_audit/sessions.py`.
+Pydantic models are the definitions of record for every project-owned machine-readable artifact.
+This document must stay in sync with them; where prose and model disagree, fix the mismatch instead
+of coding around it.
 
-## 1. Stages
+## 1. Steps
 
-Stage IDs are the `StageId` enum in `artifacts/enums.py`. Every stage has one current artifact
-per run, a producer with a version, a deterministic verifier, and — where meaning is involved —
-an independent semantic verifier.
+Step IDs are the `StepId` enum in `artifacts/enums.py`. There are five, lettered `a` through `e`,
+and they map one to one onto directories under `runtime/runs/<run-id>/steps/`.
 
-| Stage | Name | Artifact | Producer | Verifier |
+| Step | Directory | Contents | Producer | Checked by |
 |---|---|---|---|---|
-| 0 | `SOURCE_INVENTORY` | `SourceInventoryArtifact` (list of `SourceInstanceRecord`, private) | Adapter `discover()` via the `discover-english-sources` skill | Deterministic inventory verifier (schema, adapter IDs, aggregate-only agent output) |
-| 1 | `SOURCE_SNAPSHOTS` | One `SnapshotManifest` per selected instance describing a foreign read-only snapshot | Adapter `snapshot()` scripts | Deterministic snapshot verifier (path safety, file hashes, Git-ignore checks) |
-| 2 | `CANDIDATE_UTTERANCES` | JSONL of `NormalizedUtterance` plus `CandidateUtterancesManifest` | Adapter `extract()` scripts | Deterministic verifier plus adapter `verify()` structural checks |
-| 3 | `ELIGIBLE_ENGLISH` | Authorship decisions JSONL, then the filtered corpus plus `EligibleCorpusManifest` | Pre-filter (`normalization/authorship.py`) narrows candidates; the `filter-authored-english` skill judges which spans the learner wrote; `pipeline/apply_authorship.py` builds the corpus | Span verifier (every retained span is a verbatim substring, in order, non-overlapping) plus the deterministic corpus verifier (tokenizer version, counts, dedup invariants) |
-| 4 | `PLAIN_FINDINGS` | Human-readable Markdown findings files, one per input unit, each with a `FindingsArtifactMeta` sidecar | `analyze-english-text` skill | Deterministic format verifier plus the independent `verify-english-findings` semantic verifier |
-| 5 | `PRIVATE_MISTAKES` | JSONL of `PrivateMistake` plus `PrivateMistakesManifest` | `create-mistakes-jsonl` skill | Deterministic verifier (spans, occurrence IDs, double-count detection) plus semantic verification |
-| 6 | `SAFE_RECORDS` | `SafeRecordCandidate` records wrapping `SafeMistakeRecord` | `create-private-safe-mistakes` skill (privacy-independent creator) | Deterministic privacy scanner |
-| 7 | `PRIVACY_APPROVED` | The approved subset of stage-6 candidates, promoted by verification metadata | Promotion of stage-6 records | Deterministic privacy scanner plus the independent `verify-mistake-confidentiality` semantic verifier |
-| 8 | `REVIEWED_SUBMISSION` | `ReviewedSubmissionArtifact` (private) and the exported `SubmissionPackage` | Review page decisions materialized by the `prepare-glite-submission` skill | Deterministic materializer checks (allowlist, count arithmetic, payload hash) |
+| a | `a-collected` | One `NormalizedUtterance` per line, one file per session | Adapter `extract()` via `pipeline/collect.py` | Deterministic verifier plus adapter `verify()` structural checks |
+| b | `b-deduplicated` | The same files with duplicate messages removed | `pipeline/deduplicate.py` — a script, no model | Deterministic: every survivor appears in step a, every removal is recorded |
+| c | `c-authored` | The same files with everything the learner did not write removed | The `filter-authored-english` skill, one agent per file | Span verifier: every retained span is a verbatim substring of its step-b utterance, in order, non-overlapping |
+| d | `d-mistakes` | One privacy-clean mistake record per line | The `find-english-mistakes` skill, one agent per file | Deterministic: schema, span resolution against step c, double-count detection, privacy scanner |
+| e | `e-verified` | The same records, confidentiality confirmed | The `verify-mistake-confidentiality` skill, one agent per file | Deterministic: every step-e record is byte-identical to a step-d record |
 
-Stages 0-7 artifacts are private and never leave the local machine. Only the stage-8
-`SubmissionPackage` may be exported, and only through the allowlist in
+Everything under `steps/` is private and never leaves the local machine. Only the exported
+`SubmissionPackage` under `submission/` may leave, and only through the allowlist in
 `specifications/submission_contract.md`.
 
-Verification reports and promotion events are separate append-only metadata artifacts. Verifying
-an artifact never mutates it.
+The review is not a step. It reads step e and writes into `submission/`; its state is
+`RunStatus.REVIEW` on the run, not a sixth directory.
+
+Verification reports and promotion events are separate append-only metadata artifacts. Verifying an
+artifact never mutates it.
+
+### 1.1 One session is one file
+
+After step a, every step reads the previous step's files and writes **the same file names back**.
+This is the property the pipeline is built around: any step's output can be diffed against its
+input, file by file, without a join.
+
+- **A file never disappears.** A session whose every message was a duplicate, whose every word
+  turned out to be someone else's, or that produced no mistakes at all, is written as an **empty
+  file**. Missing and empty mean different things, and only one of them is what happened.
+- **Steps a, b and c hold one `NormalizedUtterance` per line, and c holds exactly as many lines as
+  b, in the same order.** Step c replaces `text` with the spans the learner actually wrote, joined
+  by newlines. An utterance that was entirely someone else's text is emitted with **empty text**
+  rather than dropped, because that is what makes the diff line up.
+- **Steps d and e hold one mistake record per line.** Their line counts legitimately differ from
+  c — a different kind of file — but their **file names still match one for one**.
+
+### 1.2 Filenames are opaque sequence numbers
+
+Session files are named `session-0001.jsonl`, numbered from one in the order the sessions started.
+`session-index.json` beside them maps file name to session identity. That index stays local and is
+never passed to a model.
+
+The naming is not cosmetic. It avoids two defects this project has already paid for once:
+
+- **`session_hash` is unsafe as a path component.** Unlike `utterance_id`, `instance_key` and
+  `path_hash` it has no validator, and two adapters populate it from a JSON value read off disk
+  without checking its shape. Joining it into a filename repeats the defect fixed in commit
+  `03ff4e4`, where an unvalidated `instance_key` was joined into a snapshot path.
+- **It would leak into model context.** A filename is handed to the skill and echoed back in its
+  report. Sending session identity into a model's context spends privacy for nothing.
+
+Ordering is deterministic: sessions are numbered by their earliest utterance, utterances are sorted
+within a file by timestamp with undated ones last, and ties break on `utterance_id`. Two runs over
+the same data produce the same filenames and therefore the same counts.
 
 ## 2. Artifact envelope
 
 Every non-trivial artifact carries an `ArtifactEnvelope`
 (`src/glite_english_audit/artifacts/envelope.py`, `ENVELOPE_SCHEMA_VERSION = 1`). Machine-readable
-artifacts embed it as an `envelope` field. Intentionally human-readable artifacts, such as plain
-findings, carry it in a `<name>.meta.json` sidecar.
+artifacts embed it as an `envelope` field.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -46,7 +79,7 @@ findings, carry it in a `<name>.meta.json` sidecar.
 | `schema_version` | `int >= 1` | Version of that schema. |
 | `artifact_id` | `str` | Unique artifact ID (`art-<32 hex>`). |
 | `run_id` | `str` | Owning run (`run-<32 hex>`). |
-| `stage_id` | `StageId` | Waterfall stage 0-8. |
+| `step_id` | `StepId` | Pipeline step `a`-`e`. |
 | `producer_name` | `str` | Producing script or skill. |
 | `producer_version` | `str` | Producer semver string. |
 | `model_id` | `str \| None` | Model that produced the content, when one was used. |
@@ -55,139 +88,86 @@ findings, carry it in a `<name>.meta.json` sidecar.
 | `input_hashes` | `dict[str, str]` | Input artifact ID to SHA-256 hex digest. |
 | `created_at` | `datetime` | Timezone-aware UTC creation time. |
 
-Nothing from the envelope may enter an exported submission package. Run ID, stage ID, input IDs
-and hashes, model metadata, local artifact ID, and the creation timestamp all stay local.
+Nothing from the envelope may enter an exported submission package. Run ID, step ID, input IDs and
+hashes, model metadata, local artifact ID, and the creation timestamp all stay local.
 
 ## 3. JSON and JSONL conventions
 
-- Encoding is UTF-8 everywhere. `ensure_ascii` is false: non-ASCII characters are written
-  directly, not escaped.
-- Every project-owned model sets `model_config = ConfigDict(extra="forbid")`. Undeclared fields
-  are validation errors (`SCHEMA_UNEXPECTED_FIELD`), not silently ignored data.
+- Encoding is UTF-8 everywhere. `ensure_ascii` is false: non-ASCII characters are written directly,
+  not escaped.
+- Every project-owned model sets `model_config = ConfigDict(extra="forbid")`. Undeclared fields are
+  validation errors (`SCHEMA_UNEXPECTED_FIELD`), not silently ignored data.
 - JSONL files contain one JSON object per line, no blank interior lines, and end with a single
-  trailing newline. Each JSONL file is described by a manifest that records its line count and
-  SHA-256 digest.
-- Stored JSON files are pretty-printed (two-space indent) for human inspection; hashing never
-  uses the stored formatting.
-- Canonical hashing (`artifacts/hashing.py`): every hash is a SHA-256 hex digest over canonical
-  JSON bytes — sorted keys, compact separators `(",", ":")`, `ensure_ascii=False`, UTF-8 encoded.
-  This form is deliberately simple so a TypeScript implementation can reproduce it exactly.
+  trailing newline. A zero-line file is a legal and meaningful artifact (Section 1.1) and is written
+  as an empty file with no trailing newline.
+- Stored JSON files are pretty-printed (two-space indent) for human inspection; hashing never uses
+  the stored formatting.
+- Canonical hashing (`artifacts/hashing.py`): every hash is a SHA-256 hex digest over canonical JSON
+  bytes — sorted keys, compact separators `(",", ":")`, `ensure_ascii=False`, UTF-8 encoded. This
+  form is deliberately simple so a TypeScript implementation can reproduce it exactly.
 - Writes are atomic (temp file, fsync, rename) with owner-only permissions: mode `0600` files and
   `0700` directories on POSIX (`artifacts/io.py`).
 - Handwritten JSON Schemas are forbidden. The committed schemas in `schemas/` are generated by
   `python -m glite_english_audit.artifacts.schema_export`; CI runs it with `--check` and fails on
   drift.
 
-## 4. Stage 4: deterministic plain-findings format
+## 4. Step c: who decides which words are the learner's
 
-The stage-4 findings artifact is Markdown-flavored plain text, one file per input unit. It is
-private, may contain source language, and is never submitted to Glite. The layout is
-deterministic so a script can verify it without model judgment.
-
-### 4.1 File layout
-
-- Encoding UTF-8, LF line endings, exactly one trailing newline.
-- Line 1 is the title: `# English findings`.
-- Line 2 is blank. Line 3 is the threshold statement, exactly:
-
-  ```text
-  Threshold: this audit reports only constructions that strongly suggest non-native English. Slips, chat shorthand, and native-plausible informal usage are not reported.
-  ```
-
-- After the threshold statement and one blank line, the file contains either one `## Finding N`
-  block per retained construction, or the empty-result sentence.
-
-### 4.2 Finding blocks
-
-Blocks are numbered `1, 2, 3, ...` in order of appearance, with no gaps. Each block is:
-
-```markdown
-## Finding 1
-
-Original: I very like this approach.
-Correction: I really like this approach.
-Why: "Very" cannot modify a verb directly; "really" or "very much" is used instead.
-```
-
-Rules:
-
-- `Original:`, `Correction:`, and `Why:` lines are required, in that order, one line each, with a
-  single space after the colon.
-- An optional fourth line `Uncertainty:` may follow `Why:` when the analyzer retained the finding
-  but wants to note residual doubt.
-- No other lines are allowed inside a block. Blocks are separated by one blank line.
-
-### 4.3 Empty result
-
-When no finding is retained, the file contains — after the threshold statement and one blank
-line — exactly this sentence on its own line, and nothing else:
-
-```text
-No high-confidence mistakes were found.
-```
-
-### 4.4 Sidecar
-
-Every findings file `<name>.md` has a sidecar `<name>.md.meta.json` validating as
-`FindingsArtifactMeta` (`artifacts/models.py`):
-
-| Field | Type | Meaning |
-|---|---|---|
-| `envelope` | `ArtifactEnvelope` | Standard envelope (Section 2). |
-| `unit_id` | `str` | ID of the analyzed input unit. |
-| `utterance_ids` | `list[str]` | Utterances covered by this unit. |
-| `finding_count` | `int >= 0` | Number of `## Finding N` blocks in the body. |
-| `no_mistakes_found` | `bool` | True only for the empty-result form. |
-| `body_relative_path` | `str` | Findings file path relative to the stage directory. |
-| `body_sha256` | `str` | SHA-256 hex digest of the exact body bytes. |
-
-Invariants the deterministic verifier enforces: `no_mistakes_found` implies `finding_count == 0`;
-`finding_count` equals the number of blocks in the body; `body_sha256` matches the file bytes.
-
-## 4A. Stage 3: who decides which words are the learner's
-
-Authorship is a judgment, so a model makes it; counting is arithmetic, so code does. Splitting
-them this way keeps specification 5.6's requirement that the word count be deterministic while
-letting the harder question be answered by something that can read.
-
-The order is:
+Authorship is a judgment, so a model makes it; counting is arithmetic, so code does. Splitting them
+this way keeps the word count deterministic while letting the harder question be answered by
+something that can read.
 
 1. `normalization/authorship.py` removes only unambiguous machinery and bulk — fenced code, stack
    traces, log lines, structured payloads — so the project does not pay to send a five-thousand
    word lint dump to a model. It is biased toward keeping: anything arguable survives for the
    model to judge. It is not an authorship decision and must not be treated as one.
-2. `pipeline/authorship_batches.py` writes the survivors as numbered candidate batches.
-3. The `filter-authored-english` skill returns, for each utterance, a decision of `retain`,
-   `partial`, or `exclude` plus the spans the learner wrote, verbatim and in original order.
-4. `pipeline/apply_authorship.py` locates every returned span in the candidate text by a single
-   forward scan, which enforces verbatim wording, original order, and non-overlap together. A
-   span that is absent, reordered, or overlapping quarantines its decision rather than entering
-   the corpus, so a paraphrase or an invented sentence cannot reach the word denominator.
-   Surviving spans are joined, classified for language, deduplicated across sources, and counted
-   with the versioned tokenizer.
-
-`normalization/filter_corpus.py` remains as a fallback that applies the pre-filter alone, used in
-tests and where no model judgment is available. It is documented as such: pasted material the
-pre-filter cannot recognize survives into the denominator and depresses every reported rate.
+2. One agent per session file runs the `filter-authored-english` skill and returns, for each
+   utterance, the spans the learner wrote — verbatim, in original order.
+3. `pipeline/authorship.py` locates every returned span in the step-b text by a single forward scan,
+   which enforces verbatim wording, original order, and non-overlap together. A span that is absent,
+   reordered, or overlapping quarantines its **whole file** rather than entering the corpus, so a
+   paraphrase or an invented sentence cannot reach the word denominator.
+4. Surviving spans are joined, classified for language, and counted with the versioned tokenizer.
 
 Measured on one real corpus, the pre-filter alone kept 93.4% of the words it was given while the
-model kept 52.8% — so the fallback path understates a learner's error rate by roughly a factor of
-1.8 on heavily pasted sources.
+model kept 52.8% — so skipping the model step understates a learner's error rate by roughly a
+factor of 1.8 on heavily pasted sources.
 
-## 5. Replacement and invalidation
+## 5. Step d owes clean records; step e only confirms
+
+Step d produces records that are **already privacy-clean**, with synthetic example sentences. This
+is a requirement on step d, not an aspiration: a privacy-scanner hit on a step-d record is a defect
+in step d, and the file fails rather than the record being quietly dropped.
+
+Step e is a second, independent read. It may **drop** a record; it may never rewrite, redact, or
+repair one. In normal operation it drops nothing. The whole system must remain correct if step e is
+deleted — a step the product does not depend on must never become the thing quietly holding it
+together.
+
+A step-d record carries the six shareable fields of `SafeMistakeRecord` — `mistake`, `rule`,
+`example`, `example_type`, `source_type`, `modality` — plus the `utterance_id` and evidence span
+needed to check it locally. It does **not** carry the original text. The span addresses the step-c
+file, which the run keeps, so the quote is resolved from there. That makes fabricating a quote
+impossible rather than merely detectable.
+
+There is no separate findings-accuracy verifier, by decision. When precision or recall slips, the
+fix belongs in the `find-english-mistakes` skill.
+
+## 6. Replacement and invalidation
 
 There is no `superseded_artifact_id`, no revision chain, and no historical-content chain.
 
-- The run manifest (`artifacts/manifest.py`, `RunManifest.stages`) points to exactly one current
-  artifact per stage: `current_artifact_id` plus `current_artifact_hash`.
-- A repair atomically replaces the current output of a stage. The manifest then points to the
-  replacement.
-- Replacing an output invalidates every downstream artifact derived from the previous hash.
-  Invalidated stages move to `INVALIDATED` status and are rerun before submission. A downstream
+- The run manifest (`artifacts/manifest.py`) points to exactly one current output per step. A step
+  is a set of files, so the pointer is a digest over the file set rather than a single artifact
+  hash.
+- A repair atomically replaces the output of a step. Because the unit of work is one session file, a
+  repair can replace a single file and reuse the rest; the digest is recomputed over the whole set.
+- Replacing an output invalidates every downstream step derived from the previous digest.
+  Invalidated steps move to `INVALIDATED` status and are rerun before submission. A downstream
   artifact that still references a replaced ID or hash fails verification with
   `LINEAGE_STALE_REFERENCE`.
 - Obsolete artifacts containing user text are deleted, not retained as historical revisions.
 - A content-free event log records artifact IDs, hashes, diagnostic codes, and replacement events
   for debugging and resumption. It never contains source text.
-- The reviewed stage-8 payload is frozen for idempotent delivery. Changing the selected records
-  before submission produces a new payload with a new submission ID.
+- The reviewed payload is frozen for idempotent delivery. Changing the selected records before
+  submission produces a new payload with a new submission ID.

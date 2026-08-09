@@ -12,6 +12,36 @@ The learner may then contribute that package anonymously to Glite, which returns
 module here calls an inference API; semantic judgments run through the active Codex or Claude Code
 runtime and the skills in `skills/`.
 
+## The pipeline shape
+
+Five steps. One session is one file, and that file keeps its name from step a to step e:
+
+```text
+runtime/runs/<run-id>/steps/
+├── a-collected/       raw user messages                script  pipeline/collect.py
+├── b-deduplicated/    duplicates removed               script  pipeline/deduplicate.py
+├── c-authored/        non-user text removed            agent   one per file
+├── d-mistakes/        privacy-clean mistake records    agent   one per file
+└── e-verified/        confidentiality confirmed        agent   one per file
+```
+
+Four properties hold, and code that breaks one of them is wrong even if its tests pass:
+
+- **Same names throughout.** A session that produced nothing is an empty file, never a missing
+  one. Missing and empty mean different things, and only one of them is what happened.
+- **Step c keeps every item.** An utterance that was entirely someone else's text comes back with
+  empty text, not deleted, so c's output diffs against its input line by line.
+- **Deduplication is global and script-only.** The same dictated sentence pasted into a coding
+  agent lands in two sessions with different identifiers by construction, so a per-file pass can
+  never see both. The word count is the denominator of every rate the product reports.
+- **Step d owes clean records; step e only confirms.** Step e may drop a record, never rewrite
+  one, and the system must stay correct if step e is deleted. A scanner hit in step d is a defect
+  in step d, not a filter doing its job.
+
+Filenames are opaque sequence numbers (`session-0001.jsonl`) with the mapping in a local
+`session-index.json`. `session_hash` is not a path component: it has no validator, two adapters
+read it from unvalidated JSON, and a filename reaches the model's context.
+
 ## Critical rules
 
 - Never commit real user transcripts, snapshots, findings, credentials, or private paths.
@@ -55,21 +85,21 @@ skills/                       # canonical agent skills (SKILL.md per skill)
 src/glite_english_audit/
 ├── __init__.py               # CLIENT_VERSION
 ├── paths.py                  # every filesystem location and OS detection
+├── sessions.py               # one session is one file: naming, reading, the local index
 ├── consent.py                # CONSENT_POLICY_VERSION
 ├── artifacts/                # Pydantic models, envelope, hashing, io, manifest,
 │                             # submission contract, schema export
 ├── diagnostics/              # stable diagnostic code registry
-├── state/                    # run/stage state machine, run store, event log
+├── state/                    # run/step state machine, run store, event log
 ├── discovery/                # adapter protocol, registry, snapshot safety,
 │                             # scan exclusions, inventory CLI
 ├── adapters/                 # one package per source: aider, claude_code, cline,
 │                             # codex, cursor, gemini_cli, opencode, roo_code,
 │                             # wispr_flow (registered in adapters/__init__.py)
-├── normalization/            # tokenizer, language spans, authorship filter, dedup,
-│                             # stage-3 filter_corpus CLI
-├── pipeline/                 # the stage drivers an agent invokes: start_run, collect,
-│                             # authorship_batches, apply_authorship, batches,
-│                             # promote_records, build_review, save_choice
+├── normalization/            # tokenizer, language spans, authorship filter, dedup
+├── pipeline/                 # the step drivers an agent invokes: start_run,
+│                             # collect (a), deduplicate (b), authorship (c),
+│                             # mistakes (d), verify (e), build_review, save_choice
 ├── verification/             # deterministic verifiers, corpus/skill verifiers,
 │                             # privacy scanner, fixture policy, generate_wrappers
 ├── progress/                 # progress model and rendering

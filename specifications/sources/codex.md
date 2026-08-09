@@ -257,7 +257,7 @@ normalization and privacy stages, not by the adapter.
 ### 5.3 Sessions, timestamps, IDs
 
 - Session ID: `session_meta.payload.id` (fallback: UUID parsed from the filename when the two
-  disagree, with a `session_id_mismatch` diagnostic). Stored only as a salted local hash in
+  disagree, with a `session_id_mismatch` diagnostic). Stored only as a local SHA-256 hash in
   normalized utterances.
 - Utterance timestamp: the `RolloutLine.timestamp` of the included line (UTC). Fallback when
   missing: `session_meta.payload.timestamp`; if both missing, the utterance has no timestamp.

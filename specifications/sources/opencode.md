@@ -270,7 +270,8 @@ downstream normalization and privacy stages.
 
 ### 5.3 Sessions, timestamps, IDs
 
-- Session ID: `ses_*` string; stored only as a salted local hash in normalized utterances.
+- Session ID: `ses_*` string; stored only as a local SHA-256 hash, unsalted, in normalized
+  utterances.
 - Utterance timestamp: the message `time.created` (preferred, present in all generations) or the
   SQLite `time_created` column; Unix epoch milliseconds, UTC. Missing/unparsable: utterance kept
   with no timestamp, reported `undated`.

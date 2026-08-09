@@ -24,7 +24,7 @@ plus a product niche.
 
 ## 2. Safe-record rules
 
-The safe-record creator (stage 6) must not include:
+The mistake-finding skill (step d) writes the record, and it must not include:
 
 - Names of people, companies, products, clients, projects, repositories, or locations.
 - Exact dates, amounts, percentages, user counts, prices, metrics, or uncommon quantities.
@@ -124,23 +124,30 @@ The materializer is allowlist-based: it copies only the named fields into the pa
 field is a bug, not a policy question, and fails verification with
 `SUBMISSION_FORBIDDEN_FIELD`.
 
-## 4. Creator independence and double protection
+## 4. Where the obligation sits, and why the second gate is not the mechanism
 
-The privacy-safe record creator must know nothing about a later privacy audit. Its instructions
-require a completely safe record on the first attempt; it must never rely on a downstream filter
-to catch leaks.
+**Step d owes clean records.** Not "records the next step will clean" — clean records, on the
+first attempt. The skill is written without reference to any later filter, because a producer that
+knows something downstream will catch its leaks stops being careful about not producing them.
 
 Protection is nevertheless doubled:
 
-1. Stage 6: the independent creator produces records under the safe-record rules above.
-2. Stage 7: a deterministic scanner checks forbidden patterns (URLs, emails, phones, paths,
-   credentials, code, identifiers, suspicious numbers, long source phrases, context-dependent
-   rules), and an independent semantic confidentiality verifier — in a fresh context, without the
-   creator's reasoning — checks semantic re-identification.
+1. Step d: the skill produces records under the safe-record rules above, with synthetic examples.
+   A deterministic scanner runs over its output. A scanner hit here **fails the file** and is
+   reported as a defect in step d, rather than the record being quietly dropped — otherwise the
+   defect is invisible and the failure rate is never measured.
+2. Step e: an independent semantic confidentiality verifier — in a fresh context, without step d's
+   reasoning — checks semantic re-identification, which no pattern check can do. It may drop a
+   record. It may never rewrite, redact, or repair one.
+
+**The system must remain correct if step e is deleted.** That is the test for whether the
+obligation is really sitting in step d. A step the product does not depend on must never become
+the thing quietly holding it together, so step e dropping records regularly is a signal to fix
+step d, not evidence that the design is working.
 
 No record is submitted without both gates. The verifier reports structured diagnostics and never
-silently repairs a record. Systemic privacy-stage failures pause the run. On top of both gates,
-the user reviews every record on the local review page before anything is sent.
+silently repairs a record. Systemic privacy failures pause the run. On top of both gates, the user
+reviews every record on the local review page before anything is sent.
 
 ## 5. Retention
 

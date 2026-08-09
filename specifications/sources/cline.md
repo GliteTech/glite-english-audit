@@ -358,7 +358,8 @@ A message contributes candidate text only if all hold:
 ## 5. Sessions, timestamps, and deduplication
 
 - Session identity: the task directory name (G1/G2 `taskId`, epoch-ms string) or session
-  directory name (G3 `sessionId`). Reported only as a salted local hash. One directory = one
+  directory name (G3 `sessionId`). Reported only as a local SHA-256 hash, unsalted and never
+  sent anywhere. One directory = one
   session.
 - G1/G2 timestamps: API records carry none. Fallback order per utterance: the `ts` of the
   matching `ui_messages.json` record (structure-only join: `say:"task"` for the initial task,
