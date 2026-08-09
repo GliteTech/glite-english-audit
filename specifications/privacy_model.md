@@ -124,6 +124,25 @@ The materializer is allowlist-based: it copies only the named fields into the pa
 field is a bug, not a policy question, and fails verification with
 `SUBMISSION_FORBIDDEN_FIELD`.
 
+## 3A. What reaches a model at all
+
+Before either gate, there is the question of what a model is shown. An agent is handed a
+**projection** of the step it works on — `src/glite_english_audit/pipeline/agent_io.py` — carrying
+what the judgment needs and nothing that names anyone:
+
+- steps c and d see an index, the text, and its modality. Not the session hash, not the source path
+  hash, not the utterance ID, not the adapter version or the confidence the adapter established.
+- step e sees the four content fields it judges. Not the utterance ID and not the evidence span:
+  those are local addresses, and the skill used to instruct the agent not to judge them.
+
+This is the same reasoning that keeps session identity out of filenames, applied to file contents.
+It was briefly missing: the projection lived in the batching module and was deleted along with it,
+after which every line handed to a step-c agent carried a 64-hex session hash and a 64-hex path
+hash — 15% of everything the agents read.
+
+An agent also writes only its decision. The artifacts are written by the drivers, so nothing a model
+emits becomes a file a later step reads without a check in between.
+
 ## 4. Where the obligation sits, and why the second gate is not the mechanism
 
 **Step d owes clean records.** Not "records the next step will clean" — clean records, on the

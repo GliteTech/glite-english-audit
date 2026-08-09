@@ -42,6 +42,12 @@ Filenames are opaque sequence numbers (`session-0001.jsonl`) with the mapping in
 `session-index.json`. `session_hash` is not a path component: it has no validator, two adapters
 read it from unvalidated JSON, and a filename reaches the model's context.
 
+**Agents read a projection and write a decision; drivers write the artifacts.** Steps c, d and e
+hand each agent what its judgment needs — an index, the text, its modality — and take back
+only what it decided. No session hash, path hash or utterance ID reaches a model, which is the
+same rule the opaque filenames follow, applied to file contents. The shapes are in
+`src/glite_english_audit/pipeline/agent_io.py`; the agent's files live in `steps/<step>/agent/`.
+
 ## Critical rules
 
 - Never commit real user transcripts, snapshots, findings, credentials, or private paths.
