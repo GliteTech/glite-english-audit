@@ -56,6 +56,7 @@ CORPUS_NAME = "corpus.jsonl"
 MANIFEST_NAME = "eligible-corpus-manifest.json"
 DECISIONS_GLOB = "decisions-*.jsonl"
 PRODUCER_NAME = "apply_authorship"
+REPAIR_NAME = "needs-repair.json"
 
 DecisionKind = Literal["retain", "partial", "exclude"]
 
@@ -339,6 +340,7 @@ def apply_authorship(
         jsonl_sha256=sha256_hex(corpus_path.read_bytes()),
     )
     write_model(out_dir / MANIFEST_NAME, manifest)
+    _write_repair_list(run_id, diagnostics, runs_root=runs_root, decisions_root=decisions_root)
 
     return AuthorshipApplication(
         manifest=manifest,
@@ -363,6 +365,47 @@ def _diagnostic_counts(diagnostics: list[Diagnostic]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def repair_list_path(
+    run_id: str, *, runs_root: Path | None = None, decisions_root: Path | None = None
+) -> Path:
+    """Where the list of utterances still needing a judgment is written."""
+    base = (
+        decisions_root if decisions_root is not None else decisions_dir(run_id, runs_root=runs_root)
+    )
+    return base / REPAIR_NAME
+
+
+def _write_repair_list(
+    run_id: str,
+    diagnostics: list[Diagnostic],
+    *,
+    runs_root: Path | None = None,
+    decisions_root: Path | None = None,
+) -> Path:
+    """Record which utterances need re-judging, and why.
+
+    A quarantined decision loses the whole utterance, including the spans that
+    were fine — on real data one model reply returned nested spans covering the
+    same tail three times, and rejecting it discarded two good spans with the
+    bad ones. Specification 6.4 allows bounded repair, so the failures are
+    listed here by utterance and diagnostic code, letting a repair pass re-ask
+    for exactly those rather than redoing a batch or accepting the loss.
+
+    The list holds identifiers and codes only, never text.
+    """
+    items = [
+        {"utterance_id": diagnostic.item_ref, "code": diagnostic.code}
+        for diagnostic in diagnostics
+        if diagnostic.item_ref is not None
+    ]
+    target = repair_list_path(run_id, runs_root=runs_root, decisions_root=decisions_root)
+    ensure_private_dir(target.parent)
+    target.write_text(
+        json.dumps({"needs_repair": items}, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return target
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point printing aggregate counts as JSON."""
     parser = argparse.ArgumentParser(description="Stage 3: apply verified authorship decisions")
@@ -382,6 +425,13 @@ def main(argv: list[str] | None = None) -> int:
                 "partial": result.partial,
                 "excluded": result.excluded,
                 "quarantined_decisions": result.quarantined_decisions,
+                "needs_repair": str(
+                    repair_list_path(
+                        arguments.run_id,
+                        runs_root=arguments.runs_root,
+                        decisions_root=arguments.decisions_dir,
+                    )
+                ),
                 "missing_decisions": result.missing_decisions,
                 "quarantined_language": result.quarantined_language,
                 "words_before": result.words_before,

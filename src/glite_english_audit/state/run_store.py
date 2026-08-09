@@ -38,7 +38,7 @@ from glite_english_audit.artifacts.manifest import (
     empty_stage_map,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.state.machine import advance_run, can_advance_run
+from glite_english_audit.state.machine import advance_run, advance_stage, can_advance_run
 
 RUN_MANIFEST_FILENAME = "run-manifest.json"
 RETENTION_DAYS = 30
@@ -55,8 +55,17 @@ allowlist, so a client change may not leave records approved by the previous
 code promoted (specification, 6.6, 8.3).
 """
 
-_PRIVATE_SUBDIRS = ("stages", "logs", "submission")
-_CLEANUP_ONLY_SUBDIRS = ("stages", "logs")
+_PRIVATE_SUBDIRS = ("stages", "logs", "snapshots", "submission")
+"""Private subtrees of a run directory, created together and expired together.
+
+``snapshots/`` holds verbatim copies of the user's own application data
+(:mod:`glite_english_audit.discovery.snapshot_safety`). Manifest-bounded
+snapshot cleanup removes them as soon as extraction is durable, but an
+interrupted or failed extraction leaves them behind, so retention must reach
+them too (specification, 3.6).
+"""
+
+_CLEANUP_ONLY_SUBDIRS = ("stages", "logs", "snapshots")
 _CLEANUP_ONLY_FILES = ("selection.json", "progress.json")
 _FINISHED_STATUSES = frozenset(
     {RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_EXCLUSIONS, RunStatus.EXPIRED}
@@ -220,8 +229,8 @@ def list_unfinished(
 ) -> list[RunSummary]:
     """Summaries for runs that are neither completed nor expired.
 
-    Unreadable manifests and directories whose name disagrees with their
-    manifest are skipped: neither can be offered for resume, and repair is a
+    Unreadable manifests, symlinks, and directories whose name disagrees with
+    their manifest are skipped: none can be offered for resume, and repair is a
     separate explicit action.
     """
     base = _base_dir(root)
@@ -230,7 +239,9 @@ def list_unfinished(
     moment = now if now is not None else utc_now()
     summaries: list[RunSummary] = []
     for child in sorted(base.iterdir()):
-        if not child.is_dir() or not (child / RUN_MANIFEST_FILENAME).is_file():
+        if child.is_symlink() or not child.is_dir():
+            continue
+        if not (child / RUN_MANIFEST_FILENAME).is_file():
             continue
         try:
             manifest = _load_manifest_in(child)
@@ -260,6 +271,24 @@ def describe_resume(
 ) -> ResumeAssessment:
     """Apply the deterministic resume policy (specification, 9.4 and 3.6)."""
     moment = now if now is not None else utc_now()
+    if manifest.status in _FINISHED_STATUSES:
+        # Both endings delete the run's private artifacts: completion by
+        # `cleanup_completed`, expiry by `expire_stale_runs`. There is nothing
+        # left to continue from, whatever the clock says.
+        finished = manifest.status is not RunStatus.EXPIRED
+        return ResumeAssessment(
+            decision=ResumeDecision.EXPIRED,
+            detail=(
+                "This audit already finished, and its private artifacts were deleted. "
+                "Start a new audit."
+                if finished
+                else (
+                    "This run expired under the "
+                    f"{RETENTION_DAYS}-day rule and its private artifacts were deleted. "
+                    "Start a new audit."
+                )
+            ),
+        )
     if moment - _last_checkpoint(manifest) > timedelta(days=RETENTION_DAYS):
         return ResumeAssessment(
             decision=ResumeDecision.EXPIRED,
@@ -335,6 +364,49 @@ def describe_resume(
     )
 
 
+def next_incomplete_stage(manifest: RunManifest) -> StageId | None:
+    """The earliest stage that is not promoted, or ``None`` when all are.
+
+    Where a continued run resumes (specification, 9.4). A stage below a
+    promoted one counts as incomplete too: its output is missing, so anything
+    later rests on nothing and has to be recomputed after it.
+    """
+    for stage in sorted(manifest.stages):
+        if manifest.stages[stage].status is not StageStatus.PROMOTED:
+            return stage
+    return None
+
+
+def invalidate_from(
+    manifest: RunManifest,
+    earliest: StageId,
+    *,
+    now: datetime | None = None,
+) -> list[StageId]:
+    """Invalidate ``earliest`` and every promoted stage after it.
+
+    The invalidate-downstream branch of the resume policy (specification, 9.4,
+    6.5). Only promoted stages move: a quarantined or failed stage keeps its
+    status, so its diagnostic history survives the decision. The artifact
+    pointer is cleared with the status, because a stage that must be recomputed
+    may not stay the manifest's current artifact for lineage checks.
+
+    Callers save the manifest; this function only edits it.
+    """
+    moment = now if now is not None else utc_now()
+    invalidated: list[StageId] = []
+    for stage in sorted(manifest.stages):
+        state = manifest.stages[stage]
+        if stage < earliest or state.status is not StageStatus.PROMOTED:
+            continue
+        state.status = advance_stage(state.status, StageStatus.INVALIDATED, stage=stage)
+        state.current_artifact_id = None
+        state.current_artifact_hash = None
+        state.updated_at = moment
+        invalidated.append(stage)
+    return invalidated
+
+
 def write_checkpoint(
     manifest: RunManifest,
     *,
@@ -351,28 +423,56 @@ def write_checkpoint(
     return manifest
 
 
+def _unsafe_cleanup_path(message: str, *, item_ref: str) -> RunStoreError:
+    return RunStoreError(
+        f"refusing cleanup: {message}",
+        diagnostic=Diagnostic.from_code("STATE_UNSAFE_CLEANUP_PATH", message, item_ref=item_ref),
+    )
+
+
+def _refuse_symlinked_run_directory(run_directory: Path) -> None:
+    """Refuse a run directory that is itself a symlink.
+
+    Every containment check below resolves the run directory first, so a link
+    named like a run would make its target look contained and put an arbitrary
+    directory — a source application store, a home directory — one fixed name
+    away from deletion. This store only ever creates real directories, so a
+    link here is never ours.
+    """
+    if run_directory.is_symlink():
+        raise _unsafe_cleanup_path(
+            f"run directory {run_directory.name!r} is a symlink", item_ref=run_directory.name
+        )
+
+
 def _refuse_symlinks(run_directory: Path, names: tuple[str, ...]) -> None:
+    _refuse_symlinked_run_directory(run_directory)
     for name in names:
         if (run_directory / name).is_symlink():
-            raise RunStoreError(
-                f"refusing cleanup: {name!r} under {run_directory.name!r} is a symlink"
+            raise _unsafe_cleanup_path(
+                f"{name!r} under {run_directory.name!r} is a symlink", item_ref=run_directory.name
             )
 
 
 def _delete_subtree(run_directory: Path, name: str) -> None:
     """Delete one well-known subtree directly under the run directory.
 
-    Bounded by construction: the target is a fixed name joined to the run
-    directory, symlinked targets are refused, and an escaped resolution
-    (a symlinked parent) is refused as well.
+    Bounded by construction: the run directory and the target are both refused
+    when they are symlinks, the target is a fixed name joined to the run
+    directory, and an escaped resolution is refused as well.
     """
+    _refuse_symlinked_run_directory(run_directory)
     target = run_directory / name
     if target.is_symlink():
-        raise RunStoreError(f"refusing cleanup: {name!r} under {run_directory.name!r} is a symlink")
+        raise _unsafe_cleanup_path(
+            f"{name!r} under {run_directory.name!r} is a symlink", item_ref=run_directory.name
+        )
     if not target.exists():
         return
     if target.resolve().parent != run_directory.resolve():
-        raise RunStoreError(f"refusing cleanup: {name!r} resolves outside the run directory")
+        raise _unsafe_cleanup_path(
+            f"{name!r} resolves outside the run directory", item_ref=run_directory.name
+        )
     shutil.rmtree(target)
 
 
@@ -399,13 +499,14 @@ def expire_stale_runs(
 ) -> list[str]:
     """Apply the 30-day retention rule to unfinished runs (specification, 3.6).
 
-    Marks each stale manifest EXPIRED via the state machine, then deletes the
-    private ``stages/``, ``logs/``, and ``submission/`` subtrees. The manifest
-    itself is kept. Returns the expired run IDs.
+    Marks each stale manifest EXPIRED via the state machine, then deletes every
+    private subtree, snapshots included. The manifest itself is kept. Returns
+    the expired run IDs.
 
     Each directory is read and written through itself. A directory whose name
     disagrees with its manifest is left alone: writing through the claimed ID
-    would expire a different, possibly live run.
+    would expire a different, possibly live run. A symlink is skipped for the
+    same reason it is refused during deletion.
     """
     base = _base_dir(root)
     if not base.is_dir():
@@ -413,7 +514,9 @@ def expire_stale_runs(
     moment = now if now is not None else utc_now()
     expired: list[str] = []
     for child in sorted(base.iterdir()):
-        if not child.is_dir() or not (child / RUN_MANIFEST_FILENAME).is_file():
+        if child.is_symlink() or not child.is_dir():
+            continue
+        if not (child / RUN_MANIFEST_FILENAME).is_file():
             continue
         try:
             manifest = _load_manifest_in(child)
@@ -439,10 +542,10 @@ def cleanup_completed(manifest_dir: Path) -> None:
     """Apply completed-run retention to one run directory (specification, 3.6).
 
     Keeps only the ``submission/`` package and the run manifest; deletes
-    ``stages/``, ``logs/``, and the private selection and progress files.
-    Source snapshots live under the repository and are removed by snapshot
-    cleanup with its own manifest-bounded safeguards.
+    ``stages/``, ``logs/``, any snapshot left behind by a source whose
+    extraction failed, and the private selection and progress files.
     """
+    _refuse_symlinked_run_directory(manifest_dir)
     manifest_path = manifest_dir / RUN_MANIFEST_FILENAME
     if not manifest_path.is_file():
         raise RunStoreError(

@@ -5,7 +5,7 @@ description: "Judge, utterance by utterance, which spans of a stage-3 candidate 
 
 # Filter Authored English
 
-**Version**: 2
+**Version**: 3
 
 ## Goal
 
@@ -39,13 +39,17 @@ unclear authorship is excluded.
 
 ## Context
 
-Read before starting:
+This skill is self-sufficient: the judgment rules, the reason codes, and the output contract are
+all below. Do not read specifications or style guides before starting, and do not explore the
+repository. The orchestration runs this skill once per candidate batch, so whatever you read
+before step 1 is read again for every batch of the run.
 
+Consult a reference only when the step you are on needs it:
+
+* `specifications/artifacts.md` — section 3, for a JSONL question the Output Format below leaves
+  open.
 * `styleguide/llm_prompting_styleguide.md` — the untrusted-data convention (P6) and the output
-  contract rules (P7).
-* `specifications/artifacts.md` — section 1 for stage 3's place in the waterfall, section 3 for
-  the JSON and JSONL conventions this file follows.
-* `specifications/privacy_model.md` — why candidate text stays on this machine.
+  contract rules (P7), if you need the reasoning behind them.
 
 You are the authority on authorship at this stage. Line shape cannot decide it. The common case
 is a short request such as "fix those issues" followed by thousands of words of pasted lint
@@ -164,8 +168,17 @@ messages, which are the ones most likely to contain pastes.
    skipped lines; every `utterance_id` appears once and in input order; every span is located by
    substring search; `retain` lines carry the whole `text` as one span; `exclude` lines carry an
    empty span list and a reason code.
-9. Report to the orchestrator in counts only: retained, partial, and excluded utterance counts,
-   plus exclusion counts by reason code. Utterance IDs are fine; candidate text is not.
+9. Report counts only: retained, partial, and excluded utterance counts, plus exclusion counts by
+   reason code. Utterance IDs are fine; candidate text is not. Name the decisions file you wrote.
+
+   The orchestration relays these numbers to the user, so give the reason in plain English there
+   — command output, pasted text, someone else's words — and keep the codes for the decisions
+   file. Leave the step-8 self-check out: a check that passed is your job, not a result.
+
+   Do: "Kept 412 utterances whole, kept part of 88, dropped 210 — mostly command output and
+   pasted text."
+   Don't: "AUTHORSHIP_TOOL_OUTPUT: 154, AUTHORSHIP_PASTED_MATERIAL: 56", which asks the reader
+   to decode this project's internal words to find out what happened to their writing.
 10. If the span verifier rejects the batch, repair only the named lines — relocate the span in
     the original `text` and rewrite it verbatim, or drop it and change the decision. Repairs are
     bounded by the orchestrator's budget; when failures remain after it, report them instead of
@@ -299,3 +312,7 @@ exists to find.
   passes.
 * Do not copy candidate text into progress messages, logs, or any file other than the decisions
   file.
+* Do not report your own self-check as a result — that every span was located, that the line
+  count matched. Fix a defect or name it for the maintainer.
+* Do not describe the batch as verified or the corpus as built. The span verifier runs after
+  this skill, and the pipeline builds the corpus after that.

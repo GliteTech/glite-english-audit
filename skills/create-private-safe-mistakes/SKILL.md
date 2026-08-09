@@ -5,7 +5,7 @@ description: "Turn each verified private mistake into a privacy-safe six-field m
 
 # Create Private Safe Mistakes
 
-**Version**: 2
+**Version**: 3
 
 ## Goal
 
@@ -31,14 +31,31 @@ letting any reader learn who wrote the text, who they work with, or what they we
 
 ## Context
 
-* `src/glite_english_audit/artifacts/models.py` — `SafeMistakeRecord` and
-  `SafeRecordCandidate` are the authoritative output shapes.
-* `src/glite_english_audit/artifacts/enums.py` — `ExampleType` and `Modality` values.
+This skill is self-sufficient: the privacy rules, the six fields, and the output contract are all
+below. Do not read specifications or model definitions before starting, and do not explore the
+repository. The orchestration runs this skill once per stage-6 batch, so whatever you read before
+step 1 is read again for every batch of the run.
 
-The learner's raw history routinely contains company and product names, customer identities,
-business numbers, proprietary plans, URLs, credentials, code, and personal details — and
-combinations of individually harmless facts that identify a person or company. Every record you
-write must stand on its own as if published, because it may be.
+Consult a reference only when the step you are on needs it:
+
+* `src/glite_english_audit/artifacts/models.py` — `SafeMistakeRecord` and `SafeRecordCandidate`,
+  for a field question the Output Format below leaves open.
+* `src/glite_english_audit/artifacts/enums.py` — the `ExampleType` and `Modality` values.
+
+The text these mistakes were cut from routinely holds:
+
+* company, product, project, and client names;
+* customer identities and personal details;
+* business numbers, prices, and internal metrics;
+* proprietary plans and workflow detail;
+* URLs, credentials, paths, and code.
+
+It also holds combinations of individually harmless facts that identify a person or a company
+together. Every record you write must stand on its own as if published, because it may be.
+
+The orchestration invokes this skill; a person never does. An independent agent re-checks these
+records afterwards in a fresh context that never sees your reasoning, so a record has to be safe
+on its face rather than safe once explained.
 
 ## Privacy Rules
 
@@ -164,6 +181,12 @@ the removed detail protects nothing.
    section. Never salvage a borderline record.
 9. Write the candidate JSONL — UTF-8, one object per line, no blank interior lines, one
    trailing newline — validating every line against `SafeRecordCandidate`.
+10. Hand back counts and IDs: records written, records withheld, and the file you wrote. Name a
+    withheld record by its ID and reason code only. Describing what made it unsafe copies the
+    private detail into a second place, which is the leak you just prevented.
+
+    Do not call these records approved or safe to send. The independent confidentiality check
+    runs after this skill and reaches that verdict.
 
 ## Output Format
 
@@ -253,3 +276,6 @@ best effort.
   synthetic instead.
 * Do not output modality `unknown`, a non-public `source_type`, or any field beyond the six
   record fields and the candidate wrapper fields.
+* Do not report what made a record unsafe. The ID and the reason code are the whole report.
+* Do not report your own re-read as a result, and do not claim these records passed a privacy
+  check. Nothing has checked them yet.

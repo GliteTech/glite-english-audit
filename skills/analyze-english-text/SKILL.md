@@ -5,7 +5,7 @@ description: "Analyze one batch of eligible user-authored English utterances and
 
 # Analyze English Text
 
-**Version**: 2
+**Version**: 3
 
 ## Goal
 
@@ -33,25 +33,43 @@ candidate is omitted.
 
 ## Context
 
-Read before starting:
+This skill is self-sufficient: everything needed to run it is below. Do not read specifications,
+model definitions, or source files before starting, and do not explore the repository. The
+orchestration runs this skill once per batch, so a reading list in front of step 1 is paid again
+on every batch of the run.
 
-* `specifications/artifacts.md` — Section 4 defines the deterministic findings format and the
-  sidecar; Section 2 defines the artifact envelope.
+Consult a reference only when the step you are on needs it:
+
+* `specifications/artifacts.md` — Section 4 for the findings layout, Section 2 for the envelope,
+  if the Output Format section below leaves a case open.
 * `styleguide/llm_prompting_styleguide.md` — the untrusted-data convention (P6) and the output
-  contract rules (P7).
+  contract rules (P7), if you need the reasoning behind them.
 
 Findings are private, may contain source language, and never leave the local machine. They are
 input to later local stages only; they are not submitted to Glite.
+
+The audit orchestration invokes this skill; a person never does. Everything you hand back is
+counts and IDs, and the orchestration decides what reaches the user.
 
 ## Judgment Rules
 
 Flag only constructions that strongly suggest non-native English. "High-confidence" means a
 native speaker would be very unlikely to produce the construction in the same informal context.
-The scope is open: grammar and verb forms, articles, determiners, prepositions, word order,
-countability, vocabulary choice, false friends, collocations, idiomaticity, reference, cohesion,
-and unintended meaning changes all qualify, and so does any other high-confidence non-native
-feature that fits no known category. Describe the observed problem in plain English; do not
-infer the user's native language or claim a cause.
+
+The scope is open. All of these qualify:
+
+* grammar and verb forms;
+* articles and determiners;
+* prepositions;
+* word order;
+* countability;
+* vocabulary choice, false friends, and collocations;
+* idiomaticity;
+* reference and cohesion;
+* unintended changes of meaning.
+
+So does any other high-confidence non-native feature that fits none of them. Describe the
+observed problem in plain English. Do not infer the writer's first language or claim a cause.
 
 Ignore all of the following. They are not mistakes for this audit:
 
@@ -164,7 +182,13 @@ attempts.
 6. Self-check every produced file line-by-line before finishing the batch: title line, exact
    threshold line, blank-line placement, block numbering from 1 with no gaps, one trailing
    newline, and sidecar counts consistent with the body.
-7. If a verifier report later rejects a file, regenerate only the affected findings file and its
+7. Hand back counts and IDs: units written, findings retained, and units skipped with their
+   diagnostic codes. Name the files you wrote. When a unit produced no file, say so plainly
+   instead of letting a count imply one.
+
+   Leave the step-6 self-check out of that report. A check that passed is your job, not a
+   result, and the orchestration relays these numbers to a reader who wants the answer.
+8. If a verifier report later rejects a file, regenerate only the affected findings file and its
    sidecar from the original utterances, addressing each reported diagnostic. Repair attempts
    are bounded by the orchestrator; when diagnostics remain after the allowed attempts, report
    them instead of looping.
@@ -304,3 +328,7 @@ renumber the remaining blocks from 1 with no gaps, rewrite the sidecar with the 
   findings files.
 * Do not add lines, sections, or commentary beyond the deterministic format, and do not merge
   several units into one findings file.
+* Do not report your own validation as a result: that every line parsed, that a digest matched,
+  that the layout is byte-exact. Fix a defect or name it; do not make a reader step over it.
+* Do not call a findings file verified, approved, or promoted. Both verifiers run after this
+  skill, and claiming their verdict makes a later failure look like a regression.

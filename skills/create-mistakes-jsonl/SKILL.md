@@ -5,7 +5,7 @@ description: "Convert verified stage-4 findings into PrivateMistake JSONL record
 
 # Create Mistakes JSONL
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -31,11 +31,19 @@ text exactly, occurrence IDs are unique, and the counting rules below hold.
 
 ## Context
 
-* `specifications/artifacts.md` — Section 3 for JSONL conventions, Section 2 for the envelope.
+This skill is self-sufficient: the counting rules, the field list, and the output contract are
+all below. Do not read specifications or model definitions before starting, and do not explore
+the repository. The orchestration runs this skill once per stage-5 batch, so whatever you read
+before step 1 is read again for every batch of the run.
+
+Consult a reference only when the step you are on needs it:
+
 * `src/glite_english_audit/artifacts/models.py` — `PrivateMistake`, `EvidenceSpan`, and
-  `PrivateMistakesManifest` are the authoritative shapes.
-* This artifact is private. It stays in the local run store and supports repair, review, and
-  counting; it is never submitted to Glite.
+  `PrivateMistakesManifest`, for a field question the Output Format below leaves open.
+* `specifications/artifacts.md` — Section 3 for JSONL conventions, Section 2 for the envelope.
+
+This artifact is private. It stays in the local run store, supports repair, review, and counting,
+and is never submitted to Glite. The orchestration invokes this skill; a person never does.
 
 ## Counting Rules
 
@@ -107,20 +115,32 @@ note instead of guessing.
 8. Self-check: every `text[start:end]` equals `original_text`; every occurrence ID is unique;
    `mistake_count` equals the line count; every `finding_artifact_id` is a current stage-4
    artifact ID.
-9. If a verifier later rejects records, regenerate only the affected lines from the findings
-   and utterances, rewrite the file and manifest digest, and resubmit. When a diagnostic cannot
-   be resolved, drop the affected record and report it; repair attempts are bounded by the
-   orchestrator.
+9. Hand back counts and IDs: records written, the file you wrote, and any finding you dropped
+   with its reference and diagnostic. When a batch produced no record, say so plainly instead of
+   letting a count imply a file full of them.
+
+   Leave the step-8 self-check out of that report, and do not call these records verified.
+   Stage-5 verification runs after this skill.
+10. If a verifier later rejects records, regenerate only the affected lines from the findings
+    and utterances, rewrite the file and manifest digest, and resubmit. When a diagnostic cannot
+    be resolved, drop the affected record and report it; repair attempts are bounded by the
+    orchestrator.
 
 ## Output Format
 
-The JSONL lines validate as `PrivateMistake` and the manifest as `PrivateMistakesManifest`,
-both in `src/glite_english_audit/artifacts/models.py`; serialization follows
-`specifications/artifacts.md` Section 3. Allowed values: `modality` is `written` or
-`spoken_asr` (`unknown` is a validation error); `source_adapter` is the utterance's stable
-public adapter ID (for example `claude_code`, `codex`, `wispr_flow`); `evidence_span` is a
-half-open character span with `0 <= start < end`. Cardinality: one record per verified
-occurrence; a findings file with `no_mistakes_found` true contributes zero records.
+The JSONL lines validate as `PrivateMistake` and the manifest as `PrivateMistakesManifest`, both
+in `src/glite_english_audit/artifacts/models.py`. Serialization follows
+`specifications/artifacts.md` Section 3.
+
+Allowed values:
+
+* `modality` — `written` or `spoken_asr`. `unknown` is a validation error.
+* `source_adapter` — the utterance's stable public adapter ID, for example `claude_code`,
+  `codex`, or `wispr_flow`.
+* `evidence_span` — a half-open character span with `0 <= start < end`.
+
+Cardinality: one record per verified occurrence. A findings file with `no_mistakes_found` true
+contributes zero records.
 
 ## End-to-End Example
 
@@ -191,3 +211,7 @@ manifest digest, and resubmit.
 * Do not copy utterance or findings text into progress messages or logs; text belongs only in
   the record fields.
 * Do not export this artifact or quote it outside the private run store.
+* Do not report your own self-check as a result — that every span matched, that the digest is
+  right, that the count lines up. Fix a defect or name it for the maintainer.
+* Do not describe the file as verified or promoted. Claiming a verdict this skill cannot reach
+  makes the verifier's later rejection look like a regression.
