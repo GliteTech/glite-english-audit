@@ -9,7 +9,7 @@ profile or the local history.
 
 ## 1. Profile record
 
-One record describes one measured stage/runtime/model/effort combination. Example (synthetic
+One record describes one measured step/runtime/model/effort combination. Example (synthetic
 numbers):
 
 ```json
@@ -35,18 +35,18 @@ Field meanings:
 
 | Field | Meaning |
 |---|---|
-| `step` | The semantic stage or skill step being measured. |
+| `step` | The pipeline step or skill being measured. |
 | `runtime` | Agent runtime that executed the step. |
 | `model` | Pinned model ID. |
 | `effort` | Model effort setting. |
 | `messages_measured` | Sample size behind this record. |
 | `average_words_per_message` | Mean eligible words per processed message. |
-| `fixed_input_tokens_per_batch` | Prompt overhead paid once per batch. |
+| `fixed_input_tokens_per_batch` | Prompt overhead paid once per model call. The name predates the five-step pipeline: a call was a batch of 25 messages and is now one session file. |
 | `input_tokens_per_message` | Fresh input tokens per message. |
 | `input_tokens_per_word` | Fresh input tokens per eligible word. |
 | `cached_input_tokens_per_message` | Cached input tokens per message. |
 | `output_tokens_per_message` | Output tokens per message. |
-| `retry_rate` | Fraction of batches that needed a retry. |
+| `retry_rate` | Fraction of calls that needed a retry. |
 | `p50_total_tokens_per_message` | Median total tokens per message. |
 | `p90_total_tokens_per_message` | 90th-percentile total tokens per message. |
 
@@ -57,37 +57,40 @@ Measurements are comparable only inside a calibration cell. A cell is keyed by:
 - Runtime.
 - Pinned model ID.
 - Effort.
-- Stage (step).
+- Step.
 - Skill version.
 - Prompt version.
 - Schema version.
-- Batching strategy.
+- Work grouping: one session file per call.
 
 History from an incompatible cell receives little or no weight. After any version change, history
 is partitioned; old cells are kept for reference but do not contaminate new estimates.
 
 ## 3. Live recalibration
 
-After each completed batch, the estimate is updated from:
+After each completed session, the estimate is updated from:
 
 - Actual fresh, cached, and output tokens.
 - Words and utterances completed.
-- Stage.
+- Step.
 - Model and effort.
-- Batch size.
+- Messages in the session.
 - Retry rate.
 - Average artifact output size.
-- Remaining stage work.
+- Remaining step work.
 
-Updates use a robust weighted estimator so one unusual batch does not cause wild swings. The UI
+Updates use a robust weighted estimator so one unusual session does not cause wild swings. The UI
 shows actual usage so far, estimated remaining usage, estimated final total, a typical range, a
 conservative upper bound, a confidence label, and budget or subscription-limit risk.
 
 ## 4. Confidence rule
 
-A calibration cell is high-confidence only after at least 10 completed representative batches for
-the exact runtime/model/effort/stage/prompt combination. Below that minimum, the UI labels the
-estimate low-confidence and widens the displayed range. Estimates never promise that a remaining
+A calibration cell is high-confidence only after at least 10 completed representative samples for
+the exact runtime/model/effort/step/prompt combination. A sample is one measured model call, and
+the committed profile was measured at 25 messages per call, so the sample count is derived with
+that number and not with the pipeline's current grouping — regrouping the work does not create
+evidence. Below that minimum, the UI labels the estimate low-confidence and widens the displayed
+range. Estimates never promise that a remaining
 subscription percentage guarantees completion.
 
 ## 5. Local history
