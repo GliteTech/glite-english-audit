@@ -10,7 +10,7 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageId,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import sha256_hex
@@ -60,7 +60,7 @@ def _envelope(
         schema_version=1,
         artifact_id="art-" + "11" * 16,
         run_id=_RUN_ID,
-        stage_id=StageId.REVIEWED_SUBMISSION,
+        stage_id=StepId.E_VERIFIED,
         producer_name="test-factory",
         producer_version="1.0.0",
         input_artifact_ids=input_artifact_ids or [],
@@ -71,7 +71,7 @@ def _envelope(
 
 def _manifest(*, artifact_id: str, artifact_hash: str) -> RunManifest:
     stages = empty_stage_map()
-    state = stages[StageId.PRIVACY_APPROVED]
+    state = stages[StepId.E_VERIFIED]
     state.current_artifact_id = artifact_id
     state.current_artifact_hash = artifact_hash
     return RunManifest(

@@ -1,4 +1,4 @@
-"""Interruption and resumption across the waterfall (specification, 13.5).
+"""Interruption and resumption across the five steps (specification, 13.5).
 
 Every test here interrupts a real run and continues it from the run directory
 alone, because that is the only thing a resumed audit is allowed to depend on:
@@ -7,13 +7,19 @@ conversation history or in process memory (specification, 9.4). One test
 therefore resumes in a genuinely fresh interpreter, as
 ``tests/test_pipeline_cli_subprocess.py`` does.
 
-Stages 0 to 3, 7, and 8 run through their real drivers. Stages 4, 5, and 6 have
-no driver: they run as skills, so their artifacts are simulated
-deterministically here, the way ``tests/test_pipeline_waterfall.py`` does it.
-The simulation is faithful where resumption depends on it — stage 4 writes one
-findings file per utterance and marks a unit complete only after its body is
-durable, which is what makes the utterance the smallest checkpoint unit
-(specification, 9.3).
+Steps a, b, c and e run through their real drivers. Step d has no driver: it
+runs as skills, so its artifacts are simulated deterministically here, the way
+``tests/test_pipeline_waterfall.py`` does it. The simulation is faithful where
+resumption depends on it — the findings pass writes one file per utterance and
+marks a unit complete only after its body is durable, which is what makes the
+utterance the smallest checkpoint unit (specification, 9.3).
+
+Three of the nine stages this pipeline replaced — plain findings, private
+mistakes, safe records — are step d alone, so a test that used to walk three
+directories walks one. Three others left the step model entirely: the source
+inventory and the snapshot manifests sit beside the manifest at the run root,
+and the review is what happens after the last step rather than a sixth one.
+They are addressed by their own paths where a test needs them.
 
 The run directory sits under the checkout's ``runtime/`` tree, so snapshots
 land inside the run directory exactly as they do in production and retention
@@ -40,8 +46,8 @@ from glite_english_audit.artifacts.enums import (
     ExampleType,
     OsEnvironment,
     RunStatus,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
@@ -65,18 +71,22 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.discovery.inventory import PrivateInventory
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import inventory_path, step_dir
 from glite_english_audit.pipeline import (
     apply_authorship,
     authorship_batches,
     batches,
     build_review,
     collect,
+    deduplicate,
     promote_records,
     start_run,
 )
+from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
+from glite_english_audit.sessions import INDEX_NAME as SESSION_INDEX_NAME
+from glite_english_audit.sessions import read_all
 from glite_english_audit.state.event_log import log_event, read_events
-from glite_english_audit.state.machine import SEMANTIC_STAGES, advance_run, advance_stage
+from glite_english_audit.state.machine import SEMANTIC_STEPS, advance_run, advance_stage
 from glite_english_audit.state.run_store import (
     RUN_MANIFEST_FILENAME,
     ResumeAssessment,
@@ -142,7 +152,7 @@ class Resumed:
     """What one resume attempt decided and what it recomputed."""
 
     assessment: ResumeAssessment
-    stages_run: tuple[StageId, ...]
+    steps_run: tuple[StepId, ...]
     manifest: RunManifest
 
 
@@ -161,7 +171,7 @@ def workspace(tmp_path: Path) -> Workspace:
         check=True,
     )
     inventory_dir = ensure_private_dir(tmp_path / "inventory")
-    _write_inventory(home, inventory_dir)
+    _write_inventory(home, inventory_dir / _INVENTORY_NAME)
     return Workspace(
         repo=repo,
         home=home,
@@ -171,12 +181,13 @@ def workspace(tmp_path: Path) -> Workspace:
 
 
 def _write_inventory(home: Path, target: Path) -> None:
+    """Discover ``home`` and write the inventory to the file ``target`` names."""
     outcome = claude_code_adapter().discover(
         DiscoveryContext(os_environment=OsEnvironment.MACOS, home=home, now=_NOW, environ={})
     )
-    ensure_private_dir(target)
+    ensure_private_dir(target.parent)
     write_model(
-        target / _INVENTORY_NAME,
+        target,
         PrivateInventory(
             records=outcome.records,
             instance_paths={key: str(path) for key, path in outcome.instance_paths.items()},
@@ -186,7 +197,7 @@ def _write_inventory(home: Path, target: Path) -> None:
 
 
 def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
-    return start_run.start_run(
+    manifest = start_run.start_run(
         runtime=AgentRuntime.CLAUDE_CODE,
         os_environment_value="macos",
         preset="everything",
@@ -198,22 +209,60 @@ def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
         provider_transfer_consent=True,
         now=now,
     )
+    # The run's own copy of the inventory is one file beside the manifest, not
+    # a step (``paths.inventory_path``), and collect resolves the selected
+    # instance keys against it. It is written here from the same fixture home
+    # discovery read, so the copy always describes the workspace this run was
+    # started from — which is what the stage-0 production used to do.
+    #
+    # The directory removed first is start_run's: it treats inventory_path as a
+    # directory and writes the inventory inside it, while every reader opens
+    # that path as a file. Remove this once start_run writes the file.
+    target = inventory_path(manifest.run_id, root=workspace.runs_root)
+    if target.is_dir():
+        shutil.rmtree(target)
+    _write_inventory(workspace.home, target)
+    return manifest
 
 
 def _run_directory(workspace: Workspace, run_id: str) -> Path:
     return workspace.runs_root / run_id
 
 
+def _collected(workspace: Workspace, run_id: str) -> list[NormalizedUtterance]:
+    """Every utterance step a wrote, read back from its per-session files."""
+    source = step_dir(run_id, StepId.A_COLLECTED, root=workspace.runs_root)
+    return [utterance for _, members in read_all(source) for utterance in members]
+
+
 def _corpus(workspace: Workspace, run_id: str) -> list[NormalizedUtterance]:
-    path = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=workspace.runs_root) / "corpus.jsonl"
+    path = step_dir(run_id, StepId.C_AUTHORED, root=workspace.runs_root) / "corpus.jsonl"
     return list(read_jsonl_models(path, NormalizedUtterance))
 
 
+def _mistakes_dir(workspace: Workspace, run_id: str) -> Path:
+    """Step d's directory, holding what three separate stages used to hold."""
+    return step_dir(run_id, StepId.D_MISTAKES, root=workspace.runs_root)
+
+
 def _findings_dir(workspace: Workspace, run_id: str) -> Path:
-    return stage_dir(run_id, StageId.PLAIN_FINDINGS, root=workspace.runs_root) / "findings"
+    return _mistakes_dir(workspace, run_id) / "findings"
 
 
-# -- stage production ------------------------------------------------------
+# -- step production -------------------------------------------------------
+
+
+def _pool_candidates_for_step_c(workspace: Workspace, run_id: str) -> None:
+    """Write step a's sessions back out as the one pooled file step c reads.
+
+    Step a is one file per session now; the authorship driver still asks for
+    the single pooled ``candidates.jsonl`` the old stage-2 layout produced, so
+    a test that runs that driver has to hand it the shape it declares. This is
+    the only place the test stands in for driver code rather than for a model,
+    and it disappears when step c reads session files.
+    """
+    source = step_dir(run_id, StepId.A_COLLECTED, root=workspace.runs_root)
+    write_jsonl_models(source / authorship_batches.CANDIDATES_NAME, _collected(workspace, run_id))
 
 
 def _write_authorship_decisions(
@@ -272,7 +321,7 @@ def _write_authorship_decisions(
 
 
 def _findings_body(text: str) -> tuple[str, int]:
-    """The stage-4 body for one utterance, in the deterministic format."""
+    """The findings body for one utterance, in the deterministic format."""
     blocks: list[list[str]] = []
     for original, correction, why in _MARKERS:
         if original in text:
@@ -303,7 +352,7 @@ def _write_findings(
     produced_at: datetime,
     unit_limit: int | None = None,
 ) -> list[str]:
-    """Produce stage-4 findings, one file per utterance. Returns what it wrote.
+    """Produce step d's findings, one file per utterance. Returns what it wrote.
 
     A unit already carrying a sidecar is skipped: the sidecar is written last,
     so its presence means that unit's body was durable before the process
@@ -328,7 +377,7 @@ def _write_findings(
                     schema_version=1,
                     artifact_id=new_artifact_id(),
                     run_id=run_id,
-                    stage_id=StageId.PLAIN_FINDINGS,
+                    stage_id=StepId.D_MISTAKES,
                     producer_name="resume-test-stand-in",
                     producer_version=CLIENT_VERSION,
                     created_at=produced_at,
@@ -346,11 +395,9 @@ def _write_findings(
 
 
 def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) -> None:
-    """Turn stage-4 findings into stage-5 records, one per marked construction."""
+    """Turn step d's findings into its mistake records, one per construction."""
     findings = _findings_dir(workspace, run_id)
-    target = ensure_private_dir(
-        stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=workspace.runs_root)
-    )
+    target = ensure_private_dir(_mistakes_dir(workspace, run_id))
     mistakes: list[PrivateMistake] = []
     for utterance in _corpus(workspace, run_id):
         meta_path = findings / f"{utterance.utterance_id}.meta.json"
@@ -387,7 +434,7 @@ def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) 
                 schema_version=1,
                 artifact_id=new_artifact_id(),
                 run_id=run_id,
-                stage_id=StageId.PRIVATE_MISTAKES,
+                stage_id=StepId.D_MISTAKES,
                 producer_name="resume-test-stand-in",
                 producer_version=CLIENT_VERSION,
                 created_at=at,
@@ -400,19 +447,13 @@ def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) 
 
 
 def _write_safe_candidates(workspace: Workspace, run_id: str) -> None:
-    """Stage 6: one candidate per mistake, one of them deliberately unsafe.
+    """One safe-record candidate per mistake, one of them deliberately unsafe.
 
     The unsafe one carries an address, so the deterministic scanner withholds
     it and the withheld count has something real to preserve across a resume.
     """
-    mistakes = list(
-        read_jsonl_models(
-            stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=workspace.runs_root)
-            / "mistakes.jsonl",
-            PrivateMistake,
-        )
-    )
-    target = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=workspace.runs_root))
+    target = ensure_private_dir(_mistakes_dir(workspace, run_id))
+    mistakes = list(read_jsonl_models(target / "mistakes.jsonl", PrivateMistake))
     candidates: list[SafeRecordCandidate] = []
     for position, mistake in enumerate(mistakes):
         unsafe = position == 1
@@ -447,45 +488,34 @@ def _write_safe_candidates(workspace: Workspace, run_id: str) -> None:
     )
 
 
-def _produce(
-    workspace: Workspace,
-    run_id: str,
-    stage: StageId,
-    *,
-    at: datetime,
-    unit_limit: int | None = None,
-) -> None:
-    """Produce exactly one stage's artifacts.
+def _produce(workspace: Workspace, run_id: str, step: StepId, *, at: datetime) -> None:
+    """Produce exactly one step's artifacts.
 
-    Stages 1 and 2 share one driver: ``collect`` snapshots and extracts in a
-    single call, so the snapshot stage produces both and the candidate stage
-    has nothing left to do.
+    Steps a, b and e are one driver call each; step c is two driver calls with
+    the model's judgment written between them. Step d is the three old semantic
+    stages in one directory — findings, mistake records, safe candidates — and
+    none of the three has a driver, so all three are simulated together. The
+    review is not produced here at all: it is no longer a step, and the tests
+    that need it call ``build_review`` themselves.
     """
-    if stage is StageId.SOURCE_INVENTORY:
-        _write_inventory(
-            workspace.home, stage_dir(run_id, StageId.SOURCE_INVENTORY, root=workspace.runs_root)
-        )
-    elif stage is StageId.SOURCE_SNAPSHOTS:
+    if step is StepId.A_COLLECTED:
         collect.collect(run_id, runs_root=workspace.runs_root, repo=workspace.repo)
-    elif stage is StageId.CANDIDATE_UTTERANCES:
-        pass
-    elif stage is StageId.ELIGIBLE_ENGLISH:
+        _pool_candidates_for_step_c(workspace, run_id)
+    elif step is StepId.B_DEDUPLICATED:
+        deduplicate.deduplicate(run_id, runs_root=workspace.runs_root)
+    elif step is StepId.C_AUTHORED:
         authorship_batches.prepare_authorship_batches(
             run_id, batch_size=5, runs_root=workspace.runs_root
         )
         _write_authorship_decisions(workspace, run_id)
         apply_authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
-    elif stage is StageId.PLAIN_FINDINGS:
+    elif step is StepId.D_MISTAKES:
         batches.prepare_batches(run_id, batch_size=5, runs_root=workspace.runs_root)
-        _write_findings(workspace, run_id, produced_at=at, unit_limit=unit_limit)
-    elif stage is StageId.PRIVATE_MISTAKES:
+        _write_findings(workspace, run_id, produced_at=at)
         _write_private_mistakes(workspace, run_id, at=at)
-    elif stage is StageId.SAFE_RECORDS:
         _write_safe_candidates(workspace, run_id)
-    elif stage is StageId.PRIVACY_APPROVED:
+    elif step is StepId.E_VERIFIED:
         promote_records.promote(run_id, runs_root=workspace.runs_root)
-    elif stage is StageId.REVIEWED_SUBMISSION:
-        build_review.build_review(run_id, runs_root=workspace.runs_root)
 
 
 # -- manifest bookkeeping the orchestration skill performs -----------------
@@ -496,15 +526,19 @@ def _is_content_file(path: Path) -> bool:
 
     Manifests and sidecars carry a fresh artifact ID and creation time by
     design, so they differ between two identical passes. They are compared only
-    where the point is that a stage was *not* rerun.
+    where the point is that a step was *not* rerun.
     """
-    return path.suffix in {".jsonl", ".md"} or path.name in {"withheld.json", _INVENTORY_NAME}
+    return path.suffix in {".jsonl", ".md"} or path.name in {
+        "withheld.json",
+        REMOVED_NAME,
+        SESSION_INDEX_NAME,
+    }
 
 
-def _stage_files(
-    workspace: Workspace, run_id: str, stage: StageId, *, content_only: bool
+def _step_files(
+    workspace: Workspace, run_id: str, step: StepId, *, content_only: bool
 ) -> dict[str, bytes]:
-    root = stage_dir(run_id, stage, root=workspace.runs_root)
+    root = step_dir(run_id, step, root=workspace.runs_root)
     if not root.is_dir():
         return {}
     return {
@@ -514,32 +548,32 @@ def _stage_files(
     }
 
 
-def _stage_hash(workspace: Workspace, run_id: str, stage: StageId) -> str:
-    files = _stage_files(workspace, run_id, stage, content_only=True)
+def _step_hash(workspace: Workspace, run_id: str, step: StepId) -> str:
+    files = _step_files(workspace, run_id, step, content_only=True)
     blob = b"".join(name.encode("utf-8") + b"\0" + data for name, data in sorted(files.items()))
     return sha256_hex(blob)
 
 
-def _promote_stage(
-    workspace: Workspace, manifest: RunManifest, stage: StageId, *, at: datetime
+def _promote_step(
+    workspace: Workspace, manifest: RunManifest, step: StepId, *, at: datetime
 ) -> None:
-    """Walk one stage to PROMOTED through the real transition table.
+    """Walk one step to PROMOTED through the real transition table.
 
-    A stage left in progress by an interruption is continued, not re-entered:
+    A step left in progress by an interruption is continued, not re-entered:
     the table has no self-transition, and a resumed process is the same work
     picked up again.
     """
-    state = manifest.stages[stage]
+    state = manifest.stages[step]
     targets = [StageStatus.PRODUCED, StageStatus.VERIFIED_DETERMINISTIC]
     if state.status is not StageStatus.IN_PROGRESS:
         targets.insert(0, StageStatus.IN_PROGRESS)
-    if stage in SEMANTIC_STAGES:
+    if step in SEMANTIC_STEPS:
         targets.append(StageStatus.VERIFIED_SEMANTIC)
     targets.append(StageStatus.PROMOTED)
     for target in targets:
-        state.status = advance_stage(state.status, target, stage=stage)
+        state.status = advance_stage(state.status, target, stage=step)
     state.current_artifact_id = new_artifact_id()
-    state.current_artifact_hash = _stage_hash(workspace, manifest.run_id, stage)
+    state.current_artifact_hash = _step_hash(workspace, manifest.run_id, step)
     state.updated_at = at
 
 
@@ -554,17 +588,17 @@ def _enter_processing(manifest: RunManifest, *, refreshed_preflight: bool = Fals
 
 
 def _advance_through(
-    workspace: Workspace, manifest: RunManifest, last: StageId, *, at: datetime
+    workspace: Workspace, manifest: RunManifest, last: StepId, *, at: datetime
 ) -> None:
-    """Run, promote, and checkpoint every stage up to and including ``last``."""
+    """Run, promote, and checkpoint every step up to and including ``last``."""
     _enter_processing(manifest)
-    for stage in StageId:
-        if stage > last:
+    for step in StepId:
+        if step > last:
             break
-        if manifest.stages[stage].status is StageStatus.PROMOTED:
+        if manifest.stages[step].status is StageStatus.PROMOTED:
             continue
-        _produce(workspace, manifest.run_id, stage, at=at)
-        _promote_stage(workspace, manifest, stage, at=at)
+        _produce(workspace, manifest.run_id, step, at=at)
+        _promote_step(workspace, manifest, step, at=at)
         write_checkpoint(manifest, root=workspace.runs_root, now=at)
 
 
@@ -578,12 +612,12 @@ def _resume(
     """Continue a run from the manifest on disk, as a fresh conversation must.
 
     Nothing from the interrupted pass is passed in: the manifest is reread, the
-    policy is applied to it, and work restarts at the stage the policy names.
+    policy is applied to it, and work restarts at the step the policy names.
     """
     manifest = load_manifest(run_id, root=workspace.runs_root)
     assessment = describe_resume(manifest, current, now=at)
     if assessment.decision in (ResumeDecision.RESTART, ResumeDecision.EXPIRED):
-        return Resumed(assessment=assessment, stages_run=(), manifest=manifest)
+        return Resumed(assessment=assessment, steps_run=(), manifest=manifest)
     if assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM:
         assert assessment.earliest_affected_stage is not None
         invalidate_from(manifest, assessment.earliest_affected_stage, now=at)
@@ -594,16 +628,16 @@ def _resume(
     save_manifest(manifest, root=workspace.runs_root)
 
     started = next_incomplete_stage(manifest)
-    ran: list[StageId] = []
+    ran: list[StepId] = []
     if started is not None:
-        for stage in StageId:
-            if stage < started:
+        for step in StepId:
+            if step < started:
                 continue
-            _produce(workspace, run_id, stage, at=at)
-            _promote_stage(workspace, manifest, stage, at=at)
+            _produce(workspace, run_id, step, at=at)
+            _promote_step(workspace, manifest, step, at=at)
             write_checkpoint(manifest, root=workspace.runs_root, now=at)
-            ran.append(stage)
-    return Resumed(assessment=assessment, stages_run=tuple(ran), manifest=manifest)
+            ran.append(step)
+    return Resumed(assessment=assessment, steps_run=tuple(ran), manifest=manifest)
 
 
 def _changed(
@@ -618,7 +652,7 @@ def _changed(
 def test_run_interrupted_before_its_manifest_offers_nothing_to_resume(
     workspace: Workspace,
 ) -> None:
-    # start_run writes the stage-0 inventory before the manifest, so a crash
+    # start_run writes the run's inventory copy before the manifest, so a crash
     # between them leaves a directory with private data and no state file. It
     # must not be offered for resume, and it must not break the listing.
     manifest = _start(workspace)
@@ -630,16 +664,16 @@ def test_run_interrupted_before_its_manifest_offers_nothing_to_resume(
 # -- interrupt before the checkpoint ---------------------------------------
 
 
-@pytest.mark.parametrize("stage", list(StageId), ids=lambda stage: f"stage{int(stage)}")
-def test_interrupt_before_checkpoint_reruns_the_stage(workspace: Workspace, stage: StageId) -> None:
+@pytest.mark.parametrize("step", list(StepId), ids=lambda step: step.name.lower())
+def test_interrupt_before_checkpoint_reruns_the_step(workspace: Workspace, step: StepId) -> None:
     """The artifacts are durable but the checkpoint never landed.
 
     The two tests below cover the other shape of the same interruption, where
-    the stage stopped part way through its own work.
+    the step stopped part way through its own work.
     """
     manifest = _start(workspace)
     run_id = manifest.run_id
-    previous = StageId(stage - 1) if stage > StageId.SOURCE_INVENTORY else None
+    previous = StepId(step - 1) if step > StepId.A_COLLECTED else None
     if previous is not None:
         _advance_through(workspace, manifest, previous, at=_NOW)
     else:
@@ -647,46 +681,46 @@ def test_interrupt_before_checkpoint_reruns_the_stage(workspace: Workspace, stag
         write_checkpoint(manifest, root=workspace.runs_root, now=_NOW)
 
     upstream_before = {
-        earlier: _stage_files(workspace, run_id, earlier, content_only=False)
-        for earlier in StageId
+        earlier: _step_files(workspace, run_id, earlier, content_only=False)
+        for earlier in StepId
         if previous is not None and earlier <= previous
     }
-    # The interrupted stage: produced, marked in progress, never checkpointed.
-    _produce(workspace, run_id, stage, at=_NOW)
-    manifest.stages[stage].status = advance_stage(
-        manifest.stages[stage].status, StageStatus.IN_PROGRESS, stage=stage
+    # The interrupted step: produced, marked in progress, never checkpointed.
+    _produce(workspace, run_id, step, at=_NOW)
+    manifest.stages[step].status = advance_stage(
+        manifest.stages[step].status, StageStatus.IN_PROGRESS, stage=step
     )
     save_manifest(manifest, root=workspace.runs_root)
-    interrupted_content = _stage_files(workspace, run_id, stage, content_only=True)
+    interrupted_content = _step_files(workspace, run_id, step, content_only=True)
 
     reread = load_manifest(run_id, root=workspace.runs_root)
     assert reread.last_checkpoint_at == _NOW
-    assert reread.stages[stage].status is StageStatus.IN_PROGRESS
-    assert reread.stages[stage].current_artifact_id is None
-    assert next_incomplete_stage(reread) is stage
+    assert reread.stages[step].status is StageStatus.IN_PROGRESS
+    assert reread.stages[step].current_artifact_id is None
+    assert next_incomplete_stage(reread) is step
 
     resumed = _resume(workspace, run_id, reread.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.stages_run[0] is stage
-    assert resumed.stages_run[-1] is StageId.REVIEWED_SUBMISSION
-    # The rerun reproduces the interrupted stage exactly, and nothing earlier
+    assert resumed.steps_run[0] is step
+    assert resumed.steps_run[-1] is StepId.E_VERIFIED
+    # The rerun reproduces the interrupted step exactly, and nothing earlier
     # was touched: the interruption cost work, never data.
-    assert _stage_files(workspace, run_id, stage, content_only=True) == interrupted_content
+    assert _step_files(workspace, run_id, step, content_only=True) == interrupted_content
     for earlier, before in upstream_before.items():
-        assert _stage_files(workspace, run_id, earlier, content_only=False) == before
+        assert _step_files(workspace, run_id, earlier, content_only=False) == before
     final = load_manifest(run_id, root=workspace.runs_root)
-    assert final.stages[stage].status is StageStatus.PROMOTED
+    assert final.stages[step].status is StageStatus.PROMOTED
     assert final.last_checkpoint_at == _LATER
 
 
-def test_interrupt_inside_stage_three_reruns_only_what_was_lost(workspace: Workspace) -> None:
+def test_interrupt_inside_step_c_reruns_only_what_was_lost(workspace: Workspace) -> None:
     # The authorship judgment stopped after the first of two batches, before
-    # anything applied the decisions. Nothing is promoted, so the whole stage
+    # anything applied the decisions. Nothing is promoted, so the whole step
     # reruns and the corpus is complete.
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.CANDIDATE_UTTERANCES, at=_NOW)
+    _advance_through(workspace, manifest, StepId.B_DEDUPLICATED, at=_NOW)
 
     index = authorship_batches.prepare_authorship_batches(
         run_id, batch_size=5, runs_root=workspace.runs_root
@@ -699,7 +733,7 @@ def test_interrupt_inside_stage_three_reruns_only_what_was_lost(workspace: Works
     resumed = _resume(workspace, run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.stages_run[0] is StageId.ELIGIBLE_ENGLISH
+    assert resumed.steps_run[0] is StepId.C_AUTHORED
     assert len(list(decisions.glob("decisions-*.jsonl"))) == 2
     corpus = _corpus(workspace, run_id)
     assert len(corpus) == index.candidate_count - 1  # the pasted candidate is excluded
@@ -710,7 +744,7 @@ def test_interrupted_unit_is_rerun_and_promoted_units_are_not(workspace: Workspa
     """The utterance is the checkpoint unit, not the batch (specification, 9.3)."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
     unit_count = len(_corpus(workspace, run_id))
     assert unit_count > 4
 
@@ -722,8 +756,8 @@ def test_interrupted_unit_is_rerun_and_promoted_units_are_not(workspace: Workspa
     promoted = first_pass[:-1]
     before = {
         name: data
-        for name, data in _stage_files(
-            workspace, run_id, StageId.PLAIN_FINDINGS, content_only=False
+        for name, data in _step_files(
+            workspace, run_id, StepId.D_MISTAKES, content_only=False
         ).items()
         if any(unit in name for unit in promoted)
     }
@@ -733,7 +767,7 @@ def test_interrupted_unit_is_rerun_and_promoted_units_are_not(workspace: Workspa
     assert first_pass[-1] in second_pass
     assert not set(promoted) & set(second_pass)
     assert len(promoted) + len(second_pass) == unit_count
-    after = _stage_files(workspace, run_id, StageId.PLAIN_FINDINGS, content_only=False)
+    after = _step_files(workspace, run_id, StepId.D_MISTAKES, content_only=False)
     for name, data in before.items():
         assert after[name] == data, f"a promoted unit was rewritten: {name}"
     for unit in promoted:
@@ -751,21 +785,19 @@ def test_interrupted_unit_is_rerun_and_promoted_units_are_not(workspace: Workspa
 # -- interrupt after the checkpoint ----------------------------------------
 
 
-@pytest.mark.parametrize("stage", list(StageId), ids=lambda stage: f"stage{int(stage)}")
-def test_interrupt_after_checkpoint_does_not_reprocess(
-    workspace: Workspace, stage: StageId
-) -> None:
-    """Everything through ``stage`` is promoted and checkpointed."""
+@pytest.mark.parametrize("step", list(StepId), ids=lambda step: step.name.lower())
+def test_interrupt_after_checkpoint_does_not_reprocess(workspace: Workspace, step: StepId) -> None:
+    """Everything through ``step`` is promoted and checkpointed."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, stage, at=_NOW)
+    _advance_through(workspace, manifest, step, at=_NOW)
     # A clean stop: the run checkpointed and the process ended.
     manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
     save_manifest(manifest, root=workspace.runs_root)
 
-    done = [earlier for earlier in StageId if earlier <= stage]
+    done = [earlier for earlier in StepId if earlier <= step]
     before = {
-        earlier: _stage_files(workspace, run_id, earlier, content_only=False) for earlier in done
+        earlier: _step_files(workspace, run_id, earlier, content_only=False) for earlier in done
     }
     identifiers = {
         earlier: manifest.stages[earlier].current_artifact_id
@@ -776,15 +808,13 @@ def test_interrupt_after_checkpoint_does_not_reprocess(
     resumed = _resume(workspace, run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert set(resumed.stages_run).isdisjoint(done)
+    assert set(resumed.steps_run).isdisjoint(done)
     for earlier in done:
-        assert _stage_files(workspace, run_id, earlier, content_only=False) == before[earlier]
+        assert _step_files(workspace, run_id, earlier, content_only=False) == before[earlier]
     final = load_manifest(run_id, root=workspace.runs_root)
     for earlier, artifact_id in identifiers.items():
         assert final.stages[earlier].current_artifact_id == artifact_id
-        assert final.stages[earlier].current_artifact_hash == _stage_hash(
-            workspace, run_id, earlier
-        )
+        assert final.stages[earlier].current_artifact_hash == _step_hash(workspace, run_id, earlier)
     assert next_incomplete_stage(final) is None
     assert final.status is RunStatus.PROCESSING
 
@@ -810,13 +840,13 @@ run_id = sys.argv[2]
 moment = datetime.fromisoformat(sys.argv[3])
 manifest = load_manifest(run_id, root=runs_root)
 assessment = describe_resume(manifest, manifest.fingerprint, now=moment)
-stage = next_incomplete_stage(manifest)
+step = next_incomplete_stage(manifest)
 print(
     json.dumps(
         {
             "decision": assessment.decision.value,
             "detail": assessment.detail,
-            "next_stage": None if stage is None else int(stage),
+            "next_step": None if step is None else int(step),
             "unfinished": [
                 summary.run_id for summary in list_unfinished(runs_root, now=moment)
             ],
@@ -854,7 +884,7 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
     """Resumption may not depend on the conversation or on process state."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.SAFE_RECORDS, at=_NOW)
+    _advance_through(workspace, manifest, StepId.D_MISTAKES, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
     save_manifest(manifest, root=workspace.runs_root)
 
@@ -868,7 +898,7 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
     )
 
     assert payload["decision"] == ResumeDecision.CONTINUE.value
-    assert payload["next_stage"] == int(StageId.PRIVACY_APPROVED)
+    assert payload["next_step"] == int(StepId.E_VERIFIED)
     assert payload["unfinished"] == [run_id]
 
     promoted = _driver_process(
@@ -879,6 +909,9 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
         str(workspace.runs_root),
         cwd=tmp_path,
     )
+    # The review is not a step, so it is not what the resume continued into;
+    # it is the run's last local act, and it still has to work from the run
+    # directory alone.
     reviewed = _driver_process(
         "glite_english_audit.pipeline.build_review",
         "--run-id",
@@ -905,15 +938,12 @@ def test_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace)
     """New source records never invalidate a resume (specification, 13.5)."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.CANDIDATE_UTTERANCES, at=_NOW)
+    _advance_through(workspace, manifest, StepId.A_COLLECTED, at=_NOW)
     selection = manifest.selection
     assert selection is not None
     assert selection.record_cutoff_at == _NOW
-    candidates = (
-        stage_dir(run_id, StageId.CANDIDATE_UTTERANCES, root=workspace.runs_root)
-        / "candidates.jsonl"
-    )
-    before = candidates.read_bytes()
+    collected = _collected(workspace, run_id)
+    before = _step_files(workspace, run_id, StepId.A_COLLECTED, content_only=True)
 
     transcript = (
         workspace.home
@@ -946,76 +976,64 @@ def test_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace)
     resumed = _resume(workspace, run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert candidates.read_bytes() == before
+    # Every session file step a wrote is byte for byte what it was: the resume
+    # continued from step b and never re-read the source.
+    assert _step_files(workspace, run_id, StepId.A_COLLECTED, content_only=True) == before
 
     # The record is real and in period: a later audit, with a later cutoff,
     # picks it up. That is what makes the exclusion above a cutoff decision.
     next_audit = _start(workspace, now=_NOW + timedelta(days=2))
-    _write_inventory(
-        workspace.home,
-        stage_dir(next_audit.run_id, StageId.SOURCE_INVENTORY, root=workspace.runs_root),
-    )
     counts = collect.collect(next_audit.run_id, runs_root=workspace.runs_root, repo=workspace.repo)
-    assert int(str(counts["candidate_utterances"])) == len(before.decode("utf-8").splitlines()) + 1
+    assert int(str(counts["candidate_utterances"])) == len(collected) + 1
 
 
 # -- the four resume decisions ---------------------------------------------
 
 
-def test_resume_continue_finishes_the_remaining_stages(workspace: Workspace) -> None:
+def test_resume_continue_finishes_the_remaining_steps(workspace: Workspace) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
 
     resumed = _resume(workspace, manifest.run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.stages_run == (
-        StageId.PLAIN_FINDINGS,
-        StageId.PRIVATE_MISTAKES,
-        StageId.SAFE_RECORDS,
-        StageId.PRIVACY_APPROVED,
-        StageId.REVIEWED_SUBMISSION,
-    )
+    # Findings, mistake records and safe records were three stages and are one
+    # step, so what used to be five remaining stages is two remaining steps.
+    assert resumed.steps_run == (StepId.D_MISTAKES, StepId.E_VERIFIED)
     reviewed = build_review.build_review(manifest.run_id, runs_root=workspace.runs_root)
     counts = reviewed.counts
     assert counts.shared_mistakes + counts.withheld_for_privacy == counts.verified_total_mistakes
 
 
-def test_resume_invalidate_downstream_recomputes_from_the_semantic_stages(
+def test_resume_invalidate_downstream_recomputes_from_the_semantic_steps(
     workspace: Workspace,
 ) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.REVIEWED_SUBMISSION, at=_NOW)
+    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
     kept = {
-        stage: _stage_files(workspace, run_id, stage, content_only=False)
-        for stage in StageId
-        if stage <= StageId.ELIGIBLE_ENGLISH
+        step: _step_files(workspace, run_id, step, content_only=False)
+        for step in StepId
+        if step <= StepId.C_AUTHORED
     }
-    corpus_artifact = manifest.stages[StageId.ELIGIBLE_ENGLISH].current_artifact_id
+    corpus_artifact = manifest.stages[StepId.C_AUTHORED].current_artifact_id
 
     changed = _changed(manifest.fingerprint, skill_versions={"analyze-english-text": 2})
     resumed = _resume(workspace, run_id, changed)
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert resumed.assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
-    assert resumed.stages_run == (
-        StageId.PLAIN_FINDINGS,
-        StageId.PRIVATE_MISTAKES,
-        StageId.SAFE_RECORDS,
-        StageId.PRIVACY_APPROVED,
-        StageId.REVIEWED_SUBMISSION,
-    )
+    assert resumed.assessment.earliest_affected_stage is StepId.D_MISTAKES
+    assert resumed.steps_run == (StepId.D_MISTAKES, StepId.E_VERIFIED)
     # Everything upstream of the change is kept, byte for byte and by pointer.
-    for stage, before in kept.items():
-        assert _stage_files(workspace, run_id, stage, content_only=False) == before
+    for step, before in kept.items():
+        assert _step_files(workspace, run_id, step, content_only=False) == before
     final = load_manifest(run_id, root=workspace.runs_root)
-    assert final.stages[StageId.ELIGIBLE_ENGLISH].current_artifact_id == corpus_artifact
+    assert final.stages[StepId.C_AUTHORED].current_artifact_id == corpus_artifact
     assert final.fingerprint == changed
     assert all(
-        final.stages[stage].status is StageStatus.PROMOTED
-        for stage in StageId
-        if stage >= StageId.PLAIN_FINDINGS
+        final.stages[step].status is StageStatus.PROMOTED
+        for step in StepId
+        if step >= StepId.D_MISTAKES
     )
 
 
@@ -1033,15 +1051,15 @@ def test_resume_detects_a_changed_skill_prompt_or_model(
 ) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.PLAIN_FINDINGS, at=_NOW)
-    kept = _stage_files(workspace, run_id, StageId.ELIGIBLE_ENGLISH, content_only=False)
+    _advance_through(workspace, manifest, StepId.D_MISTAKES, at=_NOW)
+    kept = _step_files(workspace, run_id, StepId.C_AUTHORED, content_only=False)
 
     resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, **overrides))
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert resumed.assessment.earliest_affected_stage is StageId.PLAIN_FINDINGS
-    assert resumed.stages_run[0] is StageId.PLAIN_FINDINGS
-    assert _stage_files(workspace, run_id, StageId.ELIGIBLE_ENGLISH, content_only=False) == kept
+    assert resumed.assessment.earliest_affected_stage is StepId.D_MISTAKES
+    assert resumed.steps_run[0] is StepId.D_MISTAKES
+    assert _step_files(workspace, run_id, StepId.C_AUTHORED, content_only=False) == kept
 
 
 @pytest.mark.parametrize(
@@ -1061,39 +1079,40 @@ def test_resume_detects_an_incompatible_change(
     # these changes takes the conservative branch: reuse nothing
     # (specification, 9.4).
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
 
     resumed = _resume(workspace, manifest.run_id, _changed(manifest.fingerprint, **overrides))
 
     assert resumed.assessment.decision is ResumeDecision.RESTART
-    assert resumed.stages_run == ()
+    assert resumed.steps_run == ()
 
 
-def test_invalidate_from_clears_pointers_and_keeps_a_quarantined_stage(
+def test_invalidate_from_clears_pointers_and_keeps_a_quarantined_step(
     workspace: Workspace,
 ) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StageId.PRIVATE_MISTAKES, at=_NOW)
-    findings = manifest.stages[StageId.PLAIN_FINDINGS]
-    findings.status = advance_stage(
-        findings.status, StageStatus.IN_PROGRESS, stage=StageId.PLAIN_FINDINGS
+    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    mistakes = manifest.stages[StepId.D_MISTAKES]
+    mistakes.status = advance_stage(
+        mistakes.status, StageStatus.IN_PROGRESS, stage=StepId.D_MISTAKES
     )
-    findings.status = advance_stage(
-        findings.status, StageStatus.QUARANTINED, stage=StageId.PLAIN_FINDINGS
+    mistakes.status = advance_stage(
+        mistakes.status, StageStatus.QUARANTINED, stage=StepId.D_MISTAKES
     )
 
-    invalidated = invalidate_from(manifest, StageId.PLAIN_FINDINGS, now=_LATER)
+    invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_LATER)
 
-    # A quarantined stage keeps its status, so its diagnostic history is not
-    # overwritten by the invalidation decision.
-    assert invalidated == [StageId.PRIVATE_MISTAKES]
-    assert manifest.stages[StageId.PLAIN_FINDINGS].status is StageStatus.QUARANTINED
-    downstream = manifest.stages[StageId.PRIVATE_MISTAKES]
+    # A quarantined step keeps its status, so its diagnostic history is not
+    # overwritten by the invalidation decision. Only the promoted step after it
+    # moves, which is why the invalidated list names e and not d.
+    assert invalidated == [StepId.E_VERIFIED]
+    assert manifest.stages[StepId.D_MISTAKES].status is StageStatus.QUARANTINED
+    downstream = manifest.stages[StepId.E_VERIFIED]
     assert downstream.status is StageStatus.INVALIDATED
     assert downstream.current_artifact_id is None
     assert downstream.current_artifact_hash is None
-    assert manifest.stages[StageId.ELIGIBLE_ENGLISH].status is StageStatus.PROMOTED
-    assert manifest.stages[StageId.ELIGIBLE_ENGLISH].current_artifact_id is not None
+    assert manifest.stages[StepId.C_AUTHORED].status is StageStatus.PROMOTED
+    assert manifest.stages[StepId.C_AUTHORED].current_artifact_id is not None
 
 
 def test_resume_restart_reuses_nothing_and_leaves_the_old_run_alone(
@@ -1101,19 +1120,17 @@ def test_resume_restart_reuses_nothing_and_leaves_the_old_run_alone(
 ) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
-    before = {
-        stage: _stage_files(workspace, run_id, stage, content_only=False) for stage in StageId
-    }
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
+    before = {step: _step_files(workspace, run_id, step, content_only=False) for step in StepId}
 
     resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, tokenizer_version="9.9.9"))
 
     assert resumed.assessment.decision is ResumeDecision.RESTART
-    assert resumed.stages_run == ()
-    for stage in StageId:
-        assert _stage_files(workspace, run_id, stage, content_only=False) == before[stage]
+    assert resumed.steps_run == ()
+    for step in StepId:
+        assert _step_files(workspace, run_id, step, content_only=False) == before[step]
     unchanged = load_manifest(run_id, root=workspace.runs_root)
-    assert unchanged.stages[StageId.ELIGIBLE_ENGLISH].status is StageStatus.PROMOTED
+    assert unchanged.stages[StepId.C_AUTHORED].status is StageStatus.PROMOTED
 
     # A restart is a new run: the old one stays listed until retention or the
     # user's own decision removes it.
@@ -1127,20 +1144,25 @@ def test_resume_restart_reuses_nothing_and_leaves_the_old_run_alone(
 def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
     expired_moment = _NOW + timedelta(days=30, seconds=1)
 
     resumed = _resume(workspace, run_id, manifest.fingerprint, at=expired_moment)
 
     assert resumed.assessment.decision is ResumeDecision.EXPIRED
     assert "new audit" in resumed.assessment.detail
-    assert resumed.stages_run == ()
+    assert resumed.steps_run == ()
 
     assert expire_stale_runs(workspace.runs_root, now=expired_moment) == [run_id]
     run_directory = _run_directory(workspace, run_id)
-    assert (run_directory / RUN_MANIFEST_FILENAME).is_file()
-    for name in ("stages", "logs", "snapshots", "submission"):
-        assert not (run_directory / name).exists()
+    # The state file is kept and every private artifact is deleted. Naming the
+    # survivors rather than a list of directories is what keeps this true of
+    # the layout rather than of one version of it: the step directories, the
+    # run's inventory copy and the snapshot manifests are all private, and all
+    # three moved when the nine stages became five steps.
+    assert sorted(
+        str(path.relative_to(run_directory)) for path in run_directory.rglob("*") if path.is_file()
+    ) == [RUN_MANIFEST_FILENAME]
 
     # The status alone is enough afterwards: a checkpoint written later must
     # not make a run whose private inputs were deleted look resumable.
@@ -1156,7 +1178,7 @@ def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
 def test_thirty_day_boundary_keeps_a_run_resumable(workspace: Workspace) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StageId.ELIGIBLE_ENGLISH, at=_NOW)
+    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
     boundary = _NOW + timedelta(days=30)
 
     assert (
@@ -1164,16 +1186,16 @@ def test_thirty_day_boundary_keeps_a_run_resumable(workspace: Workspace) -> None
         is ResumeDecision.CONTINUE
     )
     assert expire_stale_runs(workspace.runs_root, now=boundary) == []
-    assert stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=workspace.runs_root).is_dir()
+    assert step_dir(run_id, StepId.C_AUTHORED, root=workspace.runs_root).is_dir()
 
     resumed = _resume(workspace, run_id, manifest.fingerprint, at=boundary)
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.stages_run[0] is StageId.PLAIN_FINDINGS
+    assert resumed.steps_run[0] is StepId.D_MISTAKES
 
 
 def test_a_completed_run_is_never_offered_for_resume(workspace: Workspace) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StageId.REVIEWED_SUBMISSION, at=_NOW)
+    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.REVIEW)
     manifest.status = advance_run(manifest.status, RunStatus.COMPLETED)
     save_manifest(manifest, root=workspace.runs_root)
@@ -1191,7 +1213,7 @@ def test_quarantined_failures_and_diagnostics_survive_a_resume(workspace: Worksp
     manifest = _start(workspace)
     run_id = manifest.run_id
     run_directory = _run_directory(workspace, run_id)
-    _advance_through(workspace, manifest, StageId.CANDIDATE_UTTERANCES, at=_NOW)
+    _advance_through(workspace, manifest, StepId.B_DEDUPLICATED, at=_NOW)
 
     authorship_batches.prepare_authorship_batches(
         run_id, batch_size=5, runs_root=workspace.runs_root
@@ -1205,22 +1227,18 @@ def test_quarantined_failures_and_diagnostics_survive_a_resume(workspace: Worksp
         log_event(
             run_directory,
             "item_quarantined",
-            stage_id=StageId.ELIGIBLE_ENGLISH,
+            stage_id=StepId.C_AUTHORED,
             diagnostic_codes=[diagnostic.code],
         )
-    state = manifest.stages[StageId.ELIGIBLE_ENGLISH]
-    state.status = advance_stage(
-        state.status, StageStatus.IN_PROGRESS, stage=StageId.ELIGIBLE_ENGLISH
-    )
-    state.status = advance_stage(
-        state.status, StageStatus.QUARANTINED, stage=StageId.ELIGIBLE_ENGLISH
-    )
+    state = manifest.stages[StepId.C_AUTHORED]
+    state.status = advance_stage(state.status, StageStatus.IN_PROGRESS, stage=StepId.C_AUTHORED)
+    state.status = advance_stage(state.status, StageStatus.QUARANTINED, stage=StepId.C_AUTHORED)
     write_checkpoint(manifest, root=workspace.runs_root, now=_NOW)
 
     # A fresh read of the run: the quarantine and its history are still there.
     reread = load_manifest(run_id, root=workspace.runs_root)
-    assert reread.stages[StageId.ELIGIBLE_ENGLISH].status is StageStatus.QUARANTINED
-    assert next_incomplete_stage(reread) is StageId.ELIGIBLE_ENGLISH
+    assert reread.stages[StepId.C_AUTHORED].status is StageStatus.QUARANTINED
+    assert next_incomplete_stage(reread) is StepId.C_AUTHORED
     events = read_events(run_directory)
     assert [event.kind for event in events] == ["item_quarantined"]
     assert events[0].diagnostic_codes == ["AUTHORSHIP_SPAN_NOT_VERBATIM"]
@@ -1228,14 +1246,14 @@ def test_quarantined_failures_and_diagnostics_survive_a_resume(workspace: Worksp
     resumed = _resume(workspace, run_id, reread.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.stages_run[0] is StageId.ELIGIBLE_ENGLISH
+    assert resumed.steps_run[0] is StepId.C_AUTHORED
     # The resume re-asks for the quarantined unit and this time the judgment
     # verifies, so the utterance rejoins the corpus.
     assert any("I very like" in utterance.text for utterance in _corpus(workspace, run_id))
     # The repair does not erase what the failed pass recorded.
     assert [event.kind for event in read_events(run_directory)] == ["item_quarantined"]
     assert (
-        load_manifest(run_id, root=workspace.runs_root).stages[StageId.ELIGIBLE_ENGLISH].status
+        load_manifest(run_id, root=workspace.runs_root).stages[StepId.C_AUTHORED].status
         is StageStatus.PROMOTED
     )
     # The log is content-free by construction; prove it over the real bytes.
@@ -1281,8 +1299,8 @@ def test_completed_cleanup_keeps_only_the_package_and_the_manifest(
     manifest = _start(workspace)
     run_id = manifest.run_id
     run_directory = _run_directory(workspace, run_id)
-    _advance_through(workspace, manifest, StageId.REVIEWED_SUBMISSION, at=_NOW)
-    log_event(run_directory, "checkpoint_written", stage_id=StageId.REVIEWED_SUBMISSION)
+    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    log_event(run_directory, "checkpoint_written", stage_id=StepId.E_VERIFIED)
     (run_directory / "submission" / "package.json").write_text("{}", encoding="utf-8")
     # A source whose extraction failed can leave a snapshot behind; completion
     # must not keep it either.
@@ -1333,11 +1351,11 @@ def test_cleanup_refuses_a_run_directory_that_is_a_symlink(
     # The worst case for a store that deletes fixed names under a directory: a
     # link named like a run, holding a manifest that matches that name. Every
     # containment check resolves the run directory first, so without a check on
-    # the link itself the target's own 'stages' and 'logs' are inside the
+    # the link itself the target's own 'steps' and 'logs' are inside the
     # bounds and a home directory is one deletion away.
     home = _source_home(tmp_path)
     planted_id = "run-" + "a" * 32
-    for name in ("stages", "logs", "snapshots", "submission"):
+    for name in ("steps", "logs", "snapshots", "submission"):
         (home / name).mkdir()
         (home / name / "keep.txt").write_text("keep", encoding="utf-8")
     real = _start(workspace)
@@ -1369,19 +1387,21 @@ def test_cleanup_refuses_a_run_directory_that_is_a_symlink(
     }
 
 
-def test_cleanup_refuses_a_stage_directory_pointing_at_source_data(
+def test_cleanup_refuses_a_step_directory_pointing_at_source_data(
     workspace: Workspace, tmp_path: Path
 ) -> None:
     home = _source_home(tmp_path)
     before = _victim_files(home)
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StageId.REVIEWED_SUBMISSION, at=_NOW)
+    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.REVIEW)
     manifest.status = advance_run(manifest.status, RunStatus.COMPLETED)
     save_manifest(manifest, root=workspace.runs_root)
     run_directory = _run_directory(workspace, manifest.run_id)
-    shutil.rmtree(run_directory / "stages")
-    (run_directory / "stages").symlink_to(home / ".claude", target_is_directory=True)
+    # 'steps' is where every step's artifacts live now, so it is the subtree
+    # completed cleanup deletes and therefore the one a link could redirect.
+    shutil.rmtree(run_directory / "steps")
+    (run_directory / "steps").symlink_to(home / ".claude", target_is_directory=True)
 
     with pytest.raises(RunStoreError, match="symlink") as excinfo:
         cleanup_completed(run_directory)
@@ -1408,9 +1428,9 @@ def test_retention_touches_nothing_outside_the_run_directory(
     home = _source_home(tmp_path)
     victim_before = _victim_files(home)
     stale = _start(workspace)
-    _advance_through(workspace, stale, StageId.ELIGIBLE_ENGLISH, at=_NOW - timedelta(days=31))
+    _advance_through(workspace, stale, StepId.C_AUTHORED, at=_NOW - timedelta(days=31))
     live = _start(workspace)
-    _advance_through(workspace, live, StageId.CANDIDATE_UTTERANCES, at=_NOW)
+    _advance_through(workspace, live, StepId.A_COLLECTED, at=_NOW)
     neighbor = workspace.runs_root.parent / "calibration"
     neighbor.mkdir(parents=True, exist_ok=True)
     (neighbor / "local-history.jsonl").write_text("{}\n", encoding="utf-8")
@@ -1423,5 +1443,5 @@ def test_retention_touches_nothing_outside_the_run_directory(
     assert (neighbor / "local-history.jsonl").is_file()
     assert loose.is_file()
     assert (workspace.repo / ".gitignore").is_file()
-    assert stage_dir(live.run_id, StageId.CANDIDATE_UTTERANCES, root=workspace.runs_root).is_dir()
-    assert not (_run_directory(workspace, stale.run_id) / "stages").exists()
+    assert step_dir(live.run_id, StepId.A_COLLECTED, root=workspace.runs_root).is_dir()
+    assert not (_run_directory(workspace, stale.run_id) / "steps").exists()

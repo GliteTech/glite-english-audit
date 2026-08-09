@@ -1,9 +1,15 @@
-"""The whole waterfall must run stage by stage through its own drivers.
+"""The whole waterfall must run step by step through its own drivers.
 
-This is the test the project lacked: every stage executed through the module
+This is the test the project lacked: every step executed through the module
 an agent would actually invoke, over committed fixtures, with a deterministic
-stand-in for the semantic stages. It fails if any stage driver stops being
+stand-in for the semantic steps. It fails if any step driver stops being
 runnable, not merely if a function returns the wrong value.
+
+Three of the nine stages this replaced are no longer steps at all: the source
+inventory, the snapshot manifests, and the review. They produce one artifact
+for the whole run rather than one file per session, so they are exercised
+here through the run-level paths that own them rather than through a step
+directory.
 """
 
 import json
@@ -20,8 +26,8 @@ from glite_english_audit.artifacts.enums import (
     ExampleType,
     Modality,
     Stability,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id
@@ -52,17 +58,19 @@ from glite_english_audit.discovery.base import (
 )
 from glite_english_audit.discovery.inventory import PrivateInventory, summarize
 from glite_english_audit.normalization.filter_corpus import filter_corpus
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import inventory_path, snapshot_dir, step_dir, submission_dir
 from glite_english_audit.pipeline import (
     apply_authorship,
     authorship_batches,
     batches,
     build_review,
     collect,
+    deduplicate,
     promote_records,
     start_run,
 )
 from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.sessions import read_index, session_files
 from glite_english_audit.submission.package import materialize_package
 from glite_english_audit.verification.deterministic import (
     verify_package_against_review,
@@ -168,11 +176,12 @@ def _seeded_run(tmp_path: Path, runs_root: Path) -> str:
     return manifest.run_id
 
 
-def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -> None:
+def test_waterfall_runs_step_by_step(tmp_path: Path, only_claude_code: None) -> None:
     runs_root = tmp_path / "runs"
     repo = _repo_with_ignored_temp(tmp_path)
 
-    # Stage 0: discovery against the fixture home, agent-visible output only.
+    # Discovery is not a step: it describes the machine rather than any one
+    # session. Its agent-visible output is summaries only.
     from datetime import UTC, datetime
 
     from glite_english_audit.artifacts.enums import OsEnvironment
@@ -219,21 +228,50 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     run_id = manifest.run_id
     assert manifest.selection is not None
     assert manifest.selection.selected_instance_keys
+    # The run's own copy of the inventory is a single file at the run root,
+    # beside the manifest. It has no per-session file to sit next to, so it is
+    # the one artifact of the old stage 0 that survived the five-step layout.
+    assert inventory_path(run_id, root=runs_root).is_file()
 
-    # Stages 1-2: snapshot and extract, then the snapshots are gone.
+    # Step a: snapshot and extract. One session is one file from here on, named
+    # by an opaque sequence number, with the index the only place a file name
+    # is tied to a session hash.
     collected = collect.collect(run_id, runs_root=runs_root, repo=repo)
     assert collected["candidate_utterances"], "extraction produced no candidates"
     assert collected["excluded_instances"] == []
-    snapshots = repo / "runtime" / run_id / "snapshots"
+    step_a = step_dir(run_id, StepId.A_COLLECTED, root=runs_root)
+    collected_names = [path.name for path in session_files(step_a)]
+    assert len(collected_names) == collected["sessions"]
+    assert set(read_index(step_a)) == set(collected_names)
+
+    # The snapshots are verbatim copies of the user's application data, so they
+    # must be gone the moment extraction is durable. The path this checked was
+    # a directory no run has ever written, so it passed whether or not anything
+    # had been deleted; it is asked of the real snapshot location now.
+    snapshots = snapshot_dir(run_id, repo=repo)
     leftover = [p for p in snapshots.rglob("*") if p.is_file()] if snapshots.exists() else []
     assert leftover == [], "snapshots must be removed once extraction is durable"
 
-    # Stage 3, fallback path: the pre-filter alone builds a verifiable corpus.
+    # Step b: deduplication is comparison rather than judgment, so it runs
+    # before any model spends tokens on text that is about to be discarded. It
+    # hands step c back the same file set it was given — including a session
+    # whose every message was a duplicate, which stays as an empty file,
+    # because a missing file and an emptied one mean different things.
+    deduplicated = deduplicate.deduplicate(run_id, runs_root=runs_root)
+    step_b = step_dir(run_id, StepId.B_DEDUPLICATED, root=runs_root)
+    assert [path.name for path in session_files(step_b)] == collected_names
+    assert read_index(step_b) == read_index(step_a)
+    assert deduplicated["messages_in"] == collected["candidate_utterances"]
+    # Step b's files are no longer a faithful record of the sessions they name,
+    # so what it dropped is written down rather than left to be inferred.
+    assert (step_b / "removed.json").is_file()
+
+    # Step c, fallback path: the pre-filter alone builds a verifiable corpus.
     corpus_manifest = filter_corpus(run_id, runs_root=runs_root)
     assert corpus_manifest.english_word_count > 0
     assert verify_corpus(run_id, runs_root=runs_root) == []
 
-    # Stage 3, model path: candidate batches, a deterministic stand-in for the
+    # Step c, model path: candidate batches, a deterministic stand-in for the
     # authorship judgment, then the verifier that counts what it kept.
     candidate_index = authorship_batches.prepare_authorship_batches(
         run_id, batch_size=5, runs_root=runs_root
@@ -271,7 +309,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     corpus_manifest = applied.manifest
     assert verify_corpus(run_id, runs_root=runs_root) == []
 
-    # Stage 4 input: deterministic batches.
+    # Step d input: deterministic batches.
     batch_result = batches.prepare_batches(run_id, batch_size=5, runs_root=runs_root)
     assert int(str(batch_result["batches"])) >= 1
     batch_dir = Path(str(batch_result["batch_dir"]))
@@ -279,23 +317,23 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     rows = [json.loads(line) for line in first.read_text().splitlines()]
     assert {"utterance_id", "text", "modality"} == set(rows[0])
 
-    # The model that turns those batches into findings does not run here, so
-    # stage 4 is promoted as its stand-in. Without this, stage 8 refuses the
-    # run — which is the point of that guard, and the reason it is recorded
-    # explicitly rather than left to a command's side effect.
-    advance_to(run_id, StageId.PLAIN_FINDINGS, StageStatus.PROMOTED, runs_root=runs_root)
+    # Step d is where three of the old stages ended up: the findings a model
+    # writes from those batches, the private mistake records made from the
+    # findings, and the privacy-safe candidates made from the records. Nothing
+    # below reads the findings, so the stand-in produces the two artifacts that
+    # are read, and writes them into the one directory that now owns all three.
+    mistakes_dir = ensure_private_dir(step_dir(run_id, StepId.D_MISTAKES, root=runs_root))
 
-    # Stage 5: a deterministic stand-in for the semantic producer.
+    # The private mistakes: a deterministic stand-in for the semantic producer.
     corpus = list(
         read_jsonl_models(
-            stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / "corpus.jsonl",
+            step_dir(run_id, StepId.C_AUTHORED, root=runs_root) / "corpus.jsonl",
             NormalizedUtterance,
         )
     )
     target = next(u for u in corpus if "very like" in u.text)
     phrase = "I very like this plan"
     start = target.text.find(phrase)
-    mistakes_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root))
     mistake = PrivateMistake(
         mistake_id="m-1",
         occurrence_id="m-1-o1",
@@ -312,7 +350,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     # A second verified occurrence, so every safe-record candidate below has a
     # private mistake behind it and the count arithmetic can balance. It cites a
     # different utterance rather than copying this one's span: two records over
-    # the same characters is double counting, and the stage-5 verifier rejects
+    # the same characters is double counting, and the mistake verifier rejects
     # it. The earlier version of this stand-in did exactly that, and also quoted
     # text its own span did not contain.
     other = next(u for u in corpus if u.utterance_id != target.utterance_id and len(u.text) > 12)
@@ -338,7 +376,7 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
                 schema_version=1,
                 artifact_id=new_artifact_id(),
                 run_id=run_id,
-                stage_id=StageId.PRIVATE_MISTAKES,
+                stage_id=StepId.D_MISTAKES,
                 producer_name="test",
                 producer_version="1.0.0",
                 created_at=utc_now(),
@@ -351,8 +389,8 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
         ),
     )
 
-    # Stage 6: one safe candidate and one that must be withheld.
-    safe_dir = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root))
+    # The privacy-safe candidates, in that same step directory: one that is
+    # safe to publish as written and one that must be withheld.
     good = SafeRecordCandidate(
         mistake_id="m-1",
         record=SafeMistakeRecord(
@@ -377,21 +415,25 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
         ),
         creator_version="1.0.0",
     )
-    write_jsonl_models(safe_dir / "candidates.jsonl", [good, leaky])
+    write_jsonl_models(mistakes_dir / "candidates.jsonl", [good, leaky])
 
-    # Stage 7, first half: the independent semantic verifier. It is a model in
+    # Step e, first half: the independent semantic verifier. It is a model in
     # production and a stand-in here, but its report is not optional — promotion
     # refuses any candidate it does not clear, so skipping it can no longer
     # produce a package that claims two gates passed.
     write_confidentiality_report(run_id, ["m-1", "m-2"], runs_root=runs_root)
 
-    # Stage 7, second half: the deterministic scanner promotes only the record
-    # that also survives its patterns.
+    # Step e, second half: the deterministic scanner promotes only the record
+    # that also survives its patterns. Promoting is also what records steps d
+    # and e as done, which is why no stand-in promotion is needed for the
+    # findings the semantic producer did not write here.
     promoted = promote_records.promote(run_id, runs_root=runs_root)
     assert promoted["approved"] == 1
     assert promoted["withheld_for_privacy"] == 1
 
-    # Stage 8: counts computed from the run's own artifacts.
+    # The review is not a step: it produces one artifact for the whole run and
+    # then waits on a person. Its counts are computed from the run's own
+    # artifacts, and it refuses to run at all unless every step is promoted.
     reviewed = build_review.build_review(run_id, runs_root=runs_root)
     counts = reviewed.counts
     assert len(reviewed.records) == 1
@@ -404,9 +446,10 @@ def test_waterfall_runs_stage_by_stage(tmp_path: Path, only_claude_code: None) -
     assert counts.shared_mistakes + withheld_total == counts.verified_total_mistakes
     assert counts.analyzed_english_words == corpus_manifest.english_word_count
 
-    # The artifact on disk is what the review server would load.
+    # The artifact on disk is what the review server would load. It lives in
+    # the run's submission directory rather than in a step directory.
     stored = read_model(
-        stage_dir(run_id, StageId.REVIEWED_SUBMISSION, root=runs_root) / "reviewed-submission.json",
+        submission_dir(run_id, root=runs_root) / "reviewed-submission.json",
         ReviewedSubmissionArtifact,
     )
     assert stored.counts == counts
@@ -488,12 +531,12 @@ def test_an_adapter_that_fails_its_own_checks_loses_only_its_own_source(
     assert reasons and all("SOURCE_SNAPSHOT_UNSAFE_PATH" in reason for reason in reasons)
 
 
-def test_stage_eight_reports_the_utterances_it_could_not_judge(
+def test_the_review_reports_the_utterances_it_could_not_judge(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], only_claude_code: None
 ) -> None:
     """Coverage loss must not hide inside a denominator.
 
-    Utterances stage 3 quarantines never become eligible, so they are absent
+    Utterances step c quarantines never become eligible, so they are absent
     from every count the review shows. A run that failed to read a third of the
     input would report a rate over the surviving two thirds and say nothing
     about the rest.
@@ -502,25 +545,27 @@ def test_stage_eight_reports_the_utterances_it_could_not_judge(
     repo = _repo_with_ignored_temp(tmp_path)
     run_id = _seeded_run(tmp_path, runs_root)
     collect.collect(run_id, runs_root=runs_root, repo=repo)
+    deduplicate.deduplicate(run_id, runs_root=runs_root)
     filter_corpus(run_id, runs_root=runs_root)
 
-    corpus_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
+    corpus_dir = step_dir(run_id, StepId.C_AUTHORED, root=runs_root)
     manifest = read_model(corpus_dir / "eligible-corpus-manifest.json", EligibleCorpusManifest)
     write_model(
         corpus_dir / "eligible-corpus-manifest.json",
         manifest.model_copy(update={"quarantined_utterance_count": 7}),
     )
 
-    mistakes_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root))
+    # Both files belong to step d now: the mistakes the review counts and the
+    # safe-record candidates promotion reads. Empty, because this test is about
+    # what the review says when there is nothing to report.
+    mistakes_dir = ensure_private_dir(step_dir(run_id, StepId.D_MISTAKES, root=runs_root))
     write_jsonl_models(mistakes_dir / "mistakes.jsonl", [])
-    safe_dir = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root))
-    write_jsonl_models(safe_dir / "candidates.jsonl", [])
+    write_jsonl_models(mistakes_dir / "candidates.jsonl", [])
     write_confidentiality_report(run_id, [], runs_root=runs_root)
-    # filter_corpus is the fallback stage-3 path and records nothing, so the
-    # two stages this test does not drive through their real producers are
-    # promoted here as stand-ins.
-    for stage in (StageId.ELIGIBLE_ENGLISH, StageId.PLAIN_FINDINGS):
-        advance_to(run_id, stage, StageStatus.PROMOTED, runs_root=runs_root)
+    # Steps a and b promote themselves and promote_records promotes d and e, so
+    # step c is the only one left: filter_corpus is the fallback path and
+    # records nothing, so its promotion is a stand-in written here.
+    advance_to(run_id, StepId.C_AUTHORED, StageStatus.PROMOTED, runs_root=runs_root)
     promote_records.promote(run_id, runs_root=runs_root)
 
     build_review.main(["--run-id", run_id, "--runs-root", str(runs_root)])
@@ -587,12 +632,12 @@ def test_a_source_that_fails_verification_is_reported_once(
     assert len(instances) == len(set(instances)), f"an instance was excluded twice: {instances}"
 
 
-def test_stage_eight_refuses_a_run_whose_mistakes_double_count(
+def test_the_review_refuses_a_run_whose_mistakes_double_count(
     tmp_path: Path, only_claude_code: None
 ) -> None:
     """verified_total_mistakes is len(mistakes).
 
-    A stage-5 record covering text another record already covers inflates the
+    A step-d record covering text another record already covers inflates the
     learner's error rate, and nothing further down can tell. The orchestration
     is told to run the verifier; running it inside build_review is what makes
     the count true rather than merely checked by someone who might have skipped
@@ -602,11 +647,12 @@ def test_stage_eight_refuses_a_run_whose_mistakes_double_count(
     repo = _repo_with_ignored_temp(tmp_path)
     run_id = _seeded_run(tmp_path, runs_root)
     collect.collect(run_id, runs_root=runs_root, repo=repo)
+    deduplicate.deduplicate(run_id, runs_root=runs_root)
     filter_corpus(run_id, runs_root=runs_root)
 
     corpus = list(
         read_jsonl_models(
-            stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / "corpus.jsonl",
+            step_dir(run_id, StepId.C_AUTHORED, root=runs_root) / "corpus.jsonl",
             NormalizedUtterance,
         )
     )
@@ -632,13 +678,11 @@ def test_stage_eight_refuses_a_run_whose_mistakes_double_count(
             "original_text": target.text[5:12],
         }
     )
-    mistakes_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root))
+    mistakes_dir = ensure_private_dir(step_dir(run_id, StepId.D_MISTAKES, root=runs_root))
     write_jsonl_models(mistakes_dir / "mistakes.jsonl", [wide, nested])
-    safe_dir = ensure_private_dir(stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root))
-    write_jsonl_models(safe_dir / "candidates.jsonl", [])
+    write_jsonl_models(mistakes_dir / "candidates.jsonl", [])
     write_confidentiality_report(run_id, [], runs_root=runs_root)
-    for stage in (StageId.ELIGIBLE_ENGLISH, StageId.PLAIN_FINDINGS):
-        advance_to(run_id, stage, StageStatus.PROMOTED, runs_root=runs_root)
+    advance_to(run_id, StepId.C_AUTHORED, StageStatus.PROMOTED, runs_root=runs_root)
     promote_records.promote(run_id, runs_root=runs_root)
 
     with pytest.raises(ValueError, match="fail their own verifier"):

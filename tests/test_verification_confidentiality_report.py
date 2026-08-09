@@ -27,7 +27,7 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageId,
+    StepId,
 )
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
@@ -44,7 +44,7 @@ from glite_english_audit.artifacts.manifest import (
 from glite_english_audit.artifacts.models import SafeMistakeRecord, SafeRecordCandidate
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline import promote_records
 from glite_english_audit.state.run_store import RUN_MANIFEST_FILENAME
 from glite_english_audit.verification.confidentiality_report import (
@@ -104,7 +104,7 @@ def _seed_run(runs_root: Path) -> None:
 
 def _seed_candidates(runs_root: Path, ids: list[str]) -> None:
     _seed_run(runs_root)
-    target = ensure_private_dir(stage_dir(_RUN, StageId.SAFE_RECORDS, root=runs_root))
+    target = ensure_private_dir(step_dir(_RUN, StepId.D_MISTAKES, root=runs_root))
     write_jsonl_models(target / "candidates.jsonl", [_candidate(i) for i in ids])
 
 

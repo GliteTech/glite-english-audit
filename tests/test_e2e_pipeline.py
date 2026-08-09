@@ -15,7 +15,7 @@ from glite_english_audit.artifacts.enums import (
     ExampleType,
     Modality,
     OsEnvironment,
-    StageId,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope
 from glite_english_audit.artifacts.hashing import new_artifact_id, new_run_id, sha256_hex
@@ -54,7 +54,7 @@ _FIXTURE_HOME = (
 )
 
 
-def _envelope(run_id: str, stage: StageId, name: str) -> ArtifactEnvelope:
+def _envelope(run_id: str, stage: StepId, name: str) -> ArtifactEnvelope:
     return ArtifactEnvelope(
         schema_name=name,
         schema_version=1,
@@ -120,7 +120,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
     body_path.parent.mkdir(parents=True)
     body_path.write_text(body, encoding="utf-8")
     meta = FindingsArtifactMeta(
-        envelope=_envelope(run_id, StageId.PLAIN_FINDINGS, "plain_findings"),
+        envelope=_envelope(run_id, StepId.D_MISTAKES, "plain_findings"),
         unit_id=target.utterance_id,
         utterance_ids=[target.utterance_id],
         finding_count=1,
@@ -135,7 +135,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
     empty_path = tmp_path / "findings" / "empty.md"
     empty_path.write_text(empty_body, encoding="utf-8")
     empty_meta = FindingsArtifactMeta(
-        envelope=_envelope(run_id, StageId.PLAIN_FINDINGS, "plain_findings"),
+        envelope=_envelope(run_id, StepId.D_MISTAKES, "plain_findings"),
         unit_id="unit-empty",
         utterance_ids=["unit-empty"],
         finding_count=0,
@@ -193,7 +193,7 @@ def test_full_deterministic_pipeline(tmp_path: Path) -> None:
         withheld_for_privacy=0,
     )
     reviewed = ReviewedSubmissionArtifact(
-        envelope=_envelope(run_id, StageId.REVIEWED_SUBMISSION, "reviewed_submission"),
+        envelope=_envelope(run_id, StepId.E_VERIFIED, "reviewed_submission"),
         records=[
             ReviewedRecord(
                 mistake_id=mistake.mistake_id,

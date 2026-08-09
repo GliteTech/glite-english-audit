@@ -61,20 +61,28 @@ _STAGE_TRANSITIONS: dict[StageStatus, frozenset[StageStatus]] = {
     StageStatus.INVALIDATED: frozenset({StageStatus.IN_PROGRESS}),
 }
 
-SEMANTIC_STAGES: frozenset[StepId] = frozenset(
-    {
-        StepId.D_MISTAKES,
-        StepId.D_MISTAKES,
-        StepId.D_MISTAKES,
-        StepId.E_VERIFIED,
-    }
-)
-"""Stages whose artifacts carry model judgment (specification, 5.1, 6.1).
+SEMANTIC_STEPS: frozenset[StepId] = frozenset()
+"""Steps that may not promote until a second, independent reader has passed.
 
-They are promoted only after both the deterministic and the independent
-semantic verifier pass; for privacy stages the confidentiality verifier is the
-second line of defense (specification, 6.6). The remaining stages are fully
-deterministic and promote straight from ``VERIFIED_DETERMINISTIC``.
+Empty, and deliberately so. This set exists to forbid the jump from
+``VERIFIED_DETERMINISTIC`` to ``PROMOTED``, forcing a ``VERIFIED_SEMANTIC``
+step in between. Under the nine-stage design three stages qualified, each with
+its own independent verifier.
+
+Under the five steps none does, and each for its own reason:
+
+- **c** is model judgment checked by a deterministic span verifier. A decision
+  whose spans do not appear verbatim is quarantined rather than repaired, so
+  there is nothing for a second reader to adjudicate.
+- **d** had an independent findings verifier and no longer does. The owner
+  removed it on 2026-08-09, choosing to fix the extraction skill when quality
+  slips rather than add a skill that checks it. Requiring a semantic pass here
+  would demand a verifier the product does not have.
+- **e** *is* the second reader. It cannot wait on itself.
+
+The mechanism is kept rather than deleted because this is where a verifier
+goes if one is added back, and an empty set that says why is clearer than a
+missing concept.
 """
 
 
@@ -110,7 +118,7 @@ def allowed_stage_targets(current: StageStatus, *, stage: StepId) -> frozenset[S
     jump from ``VERIFIED_DETERMINISTIC`` straight to ``PROMOTED``.
     """
     targets = _STAGE_TRANSITIONS[current]
-    if stage in SEMANTIC_STAGES and current is StageStatus.VERIFIED_DETERMINISTIC:
+    if stage in SEMANTIC_STEPS and current is StageStatus.VERIFIED_DETERMINISTIC:
         return targets - {StageStatus.PROMOTED}
     return targets
 

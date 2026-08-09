@@ -4,11 +4,11 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import Modality, StageId, TextStatus
+from glite_english_audit.artifacts.enums import Modality, StepId, TextStatus
 from glite_english_audit.artifacts.io import read_model, write_jsonl_models
 from glite_english_audit.artifacts.models import EligibleCorpusManifest, NormalizedUtterance
 from glite_english_audit.normalization.filter_corpus import filter_corpus
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.verification.verify_corpus import verify_corpus
 
 _RUN = "run-" + "1" * 32
@@ -31,7 +31,7 @@ def _utterance(index: int, text: str, *, path_hash: str = "c" * 64) -> Normalize
 
 
 def _seed_candidates(runs_root: Path) -> None:
-    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=runs_root)
+    candidates_dir = step_dir(_RUN, StepId.A_COLLECTED, root=runs_root)
     candidates_dir.mkdir(parents=True)
     rows = [
         _utterance(1, "Yesterday I very like this new plan and want to continue"),
@@ -60,7 +60,7 @@ def test_filter_corpus_produces_verified_manifest(tmp_path: Path) -> None:
 def test_verify_corpus_detects_tampered_bytes(tmp_path: Path) -> None:
     _seed_candidates(tmp_path)
     filter_corpus(_RUN, runs_root=tmp_path)
-    out_dir = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=tmp_path)
+    out_dir = step_dir(_RUN, StepId.C_AUTHORED, root=tmp_path)
     corpus = out_dir / "corpus.jsonl"
     corpus.write_text(corpus.read_text().replace("plan", "scheme"), encoding="utf-8")
     codes = {d.code for d in verify_corpus(_RUN, runs_root=tmp_path)}
@@ -70,7 +70,7 @@ def test_verify_corpus_detects_tampered_bytes(tmp_path: Path) -> None:
 def test_verify_corpus_detects_count_tampering(tmp_path: Path) -> None:
     _seed_candidates(tmp_path)
     filter_corpus(_RUN, runs_root=tmp_path)
-    out_dir = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=tmp_path)
+    out_dir = step_dir(_RUN, StepId.C_AUTHORED, root=tmp_path)
     manifest_path = out_dir / "eligible-corpus-manifest.json"
     manifest = read_model(manifest_path, EligibleCorpusManifest)
     tampered = manifest.model_copy(update={"english_word_count": manifest.english_word_count + 5})

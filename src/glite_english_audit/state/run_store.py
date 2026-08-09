@@ -44,19 +44,26 @@ RUN_MANIFEST_FILENAME = "run-manifest.json"
 RETENTION_DAYS = 30
 """Unfinished-run retention after the last checkpoint (specification, 3.6)."""
 
-EARLIEST_SEMANTIC_STAGE = StepId.D_MISTAKES
+EARLIEST_SEMANTIC_STEP = StepId.C_AUTHORED
 """First stage whose output depends on skills, prompts, or model choice."""
 
 EARLIEST_CLIENT_CODE_STAGE = StepId.D_MISTAKES
 """First stage a pure-Python change invalidates.
 
-Stages 6 and 7 depend on the deterministic privacy scanner and the packaging
+Step d depends on the deterministic privacy scanner and the packaging
 allowlist, so a client change may not leave records approved by the previous
 code promoted (specification, 6.6, 8.3).
 """
 
-_PRIVATE_SUBDIRS = ("stages", "logs", "snapshots", "submission")
+_PRIVATE_SUBDIRS = ("steps", "logs", "snapshots", "snapshot-manifests", "submission")
 """Private subtrees of a run directory, created together and expired together.
+
+``steps/`` holds the learner's own sentences at every step, and named
+``stages/`` until the five-step refactor — a rename that left retention
+pointing at an empty directory while every file it was meant to delete sat in
+the new one. ``snapshot-manifests/`` and ``source-inventory.json`` moved to the
+run root in the same change and were outside retention entirely; the inventory
+names local applications and paths, and the manifests list copied source files.
 
 ``snapshots/`` holds verbatim copies of the user's own application data
 (:mod:`glite_english_audit.discovery.snapshot_safety`). Manifest-bounded
@@ -65,8 +72,8 @@ interrupted or failed extraction leaves them behind, so retention must reach
 them too (specification, 3.6).
 """
 
-_CLEANUP_ONLY_SUBDIRS = ("stages", "logs", "snapshots")
-_CLEANUP_ONLY_FILES = ("selection.json", "progress.json")
+_CLEANUP_ONLY_SUBDIRS = ("steps", "logs", "snapshots", "snapshot-manifests")
+_CLEANUP_ONLY_FILES = ("selection.json", "progress.json", "source-inventory.json")
 _FINISHED_STATUSES = frozenset(
     {RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_EXCLUSIONS, RunStatus.EXPIRED}
 )
@@ -349,15 +356,15 @@ def describe_resume(
         for name, stage, matches in (
             (
                 "skill versions",
-                EARLIEST_SEMANTIC_STAGE,
+                EARLIEST_SEMANTIC_STEP,
                 recorded.skill_versions == current.skill_versions,
             ),
             (
                 "prompt versions",
-                EARLIEST_SEMANTIC_STAGE,
+                EARLIEST_SEMANTIC_STEP,
                 recorded.prompt_versions == current.prompt_versions,
             ),
-            ("model ids", EARLIEST_SEMANTIC_STAGE, recorded.model_ids == current.model_ids),
+            ("model ids", EARLIEST_SEMANTIC_STEP, recorded.model_ids == current.model_ids),
             (
                 "client version",
                 EARLIEST_CLIENT_CODE_STAGE,
@@ -373,7 +380,8 @@ def describe_resume(
             decision=ResumeDecision.INVALIDATE_DOWNSTREAM,
             detail=(
                 f"Changed since the checkpoint: {', '.join(names)}. "
-                f"Stage {int(earliest)} and later are recomputed after a refreshed preflight."
+                f"Step {paths.step_dir_name(earliest)[0]} and later are recomputed after a refreshed "
+                "preflight."
             ),
             earliest_affected_stage=earliest,
         )

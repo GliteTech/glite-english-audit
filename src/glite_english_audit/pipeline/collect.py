@@ -22,7 +22,7 @@ from pathlib import Path
 from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import StageStatus, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, as_utc, utc_now
-from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
+from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
     read_model,
@@ -31,7 +31,6 @@ from glite_english_audit.artifacts.io import (
 )
 from glite_english_audit.artifacts.manifest import RunManifest
 from glite_english_audit.artifacts.models import (
-    CandidateUtterancesManifest,
     NormalizedUtterance,
     SnapshotManifest,
     SourceInstanceRecord,
@@ -42,6 +41,7 @@ from glite_english_audit.discovery.registry import create_adapter
 from glite_english_audit.discovery.snapshot_safety import cleanup_snapshot, ensure_safe_snapshot_dir
 from glite_english_audit.paths import inventory_path, run_dir, snapshot_manifest_dir, step_dir
 from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.sessions import group_by_session, session_file_name, write_index
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
@@ -187,39 +187,27 @@ def collect(
             return (1, 0.0, utterance.utterance_id)
         return (0, as_utc(utterance.timestamp).timestamp(), utterance.utterance_id)
 
-    utterances.sort(key=_order)
-    candidates_path = candidates_stage / CANDIDATES_NAME
-    count = write_jsonl_models(candidates_path, utterances)
-    write_model(
-        candidates_stage / CANDIDATES_MANIFEST_NAME,
-        CandidateUtterancesManifest(
-            envelope=ArtifactEnvelope(
-                schema_name="candidate_utterances",
-                schema_version=1,
-                artifact_id=new_artifact_id(),
-                run_id=run_id,
-                stage_id=StepId.A_COLLECTED,
-                producer_name=PRODUCER_NAME,
-                producer_version=CLIENT_VERSION,
-                created_at=utc_now(),
-            ),
-            utterance_count=count,
-            jsonl_relative_path=CANDIDATES_NAME,
-            jsonl_sha256=sha256_hex(candidates_path.read_bytes()),
-        ),
+    # One file per session, named by an opaque sequence number. The whole
+    # pipeline shape rests on this: every later step writes these same names
+    # back, so its output can be diffed against its input file by file.
+    sessions = group_by_session(utterances)
+    index: dict[str, str] = {}
+    count = 0
+    for sequence, (session_hash, members) in enumerate(sessions, start=1):
+        name = session_file_name(sequence)
+        count += write_jsonl_models(candidates_stage / name, members)
+        index[name] = session_hash
+    write_index(candidates_stage, index)
+
+    advance_to(
+        run_id,
+        StepId.A_COLLECTED,
+        StageStatus.PROMOTED,
+        producer_version=CLIENT_VERSION,
+        runs_root=runs_root,
     )
-    # Both artifacts are on disk, so the manifest may now point at them
-    # (specification, 9.3). Stage 0 is promoted here too: reading its inventory
-    # successfully is the only proof this run has that discovery finished.
-    for stage in (StepId.A_COLLECTED,):
-        advance_to(
-            run_id,
-            stage,
-            StageStatus.PROMOTED,
-            producer_version=CLIENT_VERSION,
-            runs_root=runs_root,
-        )
     return {
+        "sessions": len(sessions),
         "candidate_utterances": count,
         "per_source": per_source,
         "excluded_instances": excluded,

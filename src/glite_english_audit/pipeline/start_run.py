@@ -261,12 +261,12 @@ def start_run(
     )
     base = runs_root / run_id if runs_root is not None else run_dir(run_id)
     ensure_private_dir(base)
-    for name in ("stages", "logs", "submission"):
+    for name in ("steps", "logs", "submission"):
         ensure_private_dir(base / name)
     # Carry the inventory into the run so later stages resolve labels locally.
     inventory_target = inventory_path(run_id, root=runs_root)
-    ensure_private_dir(inventory_target)
-    write_model(inventory_target / INVENTORY_NAME, inventory)
+    ensure_private_dir(inventory_target.parent)
+    write_model(inventory_target, inventory)
     write_model(base / MANIFEST_NAME, manifest)
     return manifest
 

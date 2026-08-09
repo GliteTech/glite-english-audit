@@ -27,7 +27,7 @@ from pathlib import Path
 
 from glite_english_audit.artifacts.enums import RunStatus, StageStatus, StepId
 from glite_english_audit.artifacts.manifest import RunManifest
-from glite_english_audit.state.machine import SEMANTIC_STAGES, advance_run, advance_stage
+from glite_english_audit.state.machine import SEMANTIC_STEPS, advance_run, advance_stage
 from glite_english_audit.state.run_store import load_manifest, write_checkpoint
 
 # The path a deterministic stage walks from pending to promoted. A semantic
@@ -49,7 +49,7 @@ _SEMANTIC_PATH: tuple[StageStatus, ...] = (
 
 
 def _path_for(stage: StepId) -> tuple[StageStatus, ...]:
-    return _SEMANTIC_PATH if stage in SEMANTIC_STAGES else _DETERMINISTIC_PATH
+    return _SEMANTIC_PATH if stage in SEMANTIC_STEPS else _DETERMINISTIC_PATH
 
 
 def _begin_processing(manifest: RunManifest) -> None:

@@ -17,7 +17,7 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageId,
+    StepId,
     TextStatus,
 )
 from glite_english_audit.artifacts.io import read_jsonl_models, write_jsonl_models, write_model
@@ -31,7 +31,7 @@ from glite_english_audit.artifacts.manifest import (
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.consent import CONSENT_POLICY_VERSION, MissingConsentError
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline.apply_authorship import apply_authorship
 from glite_english_audit.pipeline.authorship_batches import (
     DECISIONS_DIR_NAME,
@@ -104,7 +104,7 @@ def _write_manifest(runs_root: Path, *, provider_transfer_consent: bool) -> None
 
 def _seed(runs_root: Path, *, provider_transfer_consent: bool = True) -> None:
     _write_manifest(runs_root, provider_transfer_consent=provider_transfer_consent)
-    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=runs_root)
+    candidates_dir = step_dir(_RUN, StepId.A_COLLECTED, root=runs_root)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(
         candidates_dir / "candidates.jsonl",
@@ -147,7 +147,7 @@ def _retain(utterance_id: str, text: str) -> dict[str, object]:
 
 
 def _corpus(runs_root: Path) -> list[NormalizedUtterance]:
-    corpus_path = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=runs_root) / "corpus.jsonl"
+    corpus_path = step_dir(_RUN, StepId.C_AUTHORED, root=runs_root) / "corpus.jsonl"
     return list(read_jsonl_models(corpus_path, NormalizedUtterance))
 
 
@@ -169,7 +169,7 @@ def test_batching_refuses_a_run_without_provider_transfer_consent(tmp_path: Path
 
 
 def test_batching_refuses_a_run_with_no_manifest_at_all(tmp_path: Path) -> None:
-    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
+    candidates_dir = step_dir(_RUN, StepId.A_COLLECTED, root=tmp_path)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(candidates_dir / "candidates.jsonl", [_utterance(1, _PLAIN)])
     with pytest.raises(RunStoreError):
@@ -486,7 +486,7 @@ def test_reordered_decisions_produce_identical_output(tmp_path: Path) -> None:
 
     _write_decisions(tmp_path, rows)
     first = apply_authorship(_RUN, runs_root=tmp_path)
-    corpus_path = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=tmp_path) / "corpus.jsonl"
+    corpus_path = step_dir(_RUN, StepId.C_AUTHORED, root=tmp_path) / "corpus.jsonl"
     first_bytes = corpus_path.read_bytes()
 
     _write_decisions(tmp_path, list(reversed(rows)))
@@ -511,7 +511,7 @@ def test_adapter_flags_reach_the_authorship_judge(tmp_path: Path) -> None:
     recover from the text alone.
     """
     _seed(tmp_path)
-    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
+    candidates_dir = step_dir(_RUN, StepId.A_COLLECTED, root=tmp_path)
     flagged = _utterance(1, _PLAIN).model_copy(update={"content_flags": ["possible_paste"]})
     write_jsonl_models(candidates_dir / "candidates.jsonl", [flagged, _utterance(2, _MIXED)])
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from glite_english_audit.artifacts.enums import ExampleType, Modality, StageId
+from glite_english_audit.artifacts.enums import ExampleType, Modality, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.models import (
     AuditCounts,
@@ -27,7 +27,7 @@ def _envelope() -> ArtifactEnvelope:
         schema_version=1,
         artifact_id="art-" + "11" * 16,
         run_id=_RUN_ID,
-        stage_id=StageId.REVIEWED_SUBMISSION,
+        stage_id=StepId.E_VERIFIED,
         producer_name="test-factory",
         producer_version="1.0.0",
         created_at=utc_now(),

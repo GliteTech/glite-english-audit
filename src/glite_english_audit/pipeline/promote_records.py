@@ -148,10 +148,10 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
     # so both are durable; stage 7 is promoted on its own scanner report. All
     # three are semantic stages, and the confidentiality skill that runs before
     # this command is their second reader (specification, 6.6).
-    for stage in (StepId.D_MISTAKES, StepId.D_MISTAKES, StepId.E_VERIFIED):
+    for step in (StepId.D_MISTAKES, StepId.E_VERIFIED):
         advance_to(
             run_id,
-            stage,
+            step,
             StageStatus.PROMOTED,
             producer_version=CLIENT_VERSION,
             runs_root=runs_root,

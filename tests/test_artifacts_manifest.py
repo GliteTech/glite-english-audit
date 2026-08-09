@@ -1,4 +1,9 @@
-"""Run manifest stage-map completeness and the empty stage map."""
+"""Run manifest stage-map completeness and the empty stage map.
+
+The map is keyed by :class:`StepId`, so it tracks the five steps and nothing
+else: the source inventory, the snapshot manifests and the reviewed submission
+are path-derived artifacts now, not steps with a verification lifecycle.
+"""
 
 import pytest
 from pydantic import ValidationError
@@ -8,8 +13,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.manifest import (
@@ -34,7 +39,7 @@ def _fingerprint() -> CompatibilityFingerprint:
     )
 
 
-def _manifest(stages: dict[StageId, StageState], *, run_id: str = "run-" + "0" * 32) -> RunManifest:
+def _manifest(stages: dict[StepId, StageState], *, run_id: str = "run-" + "0" * 32) -> RunManifest:
     return RunManifest(
         manifest_schema_version=MANIFEST_SCHEMA_VERSION,
         run_id=run_id,
@@ -48,11 +53,11 @@ def _manifest(stages: dict[StageId, StageState], *, run_id: str = "run-" + "0" *
     )
 
 
-def test_empty_stage_map_covers_all_stages() -> None:
+def test_empty_stage_map_covers_every_step() -> None:
     stages = empty_stage_map()
-    assert set(stages) == set(StageId)
-    for stage, state in stages.items():
-        assert state.stage is stage
+    assert set(stages) == set(StepId)
+    for step, state in stages.items():
+        assert state.stage is step
         assert state.status is StageStatus.PENDING
         assert state.current_artifact_id is None
         assert state.current_artifact_hash is None
@@ -60,22 +65,26 @@ def test_empty_stage_map_covers_all_stages() -> None:
 
 def test_run_manifest_accepts_complete_stage_map() -> None:
     manifest = _manifest(empty_stage_map())
-    assert set(manifest.stages) == set(StageId)
+    assert set(manifest.stages) == set(StepId)
     assert manifest.selection is None
     assert manifest.last_checkpoint_at is None
 
 
-@pytest.mark.parametrize("missing_stage", list(StageId))
-def test_run_manifest_rejects_missing_stage(missing_stage: StageId) -> None:
+@pytest.mark.parametrize("missing_step", list(StepId))
+def test_run_manifest_rejects_missing_step(missing_step: StepId) -> None:
     stages = empty_stage_map()
-    del stages[missing_stage]
+    del stages[missing_step]
     with pytest.raises(ValidationError):
         _manifest(stages)
 
 
-def test_run_manifest_rejects_mismatched_stage_key() -> None:
+def test_run_manifest_rejects_mismatched_step_key() -> None:
+    # The key and the state's own step are two records of the same fact, and
+    # promotion repoints whichever the caller happens to read. Letting them
+    # disagree would point one step's manifest entry at another step's
+    # artifact.
     stages = empty_stage_map()
-    stages[StageId.SOURCE_INVENTORY] = StageState(stage=StageId.SOURCE_SNAPSHOTS)
+    stages[StepId.A_COLLECTED] = StageState(stage=StepId.B_DEDUPLICATED)
     with pytest.raises(ValidationError):
         _manifest(stages)
 

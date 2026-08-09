@@ -21,7 +21,7 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageId,
+    StepId,
     TextStatus,
 )
 from glite_english_audit.artifacts.io import write_jsonl_models, write_model
@@ -35,7 +35,7 @@ from glite_english_audit.artifacts.manifest import (
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.paths import repo_root, stage_dir
+from glite_english_audit.paths import repo_root, step_dir
 from glite_english_audit.pipeline.authorship_batches import (
     BATCH_GLOB,
     Candidate,
@@ -115,7 +115,7 @@ def _seed_consented_run(runs_root: Path) -> None:
 
 def test_stage4_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path) -> None:
     _seed_consented_run(tmp_path)
-    corpus_dir = stage_dir(_RUN, StageId.ELIGIBLE_ENGLISH, root=tmp_path)
+    corpus_dir = step_dir(_RUN, StepId.C_AUTHORED, root=tmp_path)
     corpus_dir.mkdir(parents=True)
     write_jsonl_models(
         corpus_dir / "corpus.jsonl",
@@ -137,7 +137,7 @@ def test_stage4_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path
 
 def test_stage3_batch_lines_validate_as_the_model_the_skill_names(tmp_path: Path) -> None:
     _seed_consented_run(tmp_path)
-    candidates_dir = stage_dir(_RUN, StageId.CANDIDATE_UTTERANCES, root=tmp_path)
+    candidates_dir = step_dir(_RUN, StepId.A_COLLECTED, root=tmp_path)
     candidates_dir.mkdir(parents=True)
     write_jsonl_models(
         candidates_dir / "candidates.jsonl",

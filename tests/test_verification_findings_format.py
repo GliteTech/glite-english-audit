@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope
 from glite_english_audit.artifacts.hashing import sha256_hex
 from glite_english_audit.artifacts.models import FindingsArtifactMeta
@@ -108,7 +108,7 @@ def _meta(body: str, *, finding_count: int, empty: bool) -> FindingsArtifactMeta
             schema_version=1,
             artifact_id="art-" + "a" * 32,
             run_id="run-" + "b" * 32,
-            stage_id=StageId.PLAIN_FINDINGS,
+            stage_id=StepId.D_MISTAKES,
             producer_name="analyze-english-text",
             producer_version="1.0.0",
             created_at=datetime(2026, 8, 8, tzinfo=UTC),

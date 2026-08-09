@@ -2,14 +2,14 @@
 
 The state machine and the manifest store were complete and fully tested, and
 no production code called them: every pipeline driver wrote its artifacts and
-left the manifest at ``awaiting_preflight`` with all nine stages ``pending``.
+left the manifest at ``awaiting_preflight`` with all five steps ``pending``.
 A real run that had collected 203 utterances, judged authorship on 198, and
-written 192 findings files still reported that nothing had happened.
+written 192 mistake records still reported that nothing had happened.
 
 Resume reads the manifest and not the disk, so that gap meant an interrupted
-run would redo finished work, and stage 8 — which refuses to build a review
-until stages 0-7 are promoted — would have refused a run whose artifacts were
-all present.
+run would redo finished work, and the review build — which is not a step of
+its own and refuses to run until steps a through e are promoted — would have
+refused a run whose artifacts were all present.
 """
 
 from datetime import UTC, datetime
@@ -21,12 +21,12 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.artifacts.manifest import CompatibilityFingerprint, ConsentState
 from glite_english_audit.pipeline.record_stage import advance_to, enter_review, mark_failed
-from glite_english_audit.state.machine import SEMANTIC_STAGES, InvalidTransitionError
+from glite_english_audit.state.machine import SEMANTIC_STEPS, InvalidTransitionError
 from glite_english_audit.state.run_store import create_run, load_manifest, save_manifest
 
 _NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
@@ -59,26 +59,28 @@ def test_promoting_a_stage_walks_the_whole_legal_path(run: str, tmp_path: Path) 
     # Asking for PROMOTED from PENDING is legal only as a sequence. If the
     # walk were skipped the state machine would reject the jump, so reaching
     # PROMOTED at all is the proof that each intermediate status was recorded.
-    advance_to(run, StageId.CANDIDATE_UTTERANCES, StageStatus.PROMOTED, runs_root=tmp_path)
+    advance_to(run, StepId.A_COLLECTED, StageStatus.PROMOTED, runs_root=tmp_path)
     manifest = load_manifest(run, root=tmp_path)
-    assert manifest.stages[StageId.CANDIDATE_UTTERANCES].status is StageStatus.PROMOTED
+    assert manifest.stages[StepId.A_COLLECTED].status is StageStatus.PROMOTED
 
 
 def test_a_semantic_stage_cannot_reach_promoted_without_the_semantic_step(
     run: str, tmp_path: Path
 ) -> None:
-    # The machine forbids VERIFIED_DETERMINISTIC -> PROMOTED for these four,
-    # so the walk must include VERIFIED_SEMANTIC. Reaching PROMOTED proves it.
-    for stage in sorted(SEMANTIC_STAGES, key=int):
+    # The machine forbids VERIFIED_DETERMINISTIC -> PROMOTED for every step
+    # that carries model judgment — d and e, since the three old findings and
+    # privacy stages collapsed into d — so the walk must include
+    # VERIFIED_SEMANTIC. Reaching PROMOTED proves it.
+    for stage in sorted(SEMANTIC_STEPS, key=int):
         advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
     manifest = load_manifest(run, root=tmp_path)
-    for stage in SEMANTIC_STAGES:
+    for stage in SEMANTIC_STEPS:
         assert manifest.stages[stage].status is StageStatus.PROMOTED
 
 
 def test_the_first_stage_transition_starts_the_run(run: str, tmp_path: Path) -> None:
     assert load_manifest(run, root=tmp_path).status is RunStatus.AWAITING_PREFLIGHT
-    advance_to(run, StageId.SOURCE_INVENTORY, StageStatus.PRODUCED, runs_root=tmp_path)
+    advance_to(run, StepId.A_COLLECTED, StageStatus.PRODUCED, runs_root=tmp_path)
     assert load_manifest(run, root=tmp_path).status is RunStatus.PROCESSING
 
 
@@ -86,18 +88,18 @@ def test_every_transition_checkpoints(run: str, tmp_path: Path) -> None:
     # Specification 9.3: a checkpoint after each stage, written only once the
     # artifacts it points at are durable.
     assert load_manifest(run, root=tmp_path).last_checkpoint_at is None
-    advance_to(run, StageId.SOURCE_INVENTORY, StageStatus.PROMOTED, runs_root=tmp_path, now=_NOW)
+    advance_to(run, StepId.A_COLLECTED, StageStatus.PROMOTED, runs_root=tmp_path, now=_NOW)
     assert load_manifest(run, root=tmp_path).last_checkpoint_at == _NOW
 
 
 def test_recording_the_same_stage_twice_is_harmless(run: str, tmp_path: Path) -> None:
-    # A resumed run reruns the driver for the stage it was interrupted in. If
+    # A resumed run reruns the driver for the step it was interrupted in. If
     # the second call raised, resume would be impossible for exactly the runs
     # that need it.
-    advance_to(run, StageId.SOURCE_SNAPSHOTS, StageStatus.PROMOTED, runs_root=tmp_path)
-    advance_to(run, StageId.SOURCE_SNAPSHOTS, StageStatus.PROMOTED, runs_root=tmp_path)
+    advance_to(run, StepId.B_DEDUPLICATED, StageStatus.PROMOTED, runs_root=tmp_path)
+    advance_to(run, StepId.B_DEDUPLICATED, StageStatus.PROMOTED, runs_root=tmp_path)
     manifest = load_manifest(run, root=tmp_path)
-    assert manifest.stages[StageId.SOURCE_SNAPSHOTS].status is StageStatus.PROMOTED
+    assert manifest.stages[StepId.B_DEDUPLICATED].status is StageStatus.PROMOTED
 
 
 def test_the_artifact_pointer_is_recorded_with_the_production_step(
@@ -105,14 +107,14 @@ def test_the_artifact_pointer_is_recorded_with_the_production_step(
 ) -> None:
     advance_to(
         run,
-        StageId.ELIGIBLE_ENGLISH,
+        StepId.C_AUTHORED,
         StageStatus.PROMOTED,
         artifact_id="artifact-0001",
         artifact_hash="a" * 64,
         producer_version="0.1.0",
         runs_root=tmp_path,
     )
-    state = load_manifest(run, root=tmp_path).stages[StageId.ELIGIBLE_ENGLISH]
+    state = load_manifest(run, root=tmp_path).stages[StepId.C_AUTHORED]
     assert state.current_artifact_id == "artifact-0001"
     assert state.current_artifact_hash == "a" * 64
     assert state.producer_version == "0.1.0"
@@ -120,21 +122,21 @@ def test_the_artifact_pointer_is_recorded_with_the_production_step(
 
 def test_a_status_off_the_promotion_path_is_refused(run: str, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="promotion path"):
-        advance_to(run, StageId.PLAIN_FINDINGS, StageStatus.QUARANTINED, runs_root=tmp_path)
+        advance_to(run, StepId.D_MISTAKES, StageStatus.QUARANTINED, runs_root=tmp_path)
 
 
 def test_failure_is_recordable_from_pending(run: str, tmp_path: Path) -> None:
     # A stage that raised before doing anything must still be nameable as
     # failed, or resume cannot tell it apart from one never attempted.
-    mark_failed(run, StageId.PLAIN_FINDINGS, runs_root=tmp_path)
-    assert load_manifest(run, root=tmp_path).stages[StageId.PLAIN_FINDINGS].status is (
+    mark_failed(run, StepId.D_MISTAKES, runs_root=tmp_path)
+    assert load_manifest(run, root=tmp_path).stages[StepId.D_MISTAKES].status is (
         StageStatus.FAILED
     )
 
 
 def test_quarantine_is_distinct_from_failure(run: str, tmp_path: Path) -> None:
-    mark_failed(run, StageId.PLAIN_FINDINGS, quarantined=True, runs_root=tmp_path)
-    assert load_manifest(run, root=tmp_path).stages[StageId.PLAIN_FINDINGS].status is (
+    mark_failed(run, StepId.D_MISTAKES, quarantined=True, runs_root=tmp_path)
+    assert load_manifest(run, root=tmp_path).stages[StepId.D_MISTAKES].status is (
         StageStatus.QUARANTINED
     )
 
@@ -142,9 +144,9 @@ def test_quarantine_is_distinct_from_failure(run: str, tmp_path: Path) -> None:
 def test_a_promoted_stage_cannot_be_marked_failed(run: str, tmp_path: Path) -> None:
     # Promotion is not terminal, but the way back is invalidation followed by
     # a fresh production, never a direct edit to failed.
-    advance_to(run, StageId.SAFE_RECORDS, StageStatus.PROMOTED, runs_root=tmp_path)
+    advance_to(run, StepId.D_MISTAKES, StageStatus.PROMOTED, runs_root=tmp_path)
     with pytest.raises(InvalidTransitionError):
-        mark_failed(run, StageId.SAFE_RECORDS, runs_root=tmp_path)
+        mark_failed(run, StepId.D_MISTAKES, runs_root=tmp_path)
 
 
 def test_entering_review_hands_the_run_to_the_user(run: str, tmp_path: Path) -> None:
@@ -168,27 +170,29 @@ def test_a_review_cannot_be_built_from_a_partial_run(run: str, tmp_path: Path) -
     """
     from glite_english_audit.pipeline.record_stage import require_promoted_through
 
-    for stage in (StageId.SOURCE_INVENTORY, StageId.SOURCE_SNAPSHOTS):
-        advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
-    with pytest.raises(ValueError, match="stages 2, 3, 4, 5, 6, 7 are not promoted"):
-        require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
+    # The two deterministic steps done, the three judged ones not: every step
+    # left unpromoted has to be named, not just the first one missing.
+    for step in (StepId.A_COLLECTED, StepId.B_DEDUPLICATED):
+        advance_to(run, step, StageStatus.PROMOTED, runs_root=tmp_path)
+    with pytest.raises(ValueError, match="stages 2, 3, 4 are not promoted"):
+        require_promoted_through(run, StepId.E_VERIFIED, runs_root=tmp_path)
 
 
 def test_one_unfinished_stage_is_named_in_the_singular(run: str, tmp_path: Path) -> None:
     """A count-driven subject has to agree with its verb in both directions."""
     from glite_english_audit.pipeline.record_stage import require_promoted_through
 
-    for stage in StageId:
-        if int(stage) < int(StageId.PRIVACY_APPROVED):
-            advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
-    with pytest.raises(ValueError, match="stage 7 is not promoted"):
-        require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
+    for step in StepId:
+        if int(step) < int(StepId.E_VERIFIED):
+            advance_to(run, step, StageStatus.PROMOTED, runs_root=tmp_path)
+    with pytest.raises(ValueError, match="stage 4 is not promoted"):
+        require_promoted_through(run, StepId.E_VERIFIED, runs_root=tmp_path)
 
 
 def test_a_complete_run_passes_the_same_check(run: str, tmp_path: Path) -> None:
     from glite_english_audit.pipeline.record_stage import require_promoted_through
 
-    for stage in StageId:
-        if int(stage) <= int(StageId.PRIVACY_APPROVED):
-            advance_to(run, stage, StageStatus.PROMOTED, runs_root=tmp_path)
-    require_promoted_through(run, StageId.PRIVACY_APPROVED, runs_root=tmp_path)
+    for step in StepId:
+        if int(step) <= int(StepId.E_VERIFIED):
+            advance_to(run, step, StageStatus.PROMOTED, runs_root=tmp_path)
+    require_promoted_through(run, StepId.E_VERIFIED, runs_root=tmp_path)
