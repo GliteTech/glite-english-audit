@@ -32,7 +32,10 @@ from glite_english_audit.artifacts.io import (
 from glite_english_audit.artifacts.models import SafeRecordCandidate
 from glite_english_audit.paths import stage_dir
 from glite_english_audit.pipeline.record_stage import advance_to
-from glite_english_audit.verification.confidentiality_report import load_report
+from glite_english_audit.verification.confidentiality_report import (
+    MissingConfidentialityReportError,
+    load_report,
+)
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
 from glite_english_audit.verification.reports import VerificationReport
 
@@ -167,7 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
-    result = promote(arguments.run_id, runs_root=arguments.runs_root)
+    try:
+        result = promote(arguments.run_id, runs_root=arguments.runs_root)
+    except MissingConfidentialityReportError as error:
+        # A refusal the caller can act on, not a traceback they have to read.
+        # The missing step is a named skill, so the message names it.
+        sys.stderr.write(f"{error}\n")
+        return 1
     sys.stdout.write(json.dumps(result, indent=2) + "\n")
     return 0
 

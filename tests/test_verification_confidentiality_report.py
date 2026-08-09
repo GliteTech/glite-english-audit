@@ -217,3 +217,19 @@ def test_the_verifier_version_must_be_a_plain_version() -> None:
                 "verifier_version": "/Users/alice/work  raw: we ship Tuesday",
             }
         )
+
+
+def test_the_command_refuses_readably_instead_of_tracebacking(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The missing step is a named skill, so the refusal names it.
+
+    An agent that gets a traceback has to guess what to do; one that gets this
+    sentence knows which skill it skipped.
+    """
+    _seed_candidates(tmp_path, ["m-1"])
+    exit_code = promote_records.main(["--run-id", _RUN, "--runs-root", str(tmp_path)])
+    assert exit_code == 1
+    message = capsys.readouterr().err
+    assert "verify-mistake-confidentiality" in message
+    assert "Traceback" not in message
