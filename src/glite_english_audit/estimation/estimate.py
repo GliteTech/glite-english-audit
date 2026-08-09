@@ -383,9 +383,14 @@ def build_notes(
         "write, and interpolated from each source's date range. Only Everything is exact.",
     ]
     if saturated:
+        # A single label takes a singular verb. An English-teaching tool that
+        # writes "Last year match Everything" in its own interface is not one a
+        # learner should trust about agreement.
+        verb = "matches" if len(saturated) == 1 else "match"
+        rows = "row is" if len(saturated) == 1 else "rows are"
         notes.append(
-            f"{', '.join(saturated)} match Everything because your history does not reach "
-            "back that far. The rows are identical on purpose."
+            f"{', '.join(saturated)} {verb} Everything because your history does not reach "
+            f"back that far. The {rows} identical on purpose."
         )
     if undated_instances:
         notes.append(

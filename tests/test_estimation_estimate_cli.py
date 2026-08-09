@@ -29,12 +29,15 @@ from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.estimation.estimate import (
     CUSTOM_ROW_LABEL,
     EstimateReport,
+    build_notes,
     build_report,
+    select_runtime_steps,
     step_units,
     window_counts,
     window_fraction,
 )
 from glite_english_audit.estimation.estimator import EstimateConfidence
+from glite_english_audit.estimation.profile import load_token_usage_profile
 from glite_english_audit.pipeline.start_run import PERIOD_PRESETS
 
 _REPO = Path(__file__).resolve().parent.parent
@@ -297,3 +300,31 @@ def test_the_command_explains_a_missing_inventory_instead_of_a_traceback(tmp_pat
     assert result.returncode == 2
     assert "Traceback" not in result.stderr
     assert "discovery.inventory" in result.stderr
+
+
+def test_the_saturation_note_agrees_in_number() -> None:
+    """An English-teaching tool must not misagree in its own interface.
+
+    The note names however many preset rows match Everything. With one row that
+    is "Last year matches Everything ... The row is identical"; with two it is
+    "match" and "rows are". A learner should not find a subject-verb error in
+    the software correcting theirs.
+    """
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    one = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=0,
+        concurrent_batches=1,
+        saturated=["Last year"],
+    )
+    assert any("Last year matches Everything" in note and "The row is" in note for note in one)
+
+    two = build_notes(
+        steps=steps,
+        runtime="claude-code",
+        undated_instances=0,
+        concurrent_batches=1,
+        saturated=["Last 3 months", "Last year"],
+    )
+    assert any("Last year match Everything" in note and "The rows are" in note for note in two)
