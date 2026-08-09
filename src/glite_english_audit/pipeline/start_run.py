@@ -2,7 +2,7 @@
 
 Run: ``uv run python -m glite_english_audit.pipeline.start_run --run-dir ...``
 
-Reads the stage-0 private inventory, resolves which instances the user chose,
+Reads the step-0 private inventory, resolves which instances the user chose,
 freezes the record-level source cutoff, and writes the run manifest. The
 cutoff makes later resumption deterministic: records created after it belong
 to the next audit (specification, 13.5).
@@ -31,7 +31,7 @@ from glite_english_audit.artifacts.manifest import (
     PeriodSelection,
     RunManifest,
     SelectionState,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.discovery.inventory import PrivateInventory
@@ -240,7 +240,7 @@ def start_run(
             processing_profile=processing_profile,
             record_cutoff_at=moment,
         ),
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=CompatibilityFingerprint(
             adapter_versions=adapter_versions,
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
@@ -259,7 +259,7 @@ def start_run(
             # The models this profile resolves to, per specification 10.8. They
             # were empty, which cost two things: the manifest did not record
             # what ran, and resume compares this field to decide whether a
-            # model change invalidates the semantic stages — an empty dict is
+            # model change invalidates the semantic steps — an empty dict is
             # equal to an empty dict forever, so that check could never fire.
             model_ids=resolve_models(
                 load_token_usage_profile(),
@@ -273,7 +273,7 @@ def start_run(
     ensure_private_dir(base)
     for name in ("steps", "logs", "submission"):
         ensure_private_dir(base / name)
-    # Carry the inventory into the run so later stages resolve labels locally.
+    # Carry the inventory into the run so later steps resolve labels locally.
     inventory_target = inventory_path(run_id, root=runs_root)
     ensure_private_dir(inventory_target.parent)
     write_model(inventory_target, inventory)

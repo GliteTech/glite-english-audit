@@ -1,4 +1,4 @@
-"""Stage record models for the audit waterfall.
+"""Record models for the five pipeline steps.
 
 These Pydantic models are the authoritative definitions for reading, writing,
 and validating the project's internal JSON and JSONL (specification, Section
@@ -38,9 +38,9 @@ _ID_CHARACTERS = r"A-Za-z0-9_.:-"
 _UTTERANCE_ID_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,256}}$")
 _ID_PART_PATTERN = re.compile(rf"^[{_ID_CHARACTERS}]{{1,128}}$")
 
-# Instance keys become directory and file names: stage 1 writes snapshots to
+# Instance keys become directory and file names: step 1 writes snapshots to
 # '<snapshots>/<adapter_id>/<instance_key[:12]}' and its manifest to
-# '<stage>/<instance_key[:12]}.json'. A key holding a separator or a dot run
+# '<step>/<instance_key[:12]}.json'. A key holding a separator or a dot run
 # puts both outside the run's own tree, where manifest-bounded cleanup will not
 # reach the copied source data. No separators and no dots, so truncating one
 # can never produce a traversal component.
@@ -180,7 +180,7 @@ class InstanceInventorySummary(BaseModel):
 
 
 class SourceInventoryArtifact(BaseModel):
-    """Stage 0 output: every discovered instance, private form."""
+    """Discovery output: every discovered instance, private form."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -221,7 +221,7 @@ class SnapshotFileEntry(BaseModel):
 
 
 class SnapshotManifest(BaseModel):
-    """Stage 1 record: project-owned description of one foreign snapshot.
+    """Project-owned description of one foreign snapshot, taken during step a.
 
     Cleanup may delete only files listed here, resolved under the run's
     snapshot directory (specification, 3.6).
@@ -277,7 +277,7 @@ class NormalizedUtterance(BaseModel):
 
 
 class CandidateUtterancesManifest(BaseModel):
-    """Stage 2 manifest accompanying the candidate-utterance JSONL file."""
+    """Manifest accompanying one step-a session file."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -296,7 +296,7 @@ class CandidateUtterancesManifest(BaseModel):
 
 
 class FindingsArtifactMeta(BaseModel):
-    """Sidecar envelope for one human-readable stage 4 findings file.
+    """Sidecar envelope for one human-readable step 4 findings file.
 
     The findings body itself is Markdown-flavored plain text following the
     deterministic format in ``specifications/artifacts.md``. It is private and
@@ -346,7 +346,9 @@ class EvidenceSpan(BaseModel):
 
 
 class PrivateMistake(BaseModel):
-    """Stage 5 record: one verified structured mistake. Private.
+    """One verified structured mistake, in the shape the old pipeline used.
+
+    Superseded by :class:`MistakeRecord`, which step d writes. Private.
 
     Occurrence-based and atomic: one record per verified occurrence, each with
     exactly one evidence span and one occurrence ID so verifiers can detect
@@ -387,7 +389,7 @@ class PrivateMistake(BaseModel):
 
 
 class PrivateMistakesManifest(BaseModel):
-    """Stage 5 manifest accompanying the private-mistakes JSONL file."""
+    """Manifest accompanying the private-mistakes JSONL file."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -412,6 +414,13 @@ class SafeMistakeRecord(BaseModel):
     (no names, numbers, URLs, context-dependent rules) are enforced by the
     creator skill and the deterministic scanner, not by this model.
     """
+
+    # The wording above is frozen, "Stage 6" and all. This docstring is exported
+    # as the `description` of SafeMistakeRecord in three committed JSON Schemas,
+    # and `specifications/contract_versions.md` freezes those files by digest —
+    # so rewording it is a submission-contract change requiring a new version
+    # row. The step it names is now step d. Fix the word when the contract
+    # version next moves for a real reason, not before.
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -516,7 +525,7 @@ class MistakeRecord(BaseModel):
 
 
 class SafeRecordCandidate(BaseModel):
-    """Stage 6/7 private wrapper linking a safe record to its private mistake."""
+    """Private wrapper linking a safe record to its private mistake."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -652,7 +661,7 @@ class ReviewedRecord(BaseModel):
 
 
 class ReviewedSubmissionArtifact(BaseModel):
-    """Stage 8 private artifact: selected records plus review decisions.
+    """Private review artifact: selected records plus review decisions.
 
     Carries the normal private envelope. The exported package is derived from
     it by the materializer, which applies the Section 8.3 allowlist and drops

@@ -2,8 +2,8 @@
 
 Skills are prose, and prose drifts from code silently. Three separate defects
 this project has already shipped were of exactly this kind: a skill naming a
-verifier module that had moved, a skill whose stage-3 commands were missing so
-stage 4 had nothing to read, and a skill passing a flag that had been renamed.
+verifier module that had moved, a skill whose step-3 commands were missing so
+step 4 had nothing to read, and a skill passing a flag that had been renamed.
 None of them failed a test, because nothing compared the two.
 
 An agent following a skill cannot recover from a command that does not exist.

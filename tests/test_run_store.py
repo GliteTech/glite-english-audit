@@ -11,15 +11,15 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
 )
-from glite_english_audit.state.machine import advance_run, advance_stage
+from glite_english_audit.state.machine import advance_run, advance_step
 from glite_english_audit.state.run_store import (
     RETENTION_DAYS,
     RUN_MANIFEST_FILENAME,
@@ -32,7 +32,7 @@ from glite_english_audit.state.run_store import (
     invalidate_from,
     list_unfinished,
     load_manifest,
-    next_incomplete_stage,
+    next_incomplete_step,
     save_manifest,
     write_checkpoint,
 )
@@ -81,7 +81,7 @@ def test_create_writes_manifest_and_private_dirs(tmp_path: Path) -> None:
         assert (run_directory / name).is_dir()
     assert manifest.status is RunStatus.CREATED
     assert manifest.last_checkpoint_at is None
-    assert all(state.status is StageStatus.PENDING for state in manifest.stages.values())
+    assert all(state.status is StepStatus.PENDING for state in manifest.steps.values())
 
 
 def test_create_load_round_trip(tmp_path: Path) -> None:
@@ -136,19 +136,19 @@ def test_list_unfinished_skips_finished_runs(tmp_path: Path) -> None:
 
 def test_list_unfinished_reports_promotion_and_checkpoint_age(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    stage_state = manifest.stages[StepId.A_COLLECTED]
+    stage_state = manifest.steps[StepId.A_COLLECTED]
     for target in (
-        StageStatus.IN_PROGRESS,
-        StageStatus.PRODUCED,
-        StageStatus.VERIFIED_DETERMINISTIC,
-        StageStatus.PROMOTED,
+        StepStatus.IN_PROGRESS,
+        StepStatus.PRODUCED,
+        StepStatus.VERIFIED_DETERMINISTIC,
+        StepStatus.PROMOTED,
     ):
-        stage_state.status = advance_stage(stage_state.status, target, stage=StepId.A_COLLECTED)
+        stage_state.status = advance_step(stage_state.status, target, step=StepId.A_COLLECTED)
     checkpoint_at = _NOW - timedelta(hours=6)
     write_checkpoint(manifest, root=tmp_path, now=checkpoint_at)
 
     (summary,) = list_unfinished(tmp_path, now=_NOW)
-    assert summary.last_promoted_stage is StepId.A_COLLECTED
+    assert summary.last_promoted_step is StepId.A_COLLECTED
     assert summary.last_checkpoint_at == checkpoint_at
     assert summary.checkpoint_age == timedelta(hours=6)
 
@@ -170,7 +170,7 @@ def test_resume_continue_when_fingerprints_match(tmp_path: Path) -> None:
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
     assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
     assert assessment.decision is ResumeDecision.CONTINUE
-    assert assessment.earliest_affected_stage is None
+    assert assessment.earliest_affected_step is None
 
 
 @pytest.mark.parametrize(
@@ -193,7 +193,7 @@ def test_resume_invalidates_downstream_from_the_first_agent_step(
     write_checkpoint(manifest, root=tmp_path, now=_NOW)
     assessment = describe_resume(manifest, _fingerprint(**overrides), now=_NOW)
     assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert assessment.earliest_affected_stage is StepId.C_AUTHORED
+    assert assessment.earliest_affected_step is StepId.C_AUTHORED
 
 
 @pytest.mark.parametrize(
@@ -225,7 +225,7 @@ def test_resume_invalidates_from_the_mistakes_step_on_client_version_change(
 
     assessment = describe_resume(manifest, _fingerprint(), now=_NOW)
     assert assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert assessment.earliest_affected_stage is StepId.D_MISTAKES
+    assert assessment.earliest_affected_step is StepId.D_MISTAKES
 
 
 def test_resume_records_the_running_client_version_by_default() -> None:
@@ -248,8 +248,8 @@ def test_resume_client_change_never_widens_an_earlier_invalidation(tmp_path: Pat
     skill_alone = describe_resume(skill_change_only, changed_skill, now=_NOW)
 
     assert both.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert both.earliest_affected_stage is StepId.C_AUTHORED
-    assert both.earliest_affected_stage == skill_alone.earliest_affected_stage
+    assert both.earliest_affected_step is StepId.C_AUTHORED
+    assert both.earliest_affected_step == skill_alone.earliest_affected_step
 
 
 def test_resume_continues_at_twenty_nine_days(tmp_path: Path) -> None:
@@ -477,7 +477,7 @@ def test_create_makes_the_snapshot_directory_with_the_others(tmp_path: Path) -> 
 # -- resume pointer and downstream invalidation ------------------------------
 
 
-def _promote(manifest: RunManifest, *stages: StepId) -> None:
+def _promote(manifest: RunManifest, *steps: StepId) -> None:
     """Walk each named step to PROMOTED the way the pipeline promotes it.
 
     Straight from the deterministic check, with no semantic verification in
@@ -485,25 +485,25 @@ def _promote(manifest: RunManifest, *stages: StepId) -> None:
     (``SEMANTIC_STEPS`` is empty), and steps a and b are scripts, for which the
     status would mean nothing.
     """
-    for stage in stages:
-        state = manifest.stages[stage]
+    for step in steps:
+        state = manifest.steps[step]
         for target in (
-            StageStatus.IN_PROGRESS,
-            StageStatus.PRODUCED,
-            StageStatus.VERIFIED_DETERMINISTIC,
-            StageStatus.PROMOTED,
+            StepStatus.IN_PROGRESS,
+            StepStatus.PRODUCED,
+            StepStatus.VERIFIED_DETERMINISTIC,
+            StepStatus.PROMOTED,
         ):
-            state.status = advance_stage(state.status, target, stage=stage)
-        state.current_artifact_id = f"art-{int(stage)}"
-        state.current_artifact_hash = f"{int(stage):064d}"
+            state.status = advance_step(state.status, target, step=step)
+        state.current_artifact_id = f"art-{int(step)}"
+        state.current_artifact_hash = f"{int(step):064d}"
 
 
 def test_next_incomplete_stage_is_the_first_unpromoted_one(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
-    assert next_incomplete_stage(manifest) is StepId.A_COLLECTED
+    assert next_incomplete_step(manifest) is StepId.A_COLLECTED
 
     _promote(manifest, StepId.A_COLLECTED, StepId.B_DEDUPLICATED)
-    assert next_incomplete_stage(manifest) is StepId.C_AUTHORED
+    assert next_incomplete_step(manifest) is StepId.C_AUTHORED
 
 
 def test_next_incomplete_stage_ignores_promotions_above_a_gap(tmp_path: Path) -> None:
@@ -511,13 +511,13 @@ def test_next_incomplete_stage_ignores_promotions_above_a_gap(tmp_path: Path) ->
     # spans that are missing. Resuming at d would analyze nothing.
     manifest = _create(tmp_path)
     _promote(manifest, StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.D_MISTAKES)
-    assert next_incomplete_stage(manifest) is StepId.C_AUTHORED
+    assert next_incomplete_step(manifest) is StepId.C_AUTHORED
 
 
 def test_next_incomplete_stage_is_none_when_every_stage_is_promoted(tmp_path: Path) -> None:
     manifest = _create(tmp_path)
     _promote(manifest, *StepId)
-    assert next_incomplete_stage(manifest) is None
+    assert next_incomplete_step(manifest) is None
 
 
 def test_invalidate_from_clears_the_stage_and_everything_after_it(tmp_path: Path) -> None:
@@ -527,18 +527,18 @@ def test_invalidate_from_clears_the_stage_and_everything_after_it(tmp_path: Path
     invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_NOW)
 
     assert invalidated == [StepId.D_MISTAKES, StepId.E_VERIFIED]
-    for stage in invalidated:
-        state = manifest.stages[stage]
-        assert state.status is StageStatus.INVALIDATED
-        # The pointer goes with the status: a stage that must be recomputed may
+    for step in invalidated:
+        state = manifest.steps[step]
+        assert state.status is StepStatus.INVALIDATED
+        # The pointer goes with the status: a step that must be recomputed may
         # not stay the manifest's current artifact for lineage checks.
         assert state.current_artifact_id is None
         assert state.current_artifact_hash is None
         assert state.updated_at == _NOW
     # Everything upstream keeps its promoted artifact.
-    for stage in (StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.C_AUTHORED):
-        assert manifest.stages[stage].status is StageStatus.PROMOTED
-        assert manifest.stages[stage].current_artifact_id == f"art-{int(stage)}"
+    for step in (StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.C_AUTHORED):
+        assert manifest.steps[step].status is StepStatus.PROMOTED
+        assert manifest.steps[step].current_artifact_id == f"art-{int(step)}"
 
 
 def test_invalidate_from_leaves_a_failed_stage_and_its_history_alone(tmp_path: Path) -> None:
@@ -547,15 +547,15 @@ def test_invalidate_from_leaves_a_failed_stage_and_its_history_alone(tmp_path: P
     # failed survives the resume decision.
     manifest = _create(tmp_path)
     _promote(manifest, *StepId)
-    failed = manifest.stages[StepId.E_VERIFIED]
-    failed.status = advance_stage(failed.status, StageStatus.IN_PROGRESS, stage=StepId.E_VERIFIED)
-    failed.status = advance_stage(failed.status, StageStatus.FAILED, stage=StepId.E_VERIFIED)
+    failed = manifest.steps[StepId.E_VERIFIED]
+    failed.status = advance_step(failed.status, StepStatus.IN_PROGRESS, step=StepId.E_VERIFIED)
+    failed.status = advance_step(failed.status, StepStatus.FAILED, step=StepId.E_VERIFIED)
 
     invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_NOW)
 
     assert invalidated == [StepId.D_MISTAKES]
     assert StepId.E_VERIFIED not in invalidated
-    assert manifest.stages[StepId.E_VERIFIED].status is StageStatus.FAILED
+    assert manifest.steps[StepId.E_VERIFIED].status is StepStatus.FAILED
 
 
 def test_invalidate_from_the_first_stage_invalidates_the_whole_run(tmp_path: Path) -> None:

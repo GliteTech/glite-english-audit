@@ -65,7 +65,7 @@ from glite_english_audit.estimation.estimator import (
     apply_time_confidence,
     confidence_for,
     estimate_run,
-    estimate_stage,
+    estimate_step,
     estimate_unit_time,
     format_token_range,
     profile_batches,
@@ -325,15 +325,15 @@ def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
         (units.verify_findings, steps.verify_findings),
         (units.create_safe_records, steps.create_safe_records),
     )
-    stages = [
-        estimate_stage(counts.words, units.judge_authorship, steps.judge_authorship),
-        estimate_stage(analyzed_words, units.find_mistakes, steps.find_mistakes),
+    estimates = [
+        estimate_step(counts.words, units.judge_authorship, steps.judge_authorship),
+        estimate_step(analyzed_words, units.find_mistakes, steps.find_mistakes),
     ]
-    stages.extend(
-        estimate_stage(round(count * entry.average_words_per_message), count, entry)
+    estimates.extend(
+        estimate_step(round(count * entry.average_words_per_message), count, entry)
         for count, entry in downstream
     )
-    return estimate_run(stages)
+    return estimate_run(estimates)
 
 
 def estimate_preset(
@@ -393,7 +393,7 @@ def build_notes(
 ) -> tuple[str, ...]:
     """The caveats that must reach the user with the numbers."""
     notes = [
-        "Words and messages are candidates, counted before stage 3 drops text you did not "
+        "Words and messages are candidates, counted before step 3 drops text you did not "
         "write, and interpolated from each source's date range. Only Everything is exact.",
     ]
     if saturated:

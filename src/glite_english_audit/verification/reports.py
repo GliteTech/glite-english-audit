@@ -21,7 +21,7 @@ class VerificationReport(BaseModel):
 
     report_id: str
     run_id: str
-    stage_id: StepId
+    step_id: StepId
     artifact_id: str
     artifact_hash: str
     verifier_name: str

@@ -35,8 +35,8 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
     TextStatus,
 )
 from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
@@ -45,7 +45,7 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.artifacts.models import (
     EvidenceSpan,
@@ -58,7 +58,7 @@ from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count
 from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline import authorship, build_review, deduplicate, mistakes, verify
 from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
-from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.pipeline.record_step import advance_to
 from glite_english_audit.sessions import (
     read_all,
     read_index,
@@ -154,7 +154,7 @@ def _write_manifest(runs_root: Path) -> None:
             local_scan_confirmed_at=_NOW,
             provider_transfer_confirmed_at=_NOW,
         ),
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=CompatibilityFingerprint(
             adapter_versions={},
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
@@ -201,7 +201,7 @@ def _write_step_a(runs_root: Path) -> tuple[int, str]:
     write_index(directory, index)
     # Step a is stood in for, so its promotion is too: every later driver reads
     # the manifest, and build_review refuses a run that is not promoted through.
-    advance_to(_RUN, StepId.A_COLLECTED, StageStatus.PROMOTED, runs_root=runs_root)
+    advance_to(_RUN, StepId.A_COLLECTED, StepStatus.PROMOTED, runs_root=runs_root)
     return total + len(copies), pasted_name
 
 

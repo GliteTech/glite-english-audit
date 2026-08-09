@@ -51,7 +51,7 @@ def _manifest(entries: list[SnapshotFileEntry]) -> SnapshotManifest:
             schema_version=1,
             artifact_id="art-" + "11" * 16,
             run_id=_RUN_ID,
-            stage_id=StepId.A_COLLECTED,
+            step_id=StepId.A_COLLECTED,
             producer_name="test-factory",
             producer_version="1.0.0",
             created_at=utc_now(),

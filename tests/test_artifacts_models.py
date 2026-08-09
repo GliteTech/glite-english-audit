@@ -1,4 +1,4 @@
-"""Construction and validator behavior for the stage record models."""
+"""Construction and validator behavior for the step record models."""
 
 import re
 from typing import Any
@@ -40,7 +40,7 @@ def _envelope() -> ArtifactEnvelope:
         schema_version=1,
         artifact_id="art-" + "0" * 32,
         run_id="run-" + "0" * 32,
-        stage_id=StepId.E_VERIFIED,
+        step_id=StepId.E_VERIFIED,
         producer_name="test-producer",
         producer_version="0.0.1",
         created_at=utc_now(),

@@ -33,8 +33,8 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
     TextStatus,
 )
 from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
@@ -43,7 +43,7 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.artifacts.models import EvidenceSpan, MistakeRecord, NormalizedUtterance
 from glite_english_audit.consent import CONSENT_POLICY_VERSION, MissingConsentError
@@ -51,7 +51,7 @@ from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import repo_root, step_dir
 from glite_english_audit.pipeline import mistakes, verify
-from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.pipeline.record_step import advance_to
 from glite_english_audit.sessions import write_index
 from glite_english_audit.state.run_store import RUN_MANIFEST_FILENAME, load_manifest
 
@@ -122,7 +122,7 @@ def _seed(runs_root: Path, *, provider_transfer_consent: bool = True) -> None:
             local_scan_confirmed_at=_NOW,
             provider_transfer_confirmed_at=_NOW if provider_transfer_consent else None,
         ),
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=CompatibilityFingerprint(
             adapter_versions={},
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
@@ -135,7 +135,7 @@ def _seed(runs_root: Path, *, provider_transfer_consent: bool = True) -> None:
     )
     write_model(ensure_private_dir(runs_root / _RUN) / RUN_MANIFEST_FILENAME, manifest)
     for step in (StepId.A_COLLECTED, StepId.B_DEDUPLICATED, StepId.C_AUTHORED):
-        advance_to(_RUN, step, StageStatus.PROMOTED, producer_version="0.1.0", runs_root=runs_root)
+        advance_to(_RUN, step, StepStatus.PROMOTED, producer_version="0.1.0", runs_root=runs_root)
 
     corpus = ensure_private_dir(step_dir(_RUN, StepId.C_AUTHORED, root=runs_root))
     write_jsonl_models(
@@ -166,8 +166,8 @@ def _on_disk(runs_root: Path, step: StepId, name: str) -> list[MistakeRecord]:
     return records
 
 
-def _status(runs_root: Path, step: StepId) -> StageStatus:
-    return load_manifest(_RUN, root=runs_root).stages[step].status
+def _status(runs_root: Path, step: StepId) -> StepStatus:
+    return load_manifest(_RUN, root=runs_root).steps[step].status
 
 
 def _promote_step_d(runs_root: Path, first: list[MistakeRecord]) -> None:
@@ -240,7 +240,7 @@ def test_a_clean_step_d_file_promotes_the_step_and_names_step_es_files(tmp_path:
     assert outcome.diagnostics == []
     assert outcome.passed
     assert (outcome.sessions, outcome.records, outcome.sessions_with_records) == (2, 2, 1)
-    assert _status(tmp_path, StepId.D_MISTAKES) is StageStatus.PROMOTED
+    assert _status(tmp_path, StepId.D_MISTAKES) is StepStatus.PROMOTED
     # Step e has no prepare of its own, so promoting step d is what names its
     # work; the empty session is named too, or nobody would confirm it.
     assert [assignment.name for assignment in outcome.next_step] == [_FIRST, _SECOND]
@@ -259,7 +259,7 @@ def test_an_evidence_span_that_runs_past_its_utterance_fails_the_file(tmp_path: 
     assert not outcome.passed
     assert _codes(outcome.diagnostics) == ["SCHEMA_INVALID_VALUE"]
     assert outcome.diagnostics[0].item_ref == "claude_code:u1:7-54"
-    assert _status(tmp_path, StepId.D_MISTAKES) is StageStatus.QUARANTINED
+    assert _status(tmp_path, StepId.D_MISTAKES) is StepStatus.QUARANTINED
 
 
 def test_a_record_citing_an_utterance_from_another_session_fails_the_file(tmp_path: Path) -> None:
@@ -326,7 +326,7 @@ def test_a_record_the_privacy_scanner_rejects_fails_the_file_rather_than_being_d
     assert _codes(outcome.diagnostics) == ["PRIVACY_URL_PRESENT"]
     assert outcome.diagnostics[0].item_ref == leaky.record_id
     assert outcome.records == 2
-    assert _status(tmp_path, StepId.D_MISTAKES) is StageStatus.QUARANTINED
+    assert _status(tmp_path, StepId.D_MISTAKES) is StepStatus.QUARANTINED
     # The file is the agents' to repair, so it is left exactly as written.
     assert _on_disk(tmp_path, StepId.D_MISTAKES, _FIRST) == [leaky, _record(1, _A_BREAD)]
 
@@ -400,7 +400,7 @@ def test_a_quarantined_step_d_promotes_once_the_agents_repair_their_file(tmp_pat
     repaired = mistakes.apply_mistakes(_RUN, runs_root=tmp_path)
     assert repaired.passed
     assert repaired.records == 1
-    assert _status(tmp_path, StepId.D_MISTAKES) is StageStatus.PROMOTED
+    assert _status(tmp_path, StepId.D_MISTAKES) is StepStatus.PROMOTED
 
 
 def test_the_step_d_skill_names_the_models_its_files_really_hold() -> None:
@@ -436,7 +436,7 @@ def test_step_e_refuses_to_run_before_step_d_is_promoted(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="step d is not promoted"):
         verify.apply_verification(_RUN, runs_root=tmp_path)
-    assert _status(tmp_path, StepId.E_VERIFIED) is StageStatus.PENDING
+    assert _status(tmp_path, StepId.E_VERIFIED) is StepStatus.PENDING
 
 
 def test_a_step_e_file_that_confirms_every_record_passes_and_drops_nothing(
@@ -451,7 +451,7 @@ def test_a_step_e_file_that_confirms_every_record_passes_and_drops_nothing(
     assert outcome.passed
     assert (outcome.records_in, outcome.records_kept, outcome.records_dropped) == (2, 2, 0)
     assert outcome.sessions_affected == 0
-    assert _status(tmp_path, StepId.E_VERIFIED) is StageStatus.PROMOTED
+    assert _status(tmp_path, StepId.E_VERIFIED) is StepStatus.PROMOTED
     # Written even when empty: "step e removed nothing" is a claim the review
     # reads, not an absence it has to interpret.
     assert _dropped(tmp_path) == {}
@@ -483,7 +483,7 @@ def test_a_record_step_e_added_fails_instead_of_counting_as_a_drop(tmp_path: Pat
     assert _codes(outcome.diagnostics) == ["SCHEMA_INVALID_VALUE"]
     assert outcome.diagnostics[0].item_ref == "claude_code:u1:35-42"
     assert outcome.records_dropped == 0
-    assert _status(tmp_path, StepId.E_VERIFIED) is StageStatus.QUARANTINED
+    assert _status(tmp_path, StepId.E_VERIFIED) is StepStatus.QUARANTINED
     assert not (step_dir(_RUN, StepId.E_VERIFIED, root=tmp_path) / verify.DROPPED_NAME).exists()
 
 

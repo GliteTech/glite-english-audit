@@ -84,7 +84,7 @@ def _normalized_key(text: str) -> str:
 def _stamp(utterance: NormalizedUtterance) -> datetime | None:
     """The utterance's timestamp on the one comparable scale.
 
-    Sources that record timezone-unknown local time reach this stage naive, so
+    Sources that record timezone-unknown local time reach this step naive, so
     every subtraction and ordering below would raise against an aware
     timestamp from a sibling source.
     """

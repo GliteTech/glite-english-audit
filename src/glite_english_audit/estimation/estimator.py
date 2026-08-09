@@ -36,7 +36,7 @@ CALIBRATED_BATCH_SIZE: int = 25
 # one message to fifty-four in that same sample. It is here because the source
 # inventory reports messages and words but not sessions, so nothing better is
 # available before step a has run. Replacing it with a real per-source session
-# count is the fix; until then :func:`estimate_stage` is systematically wrong for
+# count is the fix; until then :func:`estimate_step` is systematically wrong for
 # anyone whose sessions are shorter than average, which is the direction that
 # understates cost.
 ASSUMED_MESSAGES_PER_SESSION: int = 7
@@ -72,13 +72,13 @@ SECONDS_PER_UNIT_HIGH: float = 11.4
 VERIFY_UNITS_PER_MESSAGE: float = 0.40
 SAFE_RECORD_UNITS_PER_MESSAGE: float = 0.18
 
-# What survives the stage-3 authorship judgment, measured on the 2026-08-09
+# What survives the step-3 authorship judgment, measured on the 2026-08-09
 # real-data run: of 198 candidate utterances holding 8,956 words, 192
 # utterances and 4,265 words were judged the learner's own. Nearly every
 # utterance keeps something, but under half its words do, because the bulk of
 # what a learner pastes into a coding agent was written by someone else.
 #
-# Every step after stage 3 reads the retained text, so estimating them from the
+# Every step after step 3 reads the retained text, so estimating them from the
 # candidate word count overstates them by roughly a factor of two. Both ratios
 # move with the corpus — a learner who pastes less keeps more.
 AUTHORED_WORD_RETENTION: float = 0.48
@@ -170,7 +170,7 @@ class PresetEstimate(BaseModel):
     expected_use: str
 
 
-def estimate_stage(
+def estimate_step(
     words: int,
     utterances: int,
     entry: TokenUsageProfileEntry,
@@ -205,11 +205,11 @@ def estimate_stage(
     return TokenEstimate(p50_tokens=p50_tokens, p90_tokens=p90_tokens)
 
 
-def estimate_run(stage_estimates: Iterable[TokenEstimate]) -> TokenEstimate:
-    """Sum stage estimates into one run-level estimate."""
+def estimate_run(step_estimates: Iterable[TokenEstimate]) -> TokenEstimate:
+    """Sum step estimates into one run-level estimate."""
     p50_total = 0
     p90_total = 0
-    for estimate in stage_estimates:
+    for estimate in step_estimates:
         p50_total += estimate.p50_tokens
         p90_total += estimate.p90_tokens
     return TokenEstimate(p50_tokens=p50_total, p90_tokens=p90_total)

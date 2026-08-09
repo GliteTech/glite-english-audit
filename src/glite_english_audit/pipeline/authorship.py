@@ -39,7 +39,7 @@ from typing import NamedTuple
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageStatus, StepId
+from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
@@ -49,7 +49,7 @@ from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
-from glite_english_audit.pipeline.record_stage import advance_to, output_is_current
+from glite_english_audit.pipeline.record_step import advance_to, output_is_current
 from glite_english_audit.sessions import read_all, read_index, session_files, write_index
 
 INDEX_NAME = "authored-corpus-index.json"
@@ -387,7 +387,7 @@ def corpus_digest(entries: list[AuthoredSession]) -> str:
     """One digest over the whole verified file set, for the run manifest.
 
     There is no pooled corpus file to hash, and the run manifest records one
-    hash per stage. Hashing the ordered ``name hash`` listing gives that one
+    hash per step. Hashing the ordered ``name hash`` listing gives that one
     number without pooling the sentences back into a file.
     """
     ordered = sorted(entries, key=lambda entry: entry.file_name)
@@ -483,7 +483,7 @@ def apply_authorship(run_id: str, *, runs_root: Path | None = None) -> Authorshi
             schema_version=1,
             artifact_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StepId.C_AUTHORED,
+            step_id=StepId.C_AUTHORED,
             producer_name=PRODUCER_NAME,
             producer_version=CLIENT_VERSION,
             created_at=utc_now(),
@@ -506,7 +506,7 @@ def apply_authorship(run_id: str, *, runs_root: Path | None = None) -> Authorshi
     advance_to(
         run_id,
         StepId.C_AUTHORED,
-        StageStatus.PROMOTED,
+        StepStatus.PROMOTED,
         artifact_id=index.envelope.artifact_id,
         artifact_hash=index.corpus_sha256,
         producer_version=CLIENT_VERSION,

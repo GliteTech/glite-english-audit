@@ -1,6 +1,6 @@
 """What counts as an English word, and why the artifact and the count differ.
 
-The nine-stage pipeline ran ``classify_english`` and rewrote each utterance to
+The nine-step pipeline ran ``classify_english`` and rewrote each utterance to
 its English slice. The five-step pipeline keeps step c's text verbatim — it is
 diffed against step b line by line — so the language rule had nowhere left to
 live and briefly had no caller at all. That is the shape of every defect this

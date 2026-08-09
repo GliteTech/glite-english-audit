@@ -1,4 +1,4 @@
-"""Run manifest stage-map completeness and the empty stage map.
+"""Run manifest step-map completeness and the empty step map.
 
 The map is keyed by :class:`StepId`, so it tracks the five steps and nothing
 else: the source inventory, the snapshot manifests and the reviewed submission
@@ -13,8 +13,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.manifest import (
@@ -22,8 +22,8 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    StageState,
-    empty_stage_map,
+    StepState,
+    empty_step_map,
 )
 
 
@@ -39,7 +39,7 @@ def _fingerprint() -> CompatibilityFingerprint:
     )
 
 
-def _manifest(stages: dict[StepId, StageState], *, run_id: str = "run-" + "0" * 32) -> RunManifest:
+def _manifest(steps: dict[StepId, StepState], *, run_id: str = "run-" + "0" * 32) -> RunManifest:
     return RunManifest(
         manifest_schema_version=MANIFEST_SCHEMA_VERSION,
         run_id=run_id,
@@ -48,34 +48,34 @@ def _manifest(stages: dict[StepId, StageState], *, run_id: str = "run-" + "0" * 
         os_environment=OsEnvironment.MACOS,
         status=RunStatus.CREATED,
         consent=ConsentState(consent_policy_version="2026-01"),
-        stages=stages,
+        steps=steps,
         fingerprint=_fingerprint(),
     )
 
 
 def test_empty_stage_map_covers_every_step() -> None:
-    stages = empty_stage_map()
-    assert set(stages) == set(StepId)
-    for step, state in stages.items():
-        assert state.stage is step
-        assert state.status is StageStatus.PENDING
+    steps = empty_step_map()
+    assert set(steps) == set(StepId)
+    for step, state in steps.items():
+        assert state.step is step
+        assert state.status is StepStatus.PENDING
         assert state.current_artifact_id is None
         assert state.current_artifact_hash is None
 
 
 def test_run_manifest_accepts_complete_stage_map() -> None:
-    manifest = _manifest(empty_stage_map())
-    assert set(manifest.stages) == set(StepId)
+    manifest = _manifest(empty_step_map())
+    assert set(manifest.steps) == set(StepId)
     assert manifest.selection is None
     assert manifest.last_checkpoint_at is None
 
 
 @pytest.mark.parametrize("missing_step", list(StepId))
 def test_run_manifest_rejects_missing_step(missing_step: StepId) -> None:
-    stages = empty_stage_map()
-    del stages[missing_step]
+    steps = empty_step_map()
+    del steps[missing_step]
     with pytest.raises(ValidationError):
-        _manifest(stages)
+        _manifest(steps)
 
 
 def test_run_manifest_rejects_mismatched_step_key() -> None:
@@ -83,10 +83,10 @@ def test_run_manifest_rejects_mismatched_step_key() -> None:
     # promotion repoints whichever the caller happens to read. Letting them
     # disagree would point one step's manifest entry at another step's
     # artifact.
-    stages = empty_stage_map()
-    stages[StepId.A_COLLECTED] = StageState(stage=StepId.B_DEDUPLICATED)
+    steps = empty_step_map()
+    steps[StepId.A_COLLECTED] = StepState(step=StepId.B_DEDUPLICATED)
     with pytest.raises(ValidationError):
-        _manifest(stages)
+        _manifest(steps)
 
 
 @pytest.mark.parametrize(
@@ -105,7 +105,7 @@ def test_run_manifest_rejects_malformed_run_id(run_id: str) -> None:
     # The run ID is joined into filesystem paths, so a manifest may never carry
     # an absolute or traversing value.
     with pytest.raises(ValidationError):
-        _manifest(empty_stage_map(), run_id=run_id)
+        _manifest(empty_step_map(), run_id=run_id)
 
 
 def test_fingerprint_records_the_running_client_version() -> None:

@@ -18,7 +18,7 @@ def _envelope(**overrides: Any) -> ArtifactEnvelope:
         "schema_version": 1,
         "artifact_id": "art-" + "0" * 32,
         "run_id": "run-" + "0" * 32,
-        "stage_id": StepId.A_COLLECTED,
+        "step_id": StepId.A_COLLECTED,
         "producer_name": "test-producer",
         "producer_version": "0.0.1",
         "created_at": datetime(2026, 8, 8, 12, 0, 0, tzinfo=UTC),

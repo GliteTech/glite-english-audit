@@ -17,8 +17,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
 from glite_english_audit.artifacts.manifest import (
@@ -26,11 +26,11 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.pipeline.record_stage import output_is_current
+from glite_english_audit.pipeline.record_step import output_is_current
 from glite_english_audit.state.run_store import (
     RUN_MANIFEST_FILENAME,
     invalidate_from,
@@ -55,7 +55,7 @@ def _seed(runs_root: Path, *, promoted_through: StepId) -> RunManifest:
             local_scan_confirmed_at=_NOW,
             provider_transfer_confirmed_at=_NOW,
         ),
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=CompatibilityFingerprint(
             adapter_versions={},
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
@@ -66,9 +66,9 @@ def _seed(runs_root: Path, *, promoted_through: StepId) -> RunManifest:
             consent_policy_version=CONSENT_POLICY_VERSION,
         ),
     )
-    for step in sorted(manifest.stages):
+    for step in sorted(manifest.steps):
         if step <= promoted_through:
-            manifest.stages[step].status = StageStatus.PROMOTED
+            manifest.steps[step].status = StepStatus.PROMOTED
     write_model(ensure_private_dir(runs_root / _RUN) / RUN_MANIFEST_FILENAME, manifest)
     return load_manifest(_RUN, root=runs_root)
 

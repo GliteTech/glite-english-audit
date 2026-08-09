@@ -2,7 +2,7 @@
 
 This is the property the pipeline is built around: after step a, each step
 reads the previous step's files and writes the same names back, so any step's
-output can be diffed against its input file by file. The nine-stage layout it
+output can be diffed against its input file by file. The nine-step layout it
 replaced pooled every session into one JSONL, which made "what did this step do
 to session X" unanswerable.
 

@@ -1,4 +1,4 @@
-"""Explicit transition tables for run and stage lifecycles.
+"""Explicit transition tables for run and step lifecycles.
 
 Every transition the orchestration may perform is listed here; anything else
 raises :class:`InvalidTransitionError` carrying the stable
@@ -6,7 +6,7 @@ raises :class:`InvalidTransitionError` carrying the stable
 new transition is a reviewed contract change, not an accident.
 """
 
-from glite_english_audit.artifacts.enums import RunStatus, StageStatus, StepId
+from glite_english_audit.artifacts.enums import RunStatus, StepId, StepStatus
 from glite_english_audit.diagnostics.codes import Diagnostic
 
 _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
@@ -27,7 +27,7 @@ _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.BLOCKED: frozenset(
         {RunStatus.PROCESSING, RunStatus.AWAITING_PREFLIGHT, RunStatus.EXPIRED}
     ),
-    # A review the user abandons must still reach EXPIRED, or its stage 4-7
+    # A review the user abandons must still reach EXPIRED, or its step 4-7
     # artifacts keep raw source language past the 30-day retention rule
     # (specification, 3.6). Reopening a review re-enters processing.
     RunStatus.REVIEW: frozenset(
@@ -43,22 +43,22 @@ _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.EXPIRED: frozenset(),
 }
 
-_STAGE_TRANSITIONS: dict[StageStatus, frozenset[StageStatus]] = {
-    StageStatus.PENDING: frozenset({StageStatus.IN_PROGRESS}),
-    StageStatus.IN_PROGRESS: frozenset(
-        {StageStatus.PRODUCED, StageStatus.FAILED, StageStatus.QUARANTINED}
+_STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
+    StepStatus.PENDING: frozenset({StepStatus.IN_PROGRESS}),
+    StepStatus.IN_PROGRESS: frozenset(
+        {StepStatus.PRODUCED, StepStatus.FAILED, StepStatus.QUARANTINED}
     ),
-    StageStatus.PRODUCED: frozenset({StageStatus.VERIFIED_DETERMINISTIC, StageStatus.FAILED}),
-    StageStatus.VERIFIED_DETERMINISTIC: frozenset(
-        {StageStatus.VERIFIED_SEMANTIC, StageStatus.PROMOTED, StageStatus.FAILED}
+    StepStatus.PRODUCED: frozenset({StepStatus.VERIFIED_DETERMINISTIC, StepStatus.FAILED}),
+    StepStatus.VERIFIED_DETERMINISTIC: frozenset(
+        {StepStatus.VERIFIED_SEMANTIC, StepStatus.PROMOTED, StepStatus.FAILED}
     ),
-    StageStatus.VERIFIED_SEMANTIC: frozenset({StageStatus.PROMOTED, StageStatus.FAILED}),
+    StepStatus.VERIFIED_SEMANTIC: frozenset({StepStatus.PROMOTED, StepStatus.FAILED}),
     # Promotion is not terminal: replacement after repair re-enters production,
-    # and an upstream replacement invalidates this stage (specification, 6.5).
-    StageStatus.PROMOTED: frozenset({StageStatus.IN_PROGRESS, StageStatus.INVALIDATED}),
-    StageStatus.QUARANTINED: frozenset({StageStatus.IN_PROGRESS}),
-    StageStatus.FAILED: frozenset({StageStatus.IN_PROGRESS}),
-    StageStatus.INVALIDATED: frozenset({StageStatus.IN_PROGRESS}),
+    # and an upstream replacement invalidates this step (specification, 6.5).
+    StepStatus.PROMOTED: frozenset({StepStatus.IN_PROGRESS, StepStatus.INVALIDATED}),
+    StepStatus.QUARANTINED: frozenset({StepStatus.IN_PROGRESS}),
+    StepStatus.FAILED: frozenset({StepStatus.IN_PROGRESS}),
+    StepStatus.INVALIDATED: frozenset({StepStatus.IN_PROGRESS}),
 }
 
 SEMANTIC_STEPS: frozenset[StepId] = frozenset()
@@ -66,7 +66,7 @@ SEMANTIC_STEPS: frozenset[StepId] = frozenset()
 
 Empty, and deliberately so. This set exists to forbid the jump from
 ``VERIFIED_DETERMINISTIC`` to ``PROMOTED``, forcing a ``VERIFIED_SEMANTIC``
-step in between. Under the nine-stage design three stages qualified, each with
+step in between. Under the nine-step design three steps qualified, each with
 its own independent verifier.
 
 Under the five steps none does, and each for its own reason:
@@ -111,30 +111,30 @@ def advance_run(current: RunStatus, target: RunStatus) -> RunStatus:
     return target
 
 
-def allowed_stage_targets(current: StageStatus, *, stage: StepId) -> frozenset[StageStatus]:
-    """Statuses ``stage`` may move to from ``current``.
+def allowed_step_targets(current: StepStatus, *, step: StepId) -> frozenset[StepStatus]:
+    """Statuses ``step`` may move to from ``current``.
 
-    The table is stage-agnostic except for one rule: a semantic stage may not
+    The table is step-agnostic except for one rule: a semantic step may not
     jump from ``VERIFIED_DETERMINISTIC`` straight to ``PROMOTED``.
     """
-    targets = _STAGE_TRANSITIONS[current]
-    if stage in SEMANTIC_STEPS and current is StageStatus.VERIFIED_DETERMINISTIC:
-        return targets - {StageStatus.PROMOTED}
+    targets = _STEP_TRANSITIONS[current]
+    if step in SEMANTIC_STEPS and current is StepStatus.VERIFIED_DETERMINISTIC:
+        return targets - {StepStatus.PROMOTED}
     return targets
 
 
-def can_advance_stage(current: StageStatus, target: StageStatus, *, stage: StepId) -> bool:
-    """True when ``stage`` may move from ``current`` to ``target``."""
-    return target in allowed_stage_targets(current, stage=stage)
+def can_advance_step(current: StepStatus, target: StepStatus, *, step: StepId) -> bool:
+    """True when ``step`` may move from ``current`` to ``target``."""
+    return target in allowed_step_targets(current, step=step)
 
 
-def advance_stage(current: StageStatus, target: StageStatus, *, stage: StepId) -> StageStatus:
-    """Validate and perform a stage transition."""
-    if not can_advance_stage(current, target, stage=stage):
+def advance_step(current: StepStatus, target: StepStatus, *, step: StepId) -> StepStatus:
+    """Validate and perform a step transition."""
+    if not can_advance_step(current, target, step=step):
         raise InvalidTransitionError(
             Diagnostic.from_code(
                 "STATE_INVALID_TRANSITION",
-                f"stage {int(stage)} may not move from {current.value!r} to {target.value!r}",
+                f"step {int(step)} may not move from {current.value!r} to {target.value!r}",
             )
         )
     return target

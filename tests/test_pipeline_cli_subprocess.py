@@ -86,7 +86,7 @@ def test_the_deterministic_steps_work_in_a_fresh_process(tmp_path: Path) -> None
     # The inventory is no longer a step: it describes the machine rather than
     # one session, so start_run carries it to a single file at the run root.
     # collect reads that path as a file, so anything else there — a directory
-    # of the same name, as the stage layout had — fails every run at step a.
+    # of the same name, as the step layout had — fails every run at step a.
     carried = inventory_path(run_id, root=runs_root)
     assert carried.is_file(), f"start_run must leave the run's inventory copy at {carried}"
 

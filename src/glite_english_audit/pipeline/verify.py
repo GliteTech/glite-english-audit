@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageStatus, StepId
+from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.models import MistakeRecord
 from glite_english_audit.diagnostics.codes import Diagnostic
@@ -40,7 +40,7 @@ from glite_english_audit.pipeline.mistakes import (
     step_digest,
     write_step_report,
 )
-from glite_english_audit.pipeline.record_stage import advance_to, mark_failed
+from glite_english_audit.pipeline.record_step import advance_to, mark_failed
 from glite_english_audit.sessions import session_files
 from glite_english_audit.state.run_store import load_manifest
 
@@ -68,7 +68,7 @@ class VerificationOutcome(BaseModel):
 def _require_promoted_source(run_id: str, *, runs_root: Path | None = None) -> None:
     """Refuse to confirm records nothing has validated yet."""
     manifest = load_manifest(run_id, root=runs_root)
-    if manifest.stages[SOURCE_STEP].status is not StageStatus.PROMOTED:
+    if manifest.steps[SOURCE_STEP].status is not StepStatus.PROMOTED:
         msg = (
             "step d is not promoted, so these records have not been checked against the "
             "text they cite; run pipeline.mistakes --apply until it exits zero first"
@@ -204,7 +204,7 @@ def apply_verification(run_id: str, *, runs_root: Path | None = None) -> Verific
     advance_to(
         run_id,
         STEP,
-        StageStatus.PROMOTED,
+        StepStatus.PROMOTED,
         artifact_id=artifact_id,
         artifact_hash=report.artifact_hash,
         producer_version=CLIENT_VERSION,

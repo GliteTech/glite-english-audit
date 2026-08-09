@@ -1,7 +1,7 @@
 """Private run store: creation, checkpoints, resume policy, and retention.
 
 One directory per run under the private runtime root holds the manifest, the
-per-stage artifacts, logs, and the submission package (specification, 3.6).
+per-step artifacts, logs, and the submission package (specification, 3.6).
 Resume behavior is deterministic from the compatibility fingerprint
 (specification, 9.4), and retention is state-based: unfinished runs keep their
 private artifacts for 30 days after the last successful checkpoint, completed
@@ -24,8 +24,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_run_id
@@ -35,20 +35,20 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.state.machine import advance_run, advance_stage, can_advance_run
+from glite_english_audit.state.machine import advance_run, advance_step, can_advance_run
 
 RUN_MANIFEST_FILENAME = "run-manifest.json"
 RETENTION_DAYS = 30
 """Unfinished-run retention after the last checkpoint (specification, 3.6)."""
 
 EARLIEST_SEMANTIC_STEP = StepId.C_AUTHORED
-"""First stage whose output depends on skills, prompts, or model choice."""
+"""First step whose output depends on skills, prompts, or model choice."""
 
 EARLIEST_CLIENT_CODE_STEP = StepId.D_MISTAKES
-"""First stage a pure-Python change invalidates.
+"""First step a pure-Python change invalidates.
 
 Step d depends on the deterministic privacy scanner and the packaging
 allowlist, so a client change may not leave records approved by the previous
@@ -59,7 +59,7 @@ _PRIVATE_SUBDIRS = ("steps", "logs", "snapshots", "snapshot-manifests", "submiss
 """Private subtrees of a run directory, created together and expired together.
 
 ``steps/`` holds the learner's own sentences at every step, and named
-``stages/`` until the five-step refactor — a rename that left retention
+``steps/`` until the five-step refactor — a rename that left retention
 pointing at an empty directory while every file it was meant to delete sat in
 the new one. ``snapshot-manifests/`` and ``source-inventory.json`` moved to the
 run root in the same change and were outside retention entirely; the inventory
@@ -103,7 +103,7 @@ class ResumeAssessment(BaseModel):
 
     decision: ResumeDecision
     detail: str
-    earliest_affected_stage: StepId | None = None
+    earliest_affected_step: StepId | None = None
     diagnostic: Diagnostic | None = None
     """The stable code for this refusal, when there is one.
 
@@ -121,7 +121,7 @@ class RunSummary(BaseModel):
     run_id: str
     started_at: datetime
     status: RunStatus
-    last_promoted_stage: StepId | None
+    last_promoted_step: StepId | None
     last_checkpoint_at: datetime | None
     checkpoint_age: timedelta
 
@@ -166,7 +166,7 @@ def create_run(
         status=RunStatus.CREATED,
         consent=consent,
         selection=None,
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=fingerprint,
         last_checkpoint_at=None,
     )
@@ -229,9 +229,9 @@ def load_manifest(run_id: str, *, root: Path | None = None) -> RunManifest:
     return _load_manifest_in(_run_directory(run_id, root))
 
 
-def _last_promoted_stage(manifest: RunManifest) -> StepId | None:
+def _last_promoted_step(manifest: RunManifest) -> StepId | None:
     promoted = [
-        stage for stage, state in manifest.stages.items() if state.status is StageStatus.PROMOTED
+        step for step, state in manifest.steps.items() if state.status is StepStatus.PROMOTED
     ]
     return max(promoted) if promoted else None
 
@@ -268,7 +268,7 @@ def list_unfinished(
                 run_id=manifest.run_id,
                 started_at=manifest.created_at,
                 status=manifest.status,
-                last_promoted_stage=_last_promoted_stage(manifest),
+                last_promoted_step=_last_promoted_step(manifest),
                 last_checkpoint_at=manifest.last_checkpoint_at,
                 checkpoint_age=moment - _last_checkpoint(manifest),
             )
@@ -352,8 +352,8 @@ def describe_resume(
         )
 
     downstream_changes = [
-        (name, stage)
-        for name, stage, matches in (
+        (name, step)
+        for name, step, matches in (
             (
                 "skill versions",
                 EARLIEST_SEMANTIC_STEP,
@@ -374,7 +374,7 @@ def describe_resume(
         if not matches
     ]
     if downstream_changes:
-        earliest = min(stage for _, stage in downstream_changes)
+        earliest = min(step for _, step in downstream_changes)
         names = [name for name, _ in downstream_changes]
         return ResumeAssessment(
             decision=ResumeDecision.INVALIDATE_DOWNSTREAM,
@@ -383,7 +383,7 @@ def describe_resume(
                 f"Step {paths.step_dir_name(earliest)[0]} and later are recomputed "
                 "after a refreshed preflight."
             ),
-            earliest_affected_stage=earliest,
+            earliest_affected_step=earliest,
         )
 
     return ResumeAssessment(
@@ -392,16 +392,16 @@ def describe_resume(
     )
 
 
-def next_incomplete_stage(manifest: RunManifest) -> StepId | None:
-    """The earliest stage that is not promoted, or ``None`` when all are.
+def next_incomplete_step(manifest: RunManifest) -> StepId | None:
+    """The earliest step that is not promoted, or ``None`` when all are.
 
-    Where a continued run resumes (specification, 9.4). A stage below a
+    Where a continued run resumes (specification, 9.4). A step below a
     promoted one counts as incomplete too: its output is missing, so anything
     later rests on nothing and has to be recomputed after it.
     """
-    for stage in sorted(manifest.stages):
-        if manifest.stages[stage].status is not StageStatus.PROMOTED:
-            return stage
+    for step in sorted(manifest.steps):
+        if manifest.steps[step].status is not StepStatus.PROMOTED:
+            return step
     return None
 
 
@@ -411,27 +411,27 @@ def invalidate_from(
     *,
     now: datetime | None = None,
 ) -> list[StepId]:
-    """Invalidate ``earliest`` and every promoted stage after it.
+    """Invalidate ``earliest`` and every promoted step after it.
 
     The invalidate-downstream branch of the resume policy (specification, 9.4,
-    6.5). Only promoted stages move: a quarantined or failed stage keeps its
+    6.5). Only promoted steps move: a quarantined or failed step keeps its
     status, so its diagnostic history survives the decision. The artifact
-    pointer is cleared with the status, because a stage that must be recomputed
+    pointer is cleared with the status, because a step that must be recomputed
     may not stay the manifest's current artifact for lineage checks.
 
     Callers save the manifest; this function only edits it.
     """
     moment = now if now is not None else utc_now()
     invalidated: list[StepId] = []
-    for stage in sorted(manifest.stages):
-        state = manifest.stages[stage]
-        if stage < earliest or state.status is not StageStatus.PROMOTED:
+    for step in sorted(manifest.steps):
+        state = manifest.steps[step]
+        if step < earliest or state.status is not StepStatus.PROMOTED:
             continue
-        state.status = advance_stage(state.status, StageStatus.INVALIDATED, stage=stage)
+        state.status = advance_step(state.status, StepStatus.INVALIDATED, step=step)
         state.current_artifact_id = None
         state.current_artifact_hash = None
         state.updated_at = moment
-        invalidated.append(stage)
+        invalidated.append(step)
     return invalidated
 
 

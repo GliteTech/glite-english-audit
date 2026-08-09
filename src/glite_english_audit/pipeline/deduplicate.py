@@ -33,11 +33,11 @@ import sys
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageStatus, StepId
+from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models
 from glite_english_audit.normalization.dedup import dedupe
 from glite_english_audit.paths import step_dir
-from glite_english_audit.pipeline.record_stage import advance_to
+from glite_english_audit.pipeline.record_step import advance_to
 from glite_english_audit.sessions import (
     read_all,
     read_index,
@@ -85,7 +85,7 @@ def deduplicate(run_id: str, *, runs_root: Path | None = None) -> dict[str, obje
     advance_to(
         run_id,
         StepId.B_DEDUPLICATED,
-        StageStatus.PROMOTED,
+        StepStatus.PROMOTED,
         producer_version=CLIENT_VERSION,
         runs_root=runs_root,
     )

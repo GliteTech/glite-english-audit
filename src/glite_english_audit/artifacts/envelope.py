@@ -46,7 +46,7 @@ class ArtifactEnvelope(BaseModel):
     schema_version: int = Field(ge=1)
     artifact_id: str
     run_id: str
-    stage_id: StepId
+    step_id: StepId
     producer_name: str
     producer_version: str
     model_id: str | None = None

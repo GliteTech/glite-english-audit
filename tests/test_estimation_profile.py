@@ -192,7 +192,7 @@ def test_record_rejects_negative_counts() -> None:
 
 
 def test_judge_authorship_cell_reproduces_the_run_it_was_measured_from() -> None:
-    """The stage-3 cell must still predict the run that produced it.
+    """The step-3 cell must still predict the run that produced it.
 
     On 2026-08-09 a real audit judged authorship for 198 candidate utterances
     in eight concurrent batches and consumed 4,418,856 tokens end to end
@@ -224,7 +224,7 @@ def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
 
     They were an empty dict, which cost two things: the manifest did not record
     what ran, and resume compares this field to decide whether a model change
-    invalidates the semantic stages, so the check could never fire.
+    invalidates the semantic steps, so the check could never fire.
     """
     profile = load_token_usage_profile()
     resolved = resolve_models(profile, runtime="claude-code", processing_profile="recommended")
@@ -240,7 +240,7 @@ def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
 def test_both_profiles_resolve_the_same_while_one_model_is_measured() -> None:
     """Specification 10.8: "both profiles may resolve to the same model".
 
-    That is the state today, and it is why the setup must not stage a choice
+    That is the state today, and it is why the setup must not step a choice
     between them. If this starts failing, a second model has been measured and
     the profile question becomes a real one again.
     """

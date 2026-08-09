@@ -172,7 +172,7 @@ def pending_inventory_dir(*, repo: Path | None = None) -> Path:
     """Where discovery leaves its inventory before a run exists.
 
     Discovery runs first: the user has to see what was found before choosing
-    sources, and only then is a run created. So stage 0 has nowhere run-scoped
+    sources, and only then is a run created. So step 0 has nowhere run-scoped
     to write, and its output waits here until ``start_run`` adopts it.
     """
     return runtime_root(repo=repo) / "inventory"

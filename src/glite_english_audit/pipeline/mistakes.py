@@ -41,7 +41,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageStatus, StepId
+from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import ensure_private_dir, write_model
@@ -50,7 +50,7 @@ from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import repo_root, step_dir
-from glite_english_audit.pipeline.record_stage import advance_to, mark_failed, output_is_current
+from glite_english_audit.pipeline.record_step import advance_to, mark_failed, output_is_current
 from glite_english_audit.sessions import read_index, read_session, session_files, write_index
 from glite_english_audit.state.run_store import load_manifest
 from glite_english_audit.verification.privacy_scanner import scan_safe_record
@@ -284,7 +284,7 @@ def write_step_report(
     report = VerificationReport(
         report_id=new_artifact_id(),
         run_id=run_id,
-        stage_id=step,
+        step_id=step,
         artifact_id=artifact_id,
         artifact_hash=artifact_hash,
         verifier_name=verifier_name,
@@ -334,7 +334,7 @@ def prepare_mistakes(run_id: str, *, runs_root: Path | None = None) -> list[Sess
                 already_written=reusable and (target / path.name).is_file(),
             )
         )
-    advance_to(run_id, STEP, StageStatus.IN_PROGRESS, runs_root=runs_root)
+    advance_to(run_id, STEP, StepStatus.IN_PROGRESS, runs_root=runs_root)
     return assignments
 
 
@@ -437,7 +437,7 @@ def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOut
     advance_to(
         run_id,
         STEP,
-        StageStatus.PROMOTED,
+        StepStatus.PROMOTED,
         artifact_id=artifact_id,
         artifact_hash=report.artifact_hash,
         producer_version=CLIENT_VERSION,

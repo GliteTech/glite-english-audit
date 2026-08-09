@@ -1,4 +1,4 @@
-"""Shared enumerations for stages, sources, and record classification.
+"""Shared enumerations for steps, sources, and record classification.
 
 Enum values are stable contract strings. Code compares enum members, never raw
 strings; raw strings appear only at serialization boundaries.
@@ -14,7 +14,7 @@ class StepId(IntEnum):
     each step reads the previous step's files and writes the same names back,
     so any step's output can be diffed against its input file by file. That
     property is the reason for the shape, and it is worth more than the nine
-    finer-grained stages it replaced, which pooled every session into one
+    finer-grained steps it replaced, which pooled every session into one
     JSONL and made "what did this step do to session X" unanswerable.
 
     Steps c, d and e are one agent per file, run in parallel. Steps a and b are
@@ -90,8 +90,8 @@ class ExampleType(StrEnum):
     SYNTHETIC = "synthetic"
 
 
-class StageStatus(StrEnum):
-    """Verification lifecycle of one stage's current artifact."""
+class StepStatus(StrEnum):
+    """Verification lifecycle of one step's current artifact."""
 
     PENDING = "pending"
     IN_PROGRESS = "in_progress"

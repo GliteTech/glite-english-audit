@@ -173,7 +173,7 @@ def render_progress(state: ProgressState) -> str:
 class ProgressThrottle:
     """Rate limit for conversation updates (specification, 9.1).
 
-    At most one update per ``min_interval_seconds`` unless a stage changes or
+    At most one update per ``min_interval_seconds`` unless a step changes or
     a material warning occurs; an update becomes overdue after
     ``max_interval_seconds``. The clock is injected through ``now`` so tests
     never sleep.
@@ -196,13 +196,13 @@ class ProgressThrottle:
         self,
         now: datetime,
         *,
-        stage_changed: bool = False,
+        step_changed: bool = False,
         warning: bool = False,
     ) -> bool:
         """Decide whether to emit an update now; records the emit when True."""
         emit = (
             self._last_emit_at is None
-            or stage_changed
+            or step_changed
             or warning
             or (now - self._last_emit_at).total_seconds() >= self._min_interval_seconds
         )

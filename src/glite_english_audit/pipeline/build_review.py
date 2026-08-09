@@ -48,7 +48,7 @@ from glite_english_audit.pipeline.authorship import INDEX_NAME as CORPUS_INDEX_N
 from glite_english_audit.pipeline.authorship import AuthoredCorpusIndex
 from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
 from glite_english_audit.pipeline.mistakes import REPORT_NAME, read_records, verify_records
-from glite_english_audit.pipeline.record_stage import (
+from glite_english_audit.pipeline.record_step import (
     enter_review,
     require_promoted_through,
 )
@@ -242,7 +242,7 @@ def build_review(
             schema_version=1,
             artifact_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StepId.E_VERIFIED,
+            step_id=StepId.E_VERIFIED,
             producer_name=PRODUCER_NAME,
             producer_version=CLIENT_VERSION,
             created_at=utc_now(),

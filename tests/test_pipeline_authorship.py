@@ -24,8 +24,8 @@ from glite_english_audit.artifacts.enums import (
     Modality,
     OsEnvironment,
     RunStatus,
-    StageStatus,
     StepId,
+    StepStatus,
     TextStatus,
 )
 from glite_english_audit.artifacts.io import write_jsonl_models, write_model
@@ -34,7 +34,7 @@ from glite_english_audit.artifacts.manifest import (
     CompatibilityFingerprint,
     ConsentState,
     RunManifest,
-    empty_stage_map,
+    empty_step_map,
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.consent import CONSENT_POLICY_VERSION, MissingConsentError
@@ -108,7 +108,7 @@ def _write_manifest(runs_root: Path, *, provider_transfer: bool) -> None:
             local_scan_confirmed_at=moment,
             provider_transfer_confirmed_at=moment if provider_transfer else None,
         ),
-        stages=empty_stage_map(),
+        steps=empty_step_map(),
         fingerprint=CompatibilityFingerprint(
             adapter_versions={},
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
@@ -489,8 +489,8 @@ def test_a_faithful_judgment_promotes_every_session_and_counts_only_kept_text(
     assert verify_corpus(_RUN, runs_root=tmp_path) == []
 
     manifest = load_manifest(_RUN, root=tmp_path)
-    assert manifest.stages[StepId.C_AUTHORED].status is StageStatus.PROMOTED
-    assert manifest.stages[StepId.C_AUTHORED].current_artifact_hash == result.index.corpus_sha256
+    assert manifest.steps[StepId.C_AUTHORED].status is StepStatus.PROMOTED
+    assert manifest.steps[StepId.C_AUTHORED].current_artifact_hash == result.index.corpus_sha256
 
 
 def test_keeping_every_word_leaves_the_denominator_exactly_where_it_was(tmp_path: Path) -> None:
@@ -741,7 +741,7 @@ def test_the_apply_command_promotes_the_step_and_still_fails_when_a_session_was_
     assert payload["tokenizer_version"] == TOKENIZER_VERSION
 
     manifest = load_manifest(_RUN, root=tmp_path)
-    assert manifest.stages[StepId.C_AUTHORED].status is StageStatus.PROMOTED
+    assert manifest.steps[StepId.C_AUTHORED].status is StepStatus.PROMOTED
 
 
 def test_the_apply_command_succeeds_when_every_session_was_judged(tmp_path: Path) -> None:

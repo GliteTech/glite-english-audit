@@ -8,7 +8,7 @@ compatibility fingerprints.
 
 A recorded consent that nobody checks is decoration. Local-scan consent is
 checked where source files are read (``pipeline.collect``); provider-transfer
-consent is checked here, by the stages that write the user's own sentences into
+consent is checked here, by the steps that write the user's own sentences into
 files whose only purpose is to be handed to an AI provider.
 """
 

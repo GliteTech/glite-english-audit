@@ -177,12 +177,12 @@ def test_every_step_gets_its_own_directory(tmp_path: Path) -> None:
 def test_a_leftover_numeric_stage_directory_does_not_divert_a_step(tmp_path: Path) -> None:
     """The five-step layout is the only layout the code reads.
 
-    Nine-stage runs cannot be resumed as five-step runs — stages 4, 5 and 6 all
+    Nine-step runs cannot be resumed as five-step runs — steps 4, 5 and 6 all
     became step d, and step d has to produce what none of them produced alone —
-    so a stale ``stages/`` tree left beside a run must not pull a step's files
+    so a stale ``steps/`` tree left beside a run must not pull a step's files
     back out of ``steps/``.
     """
     runs = tmp_path / "runs"
-    (runs / _RUN_ID / "stages" / "4").mkdir(parents=True)
+    (runs / _RUN_ID / "steps" / "4").mkdir(parents=True)
     resolved = step_dir(_RUN_ID, StepId.D_MISTAKES, root=runs)
     assert resolved == runs / _RUN_ID / "steps" / "d-mistakes"

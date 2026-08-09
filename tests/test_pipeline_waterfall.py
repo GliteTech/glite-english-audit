@@ -1,10 +1,10 @@
 """Every step of the waterfall is promoted by a driver the product ships.
 
-This is the test the project lacked. Under the nine stages this replaced, one
-stage was promoted by nothing at all: the only code that ever advanced it lived
+This is the test the project lacked. Under the nine steps this replaced, one
+step was promoted by nothing at all: the only code that ever advanced it lived
 in this file, so a real run stopped one refusal short of the review page while
 the suite stayed green. The shape here answers that directly. Nothing below
-calls :mod:`glite_english_audit.pipeline.record_stage`; the test runs the five
+calls :mod:`glite_english_audit.pipeline.record_step`; the test runs the five
 drivers and then reads the run manifest. If a step's promotion disappears from
 the product, nothing here puts it back.
 
@@ -12,7 +12,7 @@ Steps c, d and e are one agent per session file in production. A fixed rule
 plays that part so the run is reproducible; everything else is the real thing,
 over the committed synthetic fixtures, with no model and no network anywhere.
 
-Three things the nine stages had are not steps any more, and are reached here
+Three things the nine steps had are not steps any more, and are reached here
 through the run-level paths that own them: the source inventory and the snapshot
 manifests sit beside the run manifest, and the review — which produces one
 artifact for the whole run and then waits on a person — lives in ``submission/``.
@@ -35,8 +35,8 @@ from glite_english_audit.artifacts.enums import (
     ExampleType,
     OsEnvironment,
     Stability,
-    StageStatus,
     StepId,
+    StepStatus,
 )
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
@@ -59,7 +59,13 @@ from glite_english_audit.discovery.base import (
     SnapshotCapture,
 )
 from glite_english_audit.discovery.inventory import PrivateInventory
-from glite_english_audit.paths import inventory_path, snapshot_dir, step_dir, submission_dir
+from glite_english_audit.paths import (
+    inventory_path,
+    snapshot_dir,
+    snapshot_manifest_dir,
+    step_dir,
+    submission_dir,
+)
 from glite_english_audit.pipeline import (
     authorship,
     build_review,
@@ -307,7 +313,7 @@ def _advance_through(
     for step in StepId:
         if step > last:
             break
-        if manifest.stages[step].status is StageStatus.PROMOTED:
+        if manifest.steps[step].status is StepStatus.PROMOTED:
             continue
         _run_step(workspace, run_id, step, spoil=spoil)
 
@@ -328,7 +334,7 @@ def test_each_step_is_promoted_by_a_driver_that_exists(workspace: Workspace, ste
     Two claims, and both are needed. The driver is a real module with a command
     line, so an agent can run it; and running the waterfall through it leaves
     that step promoted in the manifest without any help from this file. The
-    stage that had neither passed a test that only ever asserted the first.
+    step that had neither passed a test that only ever asserted the first.
     """
     driver = importlib.import_module(_DRIVERS[step])
     assert callable(driver.main), f"{_DRIVERS[step]} has no command line"
@@ -337,14 +343,14 @@ def test_each_step_is_promoted_by_a_driver_that_exists(workspace: Workspace, ste
     _advance_through(workspace, run_id, step)
 
     manifest = load_manifest(run_id, root=workspace.runs_root)
-    assert manifest.stages[step].status is StageStatus.PROMOTED
+    assert manifest.steps[step].status is StepStatus.PROMOTED
     # Nothing ran ahead of itself: every later step is still untouched, which is
     # what makes the promotion above attributable to this step's own driver.
     assert [
         later
         for later in StepId
         if later > step
-        if manifest.stages[later].status is not StageStatus.PENDING
+        if manifest.steps[later].status is not StepStatus.PENDING
     ] == []
 
 
@@ -399,10 +405,13 @@ def test_the_waterfall_runs_step_by_step_and_reaches_a_publishable_review(
     assert set(read_index(step_a)) == set(names)
 
     # The snapshots are verbatim copies of the user's own application data, so
-    # they must be gone the moment extraction is durable.
+    # they must be gone the moment extraction is durable. Their manifests stay,
+    # one per source instance rather than one per session, because they are the
+    # list cleanup is bounded by and they sit at the run root for that reason.
     snapshots = snapshot_dir(run_id, repo=workspace.repo)
     leftover = [path for path in snapshots.rglob("*") if path.is_file()]
     assert leftover == [], "snapshots must be removed once extraction is durable"
+    assert list(snapshot_manifest_dir(run_id, root=runs_root).glob("*.json"))
 
     # Step b: comparison rather than judgment, so it runs before any model spends
     # tokens on text that is about to be discarded.

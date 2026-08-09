@@ -101,7 +101,7 @@ def _artifact() -> ReviewedSubmissionArtifact:
         schema_version=1,
         artifact_id=new_artifact_id(),
         run_id=new_run_id(),
-        stage_id=StepId.E_VERIFIED,
+        step_id=StepId.E_VERIFIED,
         producer_name="test",
         producer_version="0.1.0",
         created_at=utc_now(),

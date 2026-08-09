@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--run-id",
         default=None,
-        help="run whose stage-0 directory receives the full private records",
+        help="run whose step-0 directory receives the full private records",
     )
     parser.add_argument(
         "--run-dir",
@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.run_id is not None:
             arguments.run_dir = inventory_path(arguments.run_id, root=arguments.runs_root).parent
         else:
-            # No run exists yet at stage 0, so the inventory waits in the
+            # No run exists yet at step 0, so the inventory waits in the
             # pending location until start_run adopts it.
             arguments.run_dir = pending_inventory_dir()
             # Remove an abandoned one before writing this one. There is no

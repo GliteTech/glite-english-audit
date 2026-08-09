@@ -20,7 +20,7 @@ from glite_english_audit.progress.progress import (
 def test_every_step_has_exactly_one_title() -> None:
     """The user-visible step count is the pipeline's, not a number typed twice.
 
-    ``STEP_TOTAL`` was 8 under the nine-stage layout and appeared as a literal
+    ``STEP_TOTAL`` was 8 under the nine-step layout and appeared as a literal
     in the orchestration skill, so the two could disagree without anything
     failing. Deriving it from the titles makes adding a step to the enum and
     forgetting to name it a test failure instead.
@@ -201,7 +201,7 @@ def test_throttle_suppression_does_not_reset_the_clock() -> None:
 def test_throttle_stage_change_bypasses_minimum() -> None:
     throttle = ProgressThrottle()
     assert throttle.should_emit(_START)
-    assert throttle.should_emit(_START + timedelta(seconds=1), stage_changed=True)
+    assert throttle.should_emit(_START + timedelta(seconds=1), step_changed=True)
 
 
 def test_throttle_warning_bypasses_minimum() -> None:
@@ -235,7 +235,7 @@ def test_millions_of_tokens_read_as_millions() -> None:
 
 
 def test_the_work_unit_follows_the_step() -> None:
-    """Early steps walk sessions; from stage 3 on the unit is messages. Calling
+    """Early steps walk sessions; from step 3 on the unit is messages. Calling
     messages sessions understates a user's history by more than an order of
     magnitude."""
     state = _state()
