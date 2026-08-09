@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 14
+**Version**: 15
 
 ## Goal
 
@@ -147,10 +147,16 @@ runtime; naming both is confusing and wrong.
       Once the period is answered, read `idle_sources` on that preset's row and say
       what it holds. Sources are chosen before the period, so the period can empty
       one: a user who kept Cursor and then chose the last 7 days has selected an app
-      whose data stopped in June. Name it and offer to drop it — "Cursor has nothing
-      in the last 7 days, so this is a Codex run" — rather than reading the
-      selection back as "Codex and Cursor", which is true of the list they ticked
-      and false about the run they are approving.
+      whose data stopped in June. Name it and offer to drop it — "Cursor adds
+      nothing to the last 7 days, so this is effectively a Codex run" — rather than
+      reading the selection back as "Codex and Cursor", which is true of the list
+      they ticked and false about the run they are approving.
+
+      Say "adds nothing to this estimate", not "has nothing". Discovery dates an
+      instance from its timestamped records only, while the counts include every
+      candidate, so an app that stopped in June may still hold undated records the
+      collector reads in full. The inventory cannot separate those, so the claim
+      that is always true is the one about the estimate.
    3. Cost and quota: ask whether the estimate is acceptable, and offer only choices
       that exist. When the chosen period is already the shortest preset there is no
       smaller one, and the real options are dropping an app or stopping.
@@ -283,8 +289,17 @@ runtime; naming both is confusing and wrong.
    The allowance figure carries its age and is never presented as a live reading:
    it comes from a cache some other process refreshed, and a percentage without an
    age implies a check nobody made. Say so plainly when `allowance.stale` is true.
-   When it cannot be read at all — another runtime, a machine that has never
-   cached one — say nothing about headroom rather than announcing its absence.
+   When `allowance.known` is true but `allowance.age_phrase` is null the host gave
+   a percentage and no timestamp: say the reading cannot be dated, rather than
+   printing a bare percentage, which is the same sentence the age exists to stop.
+   When it cannot be read at all — `allowance.known` false, which is every Codex
+   run, since the file belongs to Claude Code — say nothing about headroom rather
+   than announcing its absence.
+
+   The window is named by `allowance.tightest_window`, which is `five_hour` or
+   `seven_day` and nothing else. Say "the weekly limit" only for `seven_day`; a
+   five-hour window that resets this afternoon is a different fact and the user
+   plans around it differently.
 
    Never put the token estimate and the allowance in one comparison. The host
    reports a percentage used and no denominator, so there is no arithmetic that

@@ -10,9 +10,14 @@ the requirement exists to prevent.
 
 All of it is in the JSON. The rendered table is narrower: the two numbers a
 person weighs when picking a period, words and time, plus the caveats. Tokens
-stay in the JSON for the preflight, where the run skill quotes them beside the
-subscription figure that gives them a denominator; the statement that no price
-is available is a note rather than a column repeated on every row.
+stay in the JSON for the preflight, which states them on their own line; the
+statement that no price is available is a note rather than a column repeated on
+every row.
+
+The subscription figure is not their denominator, and this file said for a
+while that it was. The host reports a percentage used and no budget, so nothing
+converts tokens into a share of the week. ``AllowanceReport`` carries no such
+field and the run skill is told to keep the two facts apart.
 
 The JSON also carries ``session``: which model and effort this session is
 running, and which the numbers were measured on. The preflight states the
@@ -437,18 +442,32 @@ def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
 def idle_sources(
     records: list[SourceInstanceRecord], *, start: datetime, end: datetime
 ) -> tuple[str, ...]:
-    """Selected apps with nothing inside this window.
+    """Selected apps contributing nothing to this window's estimate.
 
     An app counts as idle only when every selected instance of it is idle, so a
     user running two Cursor workspaces is told about Cursor once and only when
     both are silent. Instances with no date range are never idle: they cannot
     be placed in time, so :func:`window_counts` charges them in full and this
     must agree with it rather than quietly contradict the totals.
+
+    Idleness is decided by re-running :func:`window_counts` on the instance
+    rather than by testing the raw fraction. A positive fraction is not the same
+    as a contribution: the totals bill ``round(words * fraction)``, so a lightly
+    used instance spread over years rounds to zero words in a seven-day window
+    while a ``fraction > 0`` test still calls it live. That is the exact symptom
+    this field was added to catch, and it survived the first version of it.
+
+    One case it cannot see. Discovery derives a date range from timestamped
+    candidates only, while ``candidate_messages`` counts every candidate, so an
+    instance whose dated candidates stopped in June may still hold undated ones
+    that the collector reads in full. Nothing in the inventory distinguishes
+    those, so an app named here is idle by this estimate's arithmetic, which is
+    what the skill is told to say.
     """
     per_source: dict[str, bool] = {}
     for record in records:
-        fraction = window_fraction(record, start=start, end=end)
-        contributes = fraction is None or (fraction > 0.0 and record.candidate_messages > 0)
+        counts = window_counts([record], start=start, end=end)
+        contributes = counts.words > 0 or counts.utterances > 0
         per_source[record.adapter_id] = per_source.get(record.adapter_id, False) or contributes
     return tuple(sorted(name for name, live in per_source.items() if not live))
 
@@ -610,13 +629,37 @@ def describe_age(seconds: float | None) -> str | None:
     return f"{days} day{'s' if days != 1 else ''} ago"
 
 
-def describe_allowance(*, home: Path | None = None, now: float | None = None) -> AllowanceReport:
+def describe_allowance(
+    *,
+    runtime: AgentRuntime | None = None,
+    home: Path | None = None,
+    now: float | None = None,
+) -> AllowanceReport:
     """The host's cached headroom, or an honest record that it said nothing.
 
     Reports the tightest window rather than every one of them: a user at 3% of
     the week and 90% of the five-hour block is about to be throttled, and the
     number worth showing is the 90.
+
+    ``runtime`` decides whether there is anything to read at all. The file
+    belongs to Claude Code, and a developer running Codex on a machine that also
+    has Claude Code installed would otherwise be shown a subscription that has
+    nothing to do with the provider about to do the work -- while the skill's
+    own rule forbids naming a runtime that is not the active one. Passing
+    ``None`` reads it, which is what a direct caller asking about this host
+    means.
     """
+    if runtime is not None and runtime is not AgentRuntime.CLAUDE_CODE:
+        return AllowanceReport(
+            known=False,
+            tightest_window=None,
+            utilization=None,
+            resets_at=None,
+            age_seconds=None,
+            age_phrase=None,
+            stale=False,
+            overage_enabled=None,
+        )
     allowance = read_allowance(home=home, now=now)
     tightest = allowance.tightest
     return AllowanceReport(
@@ -650,6 +693,7 @@ def build_report(
     profile_path: Path | None = None,
     concurrent_batches: int = 1,
     now: datetime | None = None,
+    home: Path | None = None,
 ) -> EstimateReport:
     """Estimate every preset for the selection the user is about to make."""
     moment = now if now is not None else utc_now()
@@ -686,7 +730,11 @@ def build_report(
             )
         )
     session = describe_session(steps)
-    allowance = describe_allowance()
+    # One clock for the whole report. Reading the cache against time.time() while
+    # `computed_at` says something else lets `age_phrase` describe an age that is
+    # not the age relative to this report -- in a field whose only purpose is to
+    # stop a cache being mistaken for a live check.
+    allowance = describe_allowance(runtime=runtime, home=home, now=moment.timestamp())
     notes = build_notes(steps=steps, session=session, undated_instances=undated)
     return EstimateReport(
         runtime=runtime_id,

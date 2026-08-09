@@ -39,10 +39,24 @@ CONFIG_NAME = ".claude.json"
 # The host tracks buckets under names that mean nothing outside it — codenames
 # for experiments, plus `extra_usage`, which is the paid-overage setting rather
 # than an allowance window. Only the two windows a subscriber can recognise are
-# reported, with their per-model variants. An unrecognised name is skipped
-# rather than shown, because a percentage the user cannot place is worse than
-# no percentage.
-_WINDOW_NAMES = re.compile(r"^(five_hour|seven_day)(_[a-z_]+)?$")
+# reported. An unrecognised name is skipped rather than shown, because a
+# percentage the user cannot place is worse than no percentage.
+#
+# Exactly these two, never a prefix match. This was `^(five_hour|seven_day)(_[a-z_]+)?$`
+# on the assumption that a suffix meant a per-model variant of the same
+# allowance. Real hosts also write `seven_day_cowork` and `seven_day_oauth_apps`,
+# which are other products' quotas, and `tightest` is a plain maximum — so one
+# sibling product sitting at 88% displaced this run's own bucket at 4% and the
+# preflight called it "your allowance". A name pattern cannot tell a variant
+# from a stranger, so it is not asked to.
+_WINDOW_NAMES = frozenset({"five_hour", "seven_day"})
+
+# `resets_at` is the one value that crosses into agent context as free text
+# rather than as a bool, an int, or a name this module chose. It is another
+# product's file, so it is bounded here: an ISO-8601 instant or nothing. The
+# estimate command promises aggregate numbers only, and an unvalidated string
+# from a file we do not own is not a number.
+_ISO_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
 
 # Beyond this the cached figure describes a different afternoon. Reported rather
 # than suppressed: a user who has been running for hours is exactly the one who
@@ -112,7 +126,7 @@ def read_allowance(*, home: Path | None = None, now: float | None = None) -> All
     utilization = cached.get("utilization")
     if isinstance(utilization, dict):
         for name, value in utilization.items():
-            if not _WINDOW_NAMES.fullmatch(name):
+            if name not in _WINDOW_NAMES:
                 continue
             window = _window(name, value)
             if window is not None:
@@ -137,10 +151,11 @@ def _window(name: str, value: object) -> Window | None:
     if not isinstance(used, int | float) or isinstance(used, bool):
         return None
     resets_at = value.get("resets_at")
+    known_shape = isinstance(resets_at, str) and bool(_ISO_INSTANT.match(resets_at))
     return Window(
         name=name,
         utilization=int(used),
-        resets_at=resets_at if isinstance(resets_at, str) else None,
+        resets_at=resets_at if known_shape else None,
     )
 
 

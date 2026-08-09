@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 13
+**Version**: 14
 
 ## Goal
 
@@ -276,9 +276,11 @@ same module.
 
 The estimate command prints one JSON object with `presets` (one entry per period
 preset: `preset`, `label`, `words`, `utterances`, `tokens.p50_tokens` and
-`tokens.p90_tokens`, `minutes.low_minutes` and `minutes.high_minutes`, and
-`confidence`), `notes`, and `table` — a plain-text table ready to show. Both are
-aggregate numbers; neither carries a label, a path, or any text.
+`tokens.p90_tokens`, `minutes.low_minutes` and `minutes.high_minutes`,
+`confidence`, and `idle_sources` — the adapter ids that contribute nothing to that
+window), `session`, `allowance`, `notes`, and `table` — a plain-text table ready to
+show. All of it is aggregate numbers and names this project or the host chose;
+nothing carries a label, a path, or any text.
 
 ## Done When
 
