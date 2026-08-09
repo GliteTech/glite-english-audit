@@ -213,6 +213,32 @@ Don't — flag: "Make a full review of the changes" as a collocation error on th
 Why: it does, in institutional and formal usage. An absolute claim about a collocation needs to
 be true absolutely.
 
+### Cover every line, not every long line
+
+Work through the batch line by line and give each one the same attention. A measured run mined
+dense lines four and five times while skipping short imperatives wholesale — "tell me how to get
+api key", "Is current repo synced?", "run it and provide url", "produce CSV with all concepts"
+all went unread. Twenty more findings sat in lines under ten words.
+
+Length is not difficulty. A short line has fewer places to hide a mistake, so it is faster to
+check, not safer to skip. When you finish a batch, the number of lines you examined must equal
+the number of lines in it.
+
+### Quote the construction, nothing else
+
+The span you quote becomes the record a learner reads. Narrow it to the construction that is
+wrong, and stop there.
+
+Don't — quote: "Is sefety properly addresses?"
+Why: "addresses" for "addressed" is a real mistake and "sefety" is a keystroke slip. Quoting both
+welds a typo onto the finding, so the record teaches the rule alongside a misspelling the learner
+did not need explained. Quote "properly addresses" and leave the typo out.
+
+When two problems sit in one line, prefer the one that is a rule over the one that is a habit,
+and check you have picked the right half. A measured run flagged "I see many issues like those:"
+— defensible English — on a line whose real error was "Did you inspect visually using
+screenshots?", a missing object.
+
 ### Dictated text has a stricter bar
 
 When an utterance came from speech recognition, the text is a machine's transcript of audio, not
@@ -228,6 +254,34 @@ utterance in the batch. Report it only with that corroboration.
 Also ignore, on dictated text: mis-transcribed names and technical terms, homophone
 substitutions, one-word fragments produced by silence, fillers, and self-corrections where the
 speaker restarts a phrase.
+
+**Read the surrounding transcript before trusting any word in it.** A recognizer that is failing
+fails visibly and in bursts. When nearby lines contain phrases that mean nothing — "cortex and
+cloth logs in jugular machinery", "deniers on top English worlds", a word repeated twice in a row
+— the whole passage is degraded, and a strange word inside it is more likely the machine's than
+the speaker's.
+
+The test that separates them is **meaning**, not strangeness:
+
+* A recognizer error produces a word that does not fit what the sentence is about. "An anthology
+  of English grammar" in a passage about categorizing mistakes is not a vocabulary gap; the
+  speaker said "ontology" and the machine heard otherwise. Omit it.
+* A learner error produces a word that fits the meaning exactly and is still wrong. "clone in the
+  GitHub", "discuss with me about the last step", "people with Chinese native language" all say
+  precisely what the speaker meant, in the wrong English. Those are findings, and dictation does
+  not excuse them.
+
+**One rule reverses between typed and dictated text, and the reversal is the point.** In typing,
+a writer who uses a form correctly elsewhere and wrongly here has an unstable form — that is
+evidence *for* the finding, because both keystrokes were theirs. In dictation, a speaker who says
+the word correctly elsewhere and oddly here is evidence *against* it, because the odd one was the
+machine's turn to make a mistake. Errors of the hand belong to the writer. Errors of the ear
+belong to the recognizer.
+
+A measured run took 18 of its 83 findings from a single 15-line dictated passage that was
+demonstrably corrupted. Four of them rested on the recognizer's words. That block should have
+yielded its real findings — the prepositions and the transitive verbs — and none of the invented
+vocabulary.
 
 Do — flag: "I want to pick up few things from the store."
 Why: "a few" is a fixed, high-frequency phrase. A recognizer's own language model would supply
