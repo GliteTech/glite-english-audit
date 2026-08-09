@@ -38,7 +38,12 @@ from glite_english_audit.artifacts.enums import (
     OsEnvironment,
     StepId,
 )
-from glite_english_audit.artifacts.io import ensure_private_dir, read_model, write_model
+from glite_english_audit.artifacts.io import (
+    ensure_private_dir,
+    read_model,
+    write_jsonl_models,
+    write_model,
+)
 from glite_english_audit.artifacts.models import (
     EvidenceSpan,
     MistakeRecord,
@@ -283,7 +288,7 @@ def audited(tmp_path_factory: pytest.TempPathFactory) -> _AuditedRun:
     for assignment in assigned_d:
         records = _records_for(read_session(Path(assignment.read)))
         written[assignment.name] = records
-        _write_records(Path(assignment.write), records)
+        write_jsonl_models(Path(assignment.write), records)
     produced = mistakes.apply_mistakes(run_id, runs_root=runs_root)
 
     # The second reader withholds the last record it read and confirms the rest.
@@ -292,7 +297,7 @@ def audited(tmp_path_factory: pytest.TempPathFactory) -> _AuditedRun:
     withheld = [record for name in sorted(written) for record in written[name]][-1]
     for assignment in produced.next_step:
         confirmed = [record for record in written[assignment.name] if record != withheld]
-        _write_records(Path(assignment.write), confirmed)
+        write_jsonl_models(Path(assignment.write), confirmed)
     verified = verify.apply_verification(run_id, runs_root=runs_root)
 
     reviewed = build_review.build_review(run_id, runs_root=runs_root)
@@ -596,7 +601,10 @@ def test_every_shared_record_still_addresses_the_text_it_quotes(audited: _Audite
             quoted.append(text[span.start : span.end])
     assert quoted, "the run must share at least one record"
     assert all(phrase in {entry[0] for entry in _FLAGGED} for phrase in quoted)
-    assert {record.record.modality for record in audited.reviewed.records} <= {
+    # A record reports the modality of the utterance it addresses, so a run over
+    # a typed session and a dictated one publishes both. Reading it off the
+    # record's own source would have made every mistake in this run written.
+    assert {record.record.modality for record in audited.reviewed.records} == {
         Modality.WRITTEN,
         Modality.SPOKEN_ASR,
     }

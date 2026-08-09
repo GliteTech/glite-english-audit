@@ -120,12 +120,12 @@ def _utterance(session: int, position: int, order: int) -> NormalizedUtterance:
 
 
 def _pasted(source: list[NormalizedUtterance], session: int) -> list[NormalizedUtterance]:
-    """One session that is nothing but another session's text, pasted.
+    """One session that is nothing but another session's messages, again.
 
-    Same words, another application, and no usable timestamp — the shape a
-    dictation takes when it is pasted into an agent. Deduplication has to
-    collapse each of these against its original, which lives in a different
-    file, and leave this session as an empty file rather than dropping it.
+    Same words, a second application, and no usable timestamp — the same
+    production event recorded twice. Deduplication has to collapse every one of
+    them against an original that lives in a different file, and leave this
+    session behind as an empty file rather than dropping it.
     """
     return [
         utterance.model_copy(
@@ -385,13 +385,17 @@ def test_the_pasted_session_is_emptied_by_the_global_pass_and_kept(scaled: _Scal
         assert path.is_file()
         assert path.stat().st_size == 0
 
-    # The originals stay, in the file they were always in.
+    # The originals stay, in the files they were always in, and nothing else
+    # was collapsed on the way: every other session repeats sentence templates
+    # that a looser rule would read as the same message twice.
     surviving = {
         utterance.utterance_id
         for _, members in read_all(scaled.step(StepId.B_DEDUPLICATED))
         for utterance in members
     }
     assert not any(identifier.startswith("scale-copy-") for identifier in surviving)
+    assert len(surviving) == scaled.utterances - len(removed[scaled.pasted_name])
+    assert scaled.deduplicated["messages_out"] == len(surviving)
 
 
 def test_the_denominator_is_a_direct_count_over_the_step_c_files(scaled: _ScaleRun) -> None:

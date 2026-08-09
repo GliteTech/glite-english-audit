@@ -1,29 +1,30 @@
 """Interruption and resumption across the five steps (specification, 13.5).
 
-Every test here interrupts a real run and continues it from the run directory
-alone, because that is the only thing a resumed audit is allowed to depend on:
-the user continues in a fresh agent conversation, so nothing may be carried in
-conversation history or in process memory (specification, 9.4). One test
-therefore resumes in a genuinely fresh interpreter, as
-``tests/test_pipeline_cli_subprocess.py`` does.
+The checkpoint unit is the session file. That is the whole change: a run used to
+be interrupted somewhere inside a pooled batch, and now it is interrupted with
+some session files judged and the rest not. ``--prepare`` reports which files are
+already written, so a resumed run asks only for what is missing rather than
+paying for every judgment again — and the tests below hold the drivers to that
+rather than to the manifest alone.
 
-Steps a, b, c and e run through their real drivers. Step d has no driver: it
-runs as skills, so its artifacts are simulated deterministically here, the way
-``tests/test_pipeline_waterfall.py`` does it. The simulation is faithful where
-resumption depends on it — the findings pass writes one file per utterance and
-marks a unit complete only after its body is durable, which is what makes the
-utterance the smallest checkpoint unit (specification, 9.3).
+Every test interrupts a real run and continues it from the run directory alone,
+because that is the only thing a resumed audit may depend on: the user continues
+in a fresh agent conversation, so nothing may be carried in conversation history
+or in process memory (specification, 9.4). One test therefore resumes in a
+genuinely fresh interpreter, as ``tests/test_pipeline_cli_subprocess.py`` does.
 
-Three of the nine stages this pipeline replaced — plain findings, private
-mistakes, safe records — are step d alone, so a test that used to walk three
-directories walks one. Three others left the step model entirely: the source
-inventory and the snapshot manifests sit beside the manifest at the run root,
-and the review is what happens after the last step rather than a sixth one.
-They are addressed by their own paths where a test needs them.
+Steps a and b are scripts. Steps c, d and e are one agent per session file, and
+the agent is the only thing simulated here: a fixed judgment stands in for the
+model, and the driver on either side of it is the real one, including the
+promotion. The orchestration between steps is simulated too, in ``_resume`` —
+which is where the one thing the skill owns and the code does not lives: after an
+invalidating change, the invalidated step's files must be cleared, or
+``already_written`` hands the resumed pass exactly the judgments the change was
+meant to replace.
 
-The run directory sits under the checkout's ``runtime/`` tree, so snapshots
-land inside the run directory exactly as they do in production and retention
-is tested against the real layout.
+The run directory sits under the checkout's ``runtime/`` tree, so snapshots land
+inside the run directory as they do in production and retention is tested against
+the real layout.
 """
 
 import json
@@ -37,8 +38,6 @@ from pathlib import Path
 
 import pytest
 
-from confidentiality_stub import write_confidentiality_report
-from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
 from glite_english_audit.adapters.claude_code.adapter import ClaudeCodeAdapter
 from glite_english_audit.artifacts.enums import (
@@ -49,11 +48,8 @@ from glite_english_audit.artifacts.enums import (
     StageStatus,
     StepId,
 )
-from glite_english_audit.artifacts.envelope import ArtifactEnvelope
-from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
-    read_jsonl_models,
     read_model,
     write_jsonl_models,
     write_model,
@@ -61,33 +57,31 @@ from glite_english_audit.artifacts.io import (
 from glite_english_audit.artifacts.manifest import CompatibilityFingerprint, RunManifest
 from glite_english_audit.artifacts.models import (
     EvidenceSpan,
-    FindingsArtifactMeta,
+    MistakeRecord,
     NormalizedUtterance,
-    PrivateMistake,
-    PrivateMistakesManifest,
-    SafeMistakeRecord,
-    SafeRecordCandidate,
     SourceInstanceRecord,
 )
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.discovery.inventory import PrivateInventory
-from glite_english_audit.paths import inventory_path, step_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline import (
-    apply_authorship,
-    authorship_batches,
-    batches,
+    authorship,
     build_review,
     collect,
     deduplicate,
-    promote_records,
+    mistakes,
     start_run,
+    verify,
 )
-from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
-from glite_english_audit.sessions import INDEX_NAME as SESSION_INDEX_NAME
-from glite_english_audit.sessions import read_all
+from glite_english_audit.pipeline.authorship import INDEX_NAME as CORPUS_INDEX_NAME
+from glite_english_audit.pipeline.authorship import AuthoredCorpusIndex, read_repair_list
+from glite_english_audit.pipeline.mistakes import read_records
+from glite_english_audit.sessions import read_session, session_files
 from glite_english_audit.state.event_log import log_event, read_events
-from glite_english_audit.state.machine import SEMANTIC_STEPS, advance_run, advance_stage
+from glite_english_audit.state.machine import advance_run
 from glite_english_audit.state.run_store import (
+    EARLIEST_CLIENT_CODE_STEP,
+    EARLIEST_SEMANTIC_STEP,
     RUN_MANIFEST_FILENAME,
     ResumeAssessment,
     ResumeDecision,
@@ -102,12 +96,6 @@ from glite_english_audit.state.run_store import (
     save_manifest,
     write_checkpoint,
 )
-from glite_english_audit.verification.findings_format import (
-    EMPTY_RESULT_LINE,
-    THRESHOLD_LINE,
-    TITLE_LINE,
-    verify_findings_artifact,
-)
 
 _REPO = Path(__file__).resolve().parent.parent
 _FIXTURE_HOME = _REPO / "fixtures" / "claude_code" / "success" / "home"
@@ -116,25 +104,39 @@ _NOW = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
 _LATER = _NOW + timedelta(hours=3)
 _INVENTORY_NAME = "source-inventory.json"
 
-# One deterministic judgment per marked construction, standing in for the model
-# (specification, 7.1). The phrases are the synthetic fixture's own.
-_MARKERS: tuple[tuple[str, str, str], ...] = (
+# One fixed judgment per construction the synthetic fixture plants, standing in
+# for the model (specification, 7.1): the phrase, then the three shareable
+# sentences a step-d agent writes about it. The examples are invented rather
+# than quoted, which is what step d owes.
+_MARKED: tuple[tuple[str, str, str, str], ...] = (
     (
         "I very like this plan",
-        "I really like this plan",
-        "'Very' cannot modify a verb directly; use 'really'.",
+        "Used 'very' to modify a verb directly.",
+        "'Very' cannot modify a verb; use 'really' instead.",
+        "I really like this plan.",
     ),
     (
         "Today I written",
-        "Today I wrote",
-        "The simple past of 'write' is 'wrote', not the participle.",
+        "Used the past participle where the simple past belongs.",
+        "The simple past of 'write' is 'wrote', not 'written'.",
+        "Today I wrote a short note.",
     ),
     (
         "I am agree",
-        "I agree",
+        "Put a form of 'be' in front of a verb.",
         "'Agree' is a verb, so it takes no form of 'be'.",
+        "I agree with the second option.",
     ),
 )
+
+# The fixture message the authorship stand-in treats as someone else's text.
+_PASTED = "deploy script"
+
+# The one record a step-e agent withholds, so the withheld count has something
+# real to preserve across a resume.
+_WITHHELD = _MARKED[0][1]
+
+_INVENTED_SPAN = "a sentence the learner never wrote"
 
 
 @dataclass(frozen=True)
@@ -149,11 +151,12 @@ class Workspace:
 
 @dataclass(frozen=True)
 class Resumed:
-    """What one resume attempt decided and what it recomputed."""
+    """What one resume attempt decided, and what it recomputed."""
 
     assessment: ResumeAssessment
     steps_run: tuple[StepId, ...]
-    manifest: RunManifest
+    judged: tuple[str, ...]
+    """Session files the step-c agents were asked for on this pass."""
 
 
 @pytest.fixture
@@ -180,24 +183,25 @@ def workspace(tmp_path: Path) -> Workspace:
     )
 
 
-def _write_inventory(home: Path, target: Path) -> None:
+def _write_inventory(home: Path, target: Path, *, now: datetime = _NOW) -> None:
     """Discover ``home`` and write the inventory to the file ``target`` names."""
     outcome = claude_code_adapter().discover(
-        DiscoveryContext(os_environment=OsEnvironment.MACOS, home=home, now=_NOW, environ={})
+        DiscoveryContext(os_environment=OsEnvironment.MACOS, home=home, now=now, environ={})
     )
+    assert outcome.records, "discovery must find the fixture instances"
     ensure_private_dir(target.parent)
     write_model(
         target,
         PrivateInventory(
             records=outcome.records,
             instance_paths={key: str(path) for key, path in outcome.instance_paths.items()},
-            created_at=_NOW,
+            created_at=now,
         ),
     )
 
 
 def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
-    manifest = start_run.start_run(
+    return start_run.start_run(
         runtime=AgentRuntime.CLAUDE_CODE,
         os_environment_value="macos",
         preset="everything",
@@ -209,394 +213,182 @@ def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
         provider_transfer_consent=True,
         now=now,
     )
-    # The run's own copy of the inventory is one file beside the manifest, not
-    # a step (``paths.inventory_path``), and collect resolves the selected
-    # instance keys against it. start_run carries it in; it is rewritten here
-    # from a fresh read of this workspace's fixture home so the copy always
-    # describes the machine this run was started from, whichever inventory the
-    # pending directory happened to hold.
-    _write_inventory(workspace.home, inventory_path(manifest.run_id, root=workspace.runs_root))
-    return manifest
 
 
 def _run_directory(workspace: Workspace, run_id: str) -> Path:
     return workspace.runs_root / run_id
 
 
-def _collected(workspace: Workspace, run_id: str) -> list[NormalizedUtterance]:
-    """Every utterance step a wrote, read back from its per-session files."""
-    source = step_dir(run_id, StepId.A_COLLECTED, root=workspace.runs_root)
-    return [utterance for _, members in read_all(source) for utterance in members]
+def _step(workspace: Workspace, run_id: str, step: StepId) -> Path:
+    return step_dir(run_id, step, root=workspace.runs_root)
 
 
-def _corpus(workspace: Workspace, run_id: str) -> list[NormalizedUtterance]:
-    path = step_dir(run_id, StepId.C_AUTHORED, root=workspace.runs_root) / "corpus.jsonl"
-    return list(read_jsonl_models(path, NormalizedUtterance))
-
-
-def _mistakes_dir(workspace: Workspace, run_id: str) -> Path:
-    """Step d's directory, holding what three separate stages used to hold."""
-    return step_dir(run_id, StepId.D_MISTAKES, root=workspace.runs_root)
-
-
-def _findings_dir(workspace: Workspace, run_id: str) -> Path:
-    return _mistakes_dir(workspace, run_id) / "findings"
-
-
-# -- step production -------------------------------------------------------
-
-
-def _pool_candidates_for_step_c(workspace: Workspace, run_id: str) -> None:
-    """Write step a's sessions back out as the one pooled file step c reads.
-
-    Step a is one file per session now; the authorship driver still asks for
-    the single pooled ``candidates.jsonl`` the old stage-2 layout produced, so
-    a test that runs that driver has to hand it the shape it declares. This is
-    the only place the test stands in for driver code rather than for a model,
-    and it disappears when step c reads session files.
-    """
-    source = step_dir(run_id, StepId.A_COLLECTED, root=workspace.runs_root)
-    write_jsonl_models(source / authorship_batches.CANDIDATES_NAME, _collected(workspace, run_id))
-
-
-def _write_authorship_decisions(
-    workspace: Workspace,
-    run_id: str,
-    *,
-    batch_limit: int | None = None,
-    corrupt_marker: str | None = None,
-) -> None:
-    """Write one decisions file per candidate batch, standing in for the model.
-
-    The judgment is fixed: material about the deploy script is treated as
-    pasted, everything else is the learner's own. ``corrupt_marker`` names a
-    candidate whose decision claims a span that is not in the text, which is
-    what the deterministic checker must quarantine.
-    """
-    candidate_dir = authorship_batches.batch_dir(run_id, runs_root=workspace.runs_root)
-    target = authorship_batches.decisions_dir(run_id, runs_root=workspace.runs_root)
-    paths = sorted(candidate_dir.glob("batch-*.jsonl"))[:batch_limit]
-    for path in paths:
-        decisions: list[dict[str, object]] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            candidate = json.loads(line)
-            text = str(candidate["text"])
-            if corrupt_marker is not None and corrupt_marker in text:
-                decisions.append(
-                    {
-                        "utterance_id": candidate["utterance_id"],
-                        "decision": "partial",
-                        "retained_spans": ["a span the learner never wrote"],
-                        "reason": "AUTHORSHIP_AGENT_MACHINERY",
-                    }
-                )
-            elif "deploy script" in text:
-                decisions.append(
-                    {
-                        "utterance_id": candidate["utterance_id"],
-                        "decision": "exclude",
-                        "retained_spans": [],
-                        "reason": "AUTHORSHIP_PASTED_MATERIAL",
-                    }
-                )
-            else:
-                decisions.append(
-                    {
-                        "utterance_id": candidate["utterance_id"],
-                        "decision": "retain",
-                        "retained_spans": [text],
-                        "reason": None,
-                    }
-                )
-        (target / path.name.replace("batch-", "decisions-")).write_text(
-            "\n".join(json.dumps(decision, ensure_ascii=False) for decision in decisions) + "\n",
-            encoding="utf-8",
-        )
-
-
-def _findings_body(text: str) -> tuple[str, int]:
-    """The findings body for one utterance, in the deterministic format."""
-    blocks: list[list[str]] = []
-    for original, correction, why in _MARKERS:
-        if original in text:
-            blocks.append(
-                [
-                    f"## Finding {len(blocks) + 1}",
-                    "",
-                    f"Original: {original}",
-                    f"Correction: {correction}",
-                    f"Why: {why}",
-                ]
-            )
-    lines = [TITLE_LINE, "", THRESHOLD_LINE, ""]
-    if not blocks:
-        lines.append(EMPTY_RESULT_LINE)
-        return "\n".join(lines) + "\n", 0
-    for index, block in enumerate(blocks):
-        if index:
-            lines.append("")
-        lines.extend(block)
-    return "\n".join(lines) + "\n", len(blocks)
-
-
-def _write_findings(
-    workspace: Workspace,
-    run_id: str,
-    *,
-    produced_at: datetime,
-    unit_limit: int | None = None,
-) -> list[str]:
-    """Produce step d's findings, one file per utterance. Returns what it wrote.
-
-    A unit already carrying a sidecar is skipped: the sidecar is written last,
-    so its presence means that unit's body was durable before the process
-    stopped (specification, 9.3).
-    """
-    target = ensure_private_dir(_findings_dir(workspace, run_id))
-    produced: list[str] = []
-    for utterance in _corpus(workspace, run_id):
-        if unit_limit is not None and len(produced) >= unit_limit:
-            break
-        meta_path = target / f"{utterance.utterance_id}.meta.json"
-        if meta_path.is_file():
-            continue
-        body, count = _findings_body(utterance.text)
-        body_path = target / f"{utterance.utterance_id}.md"
-        body_path.write_text(body, encoding="utf-8")
-        write_model(
-            meta_path,
-            FindingsArtifactMeta(
-                envelope=ArtifactEnvelope(
-                    schema_name="plain_findings",
-                    schema_version=1,
-                    artifact_id=new_artifact_id(),
-                    run_id=run_id,
-                    stage_id=StepId.D_MISTAKES,
-                    producer_name="resume-test-stand-in",
-                    producer_version=CLIENT_VERSION,
-                    created_at=produced_at,
-                ),
-                unit_id=utterance.utterance_id,
-                utterance_ids=[utterance.utterance_id],
-                finding_count=count,
-                no_mistakes_found=count == 0,
-                body_relative_path=body_path.name,
-                body_sha256=sha256_hex(body_path.read_bytes()),
-            ),
-        )
-        produced.append(utterance.utterance_id)
-    return produced
-
-
-def _write_private_mistakes(workspace: Workspace, run_id: str, *, at: datetime) -> None:
-    """Turn step d's findings into its mistake records, one per construction."""
-    findings = _findings_dir(workspace, run_id)
-    target = ensure_private_dir(_mistakes_dir(workspace, run_id))
-    mistakes: list[PrivateMistake] = []
-    for utterance in _corpus(workspace, run_id):
-        meta_path = findings / f"{utterance.utterance_id}.meta.json"
-        if not meta_path.is_file():
-            continue
-        meta = read_model(meta_path, FindingsArtifactMeta)
-        for original, correction, why in _MARKERS:
-            start = utterance.text.find(original)
-            if start < 0:
-                continue
-            index = len(mistakes) + 1
-            mistakes.append(
-                PrivateMistake(
-                    mistake_id=f"m-{index}",
-                    occurrence_id=f"m-{index}-o1",
-                    finding_artifact_id=meta.envelope.artifact_id,
-                    utterance_id=utterance.utterance_id,
-                    evidence_span=EvidenceSpan(start=start, end=start + len(original)),
-                    original_text=original,
-                    correction=correction,
-                    explanation=why,
-                    modality=utterance.modality,
-                    source_adapter=utterance.source_adapter,
-                    session_hash=utterance.session_hash,
-                )
-            )
-    path = target / "mistakes.jsonl"
-    write_jsonl_models(path, mistakes)
-    write_model(
-        target / "private-mistakes-manifest.json",
-        PrivateMistakesManifest(
-            envelope=ArtifactEnvelope(
-                schema_name="private_mistakes",
-                schema_version=1,
-                artifact_id=new_artifact_id(),
-                run_id=run_id,
-                stage_id=StepId.D_MISTAKES,
-                producer_name="resume-test-stand-in",
-                producer_version=CLIENT_VERSION,
-                created_at=at,
-            ),
-            mistake_count=len(mistakes),
-            jsonl_relative_path=path.name,
-            jsonl_sha256=sha256_hex(path.read_bytes()),
-        ),
-    )
-
-
-def _write_safe_candidates(workspace: Workspace, run_id: str) -> None:
-    """One safe-record candidate per mistake, one of them deliberately unsafe.
-
-    The unsafe one carries an address, so the deterministic scanner withholds
-    it and the withheld count has something real to preserve across a resume.
-    """
-    target = ensure_private_dir(_mistakes_dir(workspace, run_id))
-    mistakes = list(read_jsonl_models(target / "mistakes.jsonl", PrivateMistake))
-    candidates: list[SafeRecordCandidate] = []
-    for position, mistake in enumerate(mistakes):
-        unsafe = position == 1
-        example = (
-            "Mail the summary to someone@example.com first."
-            if unsafe
-            else f"{mistake.correction} today."
-        )
-        candidates.append(
-            SafeRecordCandidate(
-                mistake_id=mistake.mistake_id,
-                record=SafeMistakeRecord(
-                    mistake=f"Wrote '{mistake.original_text}'.",
-                    rule=mistake.explanation,
-                    example=example,
-                    example_type=ExampleType.SYNTHETIC,
-                    source_type=mistake.source_adapter,
-                    modality=mistake.modality,
-                ),
-                creator_version=CLIENT_VERSION,
-            )
-        )
-    write_jsonl_models(target / "candidates.jsonl", candidates)
-    # The independent semantic verifier is a model in production. Its report is
-    # written here because promotion refuses any candidate it does not clear,
-    # and a resume test that skipped it would be testing a path the product no
-    # longer has.
-    write_confidentiality_report(
-        run_id,
-        [candidate.mistake_id for candidate in candidates],
-        runs_root=workspace.runs_root,
-    )
-
-
-def _produce(workspace: Workspace, run_id: str, step: StepId, *, at: datetime) -> None:
-    """Produce exactly one step's artifacts.
-
-    Steps a, b and e are one driver call each; step c is two driver calls with
-    the model's judgment written between them. Step d is the three old semantic
-    stages in one directory — findings, mistake records, safe candidates — and
-    none of the three has a driver, so all three are simulated together. The
-    review is not produced here at all: it is no longer a step, and the tests
-    that need it call ``build_review`` themselves.
-    """
-    if step is StepId.A_COLLECTED:
-        collect.collect(run_id, runs_root=workspace.runs_root, repo=workspace.repo)
-        _pool_candidates_for_step_c(workspace, run_id)
-    elif step is StepId.B_DEDUPLICATED:
-        deduplicate.deduplicate(run_id, runs_root=workspace.runs_root)
-    elif step is StepId.C_AUTHORED:
-        authorship_batches.prepare_authorship_batches(
-            run_id, batch_size=5, runs_root=workspace.runs_root
-        )
-        _write_authorship_decisions(workspace, run_id)
-        apply_authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
-    elif step is StepId.D_MISTAKES:
-        batches.prepare_batches(run_id, batch_size=5, runs_root=workspace.runs_root)
-        _write_findings(workspace, run_id, produced_at=at)
-        _write_private_mistakes(workspace, run_id, at=at)
-        _write_safe_candidates(workspace, run_id)
-    elif step is StepId.E_VERIFIED:
-        promote_records.promote(run_id, runs_root=workspace.runs_root)
-
-
-# -- manifest bookkeeping the orchestration skill performs -----------------
-
-
-def _is_content_file(path: Path) -> bool:
-    """True for files two identical runs must reproduce byte for byte.
-
-    Manifests and sidecars carry a fresh artifact ID and creation time by
-    design, so they differ between two identical passes. They are compared only
-    where the point is that a step was *not* rerun.
-    """
-    return path.suffix in {".jsonl", ".md"} or path.name in {
-        "withheld.json",
-        REMOVED_NAME,
-        SESSION_INDEX_NAME,
-    }
-
-
-def _step_files(
-    workspace: Workspace, run_id: str, step: StepId, *, content_only: bool
-) -> dict[str, bytes]:
-    root = step_dir(run_id, step, root=workspace.runs_root)
+def _step_files(workspace: Workspace, run_id: str, step: StepId) -> dict[str, bytes]:
+    root = _step(workspace, run_id, step)
     if not root.is_dir():
         return {}
     return {
         str(path.relative_to(root)): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and (not content_only or _is_content_file(path))
+        if path.is_file()
     }
 
 
-def _step_hash(workspace: Workspace, run_id: str, step: StepId) -> str:
-    files = _step_files(workspace, run_id, step, content_only=True)
-    blob = b"".join(name.encode("utf-8") + b"\0" + data for name, data in sorted(files.items()))
-    return sha256_hex(blob)
+# -- the agents each step hands its session files to -----------------------
 
 
-def _promote_step(
-    workspace: Workspace, manifest: RunManifest, step: StepId, *, at: datetime
-) -> None:
-    """Walk one step to PROMOTED through the real transition table.
+def _authored(text: str) -> str:
+    """The spans of one message the learner actually wrote.
 
-    A step left in progress by an interruption is continued, not re-entered:
-    the table has no self-transition, and a resumed process is the same work
-    picked up again.
+    Fixed rather than clever: a message about the deploy script is treated as
+    pasted and comes back with its text emptied, everything else is the
+    learner's own. An emptied item keeps its line, because a vanished item and
+    an unauthored one mean different things.
     """
-    state = manifest.stages[step]
-    targets = [StageStatus.PRODUCED, StageStatus.VERIFIED_DETERMINISTIC]
-    if state.status is not StageStatus.IN_PROGRESS:
-        targets.insert(0, StageStatus.IN_PROGRESS)
-    # No step needs a second reader today, so this branch never fires; it is
-    # read from the real set rather than dropped so that these tests keep
-    # walking the true path if a verifier is added back.
-    if step in SEMANTIC_STEPS:
-        targets.append(StageStatus.VERIFIED_SEMANTIC)
-    targets.append(StageStatus.PROMOTED)
-    for target in targets:
-        state.status = advance_stage(state.status, target, stage=step)
-    state.current_artifact_id = new_artifact_id()
-    state.current_artifact_hash = _step_hash(workspace, manifest.run_id, step)
-    state.updated_at = at
+    return "" if _PASTED in text else text
 
 
-def _enter_processing(manifest: RunManifest, *, refreshed_preflight: bool = False) -> None:
-    if manifest.status is RunStatus.PROCESSING and not refreshed_preflight:
-        return
-    if manifest.status is RunStatus.PROCESSING:
-        manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
-    if refreshed_preflight and manifest.status is not RunStatus.AWAITING_PREFLIGHT:
-        manifest.status = advance_run(manifest.status, RunStatus.AWAITING_PREFLIGHT)
-    manifest.status = advance_run(manifest.status, RunStatus.PROCESSING)
+def _judge_authorship(
+    workspace: Workspace, run_id: str, *, limit: int | None = None, spoil: str | None = None
+) -> tuple[str, ...]:
+    """Run step c's ``--prepare`` and answer the files it asks for.
+
+    Returns the files this pass judged. ``limit`` stops after that many, which
+    is how an interruption inside step c is produced; ``spoil`` names a file
+    whose judgment claims a span the step-b text does not contain, which is the
+    failure the deterministic span scan must quarantine.
+    """
+    prepared = authorship.prepare(run_id, runs_root=workspace.runs_root)
+    judged: list[str] = []
+    for session in prepared.sessions:
+        # Already on disk means judged before the interruption. Asking for it
+        # again is the cost this whole design exists to avoid.
+        if session.already_written:
+            continue
+        if limit is not None and len(judged) >= limit:
+            break
+        items = [
+            utterance.model_copy(update={"text": _authored(utterance.text)})
+            for utterance in read_session(Path(session.input_path))
+        ]
+        if spoil == session.file_name:
+            items[0] = items[0].model_copy(update={"text": _INVENTED_SPAN})
+        write_jsonl_models(Path(session.output_path), items)
+        judged.append(session.file_name)
+    return tuple(judged)
+
+
+def _records_for(session: list[NormalizedUtterance]) -> list[MistakeRecord]:
+    """One shareable record per marked construction in one session file."""
+    records: list[MistakeRecord] = []
+    for utterance in session:
+        for phrase, what, rule, example in _MARKED:
+            start = utterance.text.find(phrase)
+            if start < 0:
+                continue
+            records.append(
+                MistakeRecord(
+                    utterance_id=utterance.utterance_id,
+                    evidence_span=EvidenceSpan(start=start, end=start + len(phrase)),
+                    mistake=what,
+                    rule=rule,
+                    example=example,
+                    example_type=ExampleType.SYNTHETIC,
+                    source_type=utterance.source_adapter,
+                    modality=utterance.modality,
+                )
+            )
+    return records
+
+
+def _write_mistakes(workspace: Workspace, run_id: str) -> None:
+    for assignment in mistakes.prepare_mistakes(run_id, runs_root=workspace.runs_root):
+        write_jsonl_models(
+            Path(assignment.write), _records_for(read_session(Path(assignment.read)))
+        )
+
+
+def _confirm_mistakes(workspace: Workspace, run_id: str) -> None:
+    """Step d's records again, minus the withheld one. Step e may only drop."""
+    source = _step(workspace, run_id, StepId.D_MISTAKES)
+    target = _step(workspace, run_id, StepId.E_VERIFIED)
+    for path in session_files(source):
+        produced, parse_diagnostics = read_records(path)
+        assert parse_diagnostics == []
+        write_jsonl_models(
+            target / path.name, [record for record in produced if record.mistake != _WITHHELD]
+        )
+
+
+def _produce(workspace: Workspace, run_id: str, step: StepId) -> tuple[str, ...]:
+    """Run one whole step: its ``--prepare``, its agents, and its ``--apply``.
+
+    Returns the session files the agents were asked for, which only step c
+    reports and only step c can partly skip.
+    """
+    if step is StepId.A_COLLECTED:
+        collect.collect(run_id, runs_root=workspace.runs_root, repo=workspace.repo)
+    elif step is StepId.B_DEDUPLICATED:
+        deduplicate.deduplicate(run_id, runs_root=workspace.runs_root)
+    elif step is StepId.C_AUTHORED:
+        judged = _judge_authorship(workspace, run_id)
+        authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
+        return judged
+    elif step is StepId.D_MISTAKES:
+        _write_mistakes(workspace, run_id)
+        mistakes.apply_mistakes(run_id, runs_root=workspace.runs_root)
+    else:
+        _confirm_mistakes(workspace, run_id)
+        verify.apply_verification(run_id, runs_root=workspace.runs_root)
+    return ()
+
+
+# -- the bookkeeping the orchestration performs ----------------------------
 
 
 def _advance_through(
-    workspace: Workspace, manifest: RunManifest, last: StepId, *, at: datetime
-) -> None:
-    """Run, promote, and checkpoint every step up to and including ``last``."""
-    _enter_processing(manifest)
+    workspace: Workspace, run_id: str, last: StepId, *, at: datetime = _NOW
+) -> RunManifest:
+    """Run every step up to ``last``, then date the checkpoint at ``at``.
+
+    The drivers write their own checkpoints; redating the last one is how these
+    tests move the retention clock without pretending a step ran.
+    """
+    manifest = load_manifest(run_id, root=workspace.runs_root)
     for step in StepId:
         if step > last:
             break
         if manifest.stages[step].status is StageStatus.PROMOTED:
             continue
-        _produce(workspace, manifest.run_id, step, at=at)
-        _promote_step(workspace, manifest, step, at=at)
-        write_checkpoint(manifest, root=workspace.runs_root, now=at)
+        _produce(workspace, run_id, step)
+    manifest = load_manifest(run_id, root=workspace.runs_root)
+    return write_checkpoint(manifest, root=workspace.runs_root, now=at)
+
+
+def _refresh_preflight(manifest: RunManifest) -> None:
+    """Walk the run back through a preflight, as the resume policy requires."""
+    if manifest.status is RunStatus.PROCESSING:
+        manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
+    if manifest.status is not RunStatus.AWAITING_PREFLIGHT:
+        manifest.status = advance_run(manifest.status, RunStatus.AWAITING_PREFLIGHT)
+    manifest.status = advance_run(manifest.status, RunStatus.PROCESSING)
+
+
+def _clear_invalidated(workspace: Workspace, run_id: str, earliest: StepId) -> None:
+    """Delete the session files of every invalidated step.
+
+    The manifest change alone does not reach the disk, and ``--prepare`` reports
+    a file that is still there as ``already_written``. A resume that skipped
+    this would re-verify the very judgments the changed skill was supposed to
+    replace and report the step recomputed. The skill says it in words —
+    reprocess promoted files when their required versions changed — and this is
+    what saying it costs.
+    """
+    for step in StepId:
+        if step < earliest:
+            continue
+        for path in session_files(_step(workspace, run_id, step)):
+            path.unlink()
 
 
 def _resume(
@@ -614,27 +406,29 @@ def _resume(
     manifest = load_manifest(run_id, root=workspace.runs_root)
     assessment = describe_resume(manifest, current, now=at)
     if assessment.decision in (ResumeDecision.RESTART, ResumeDecision.EXPIRED):
-        return Resumed(assessment=assessment, steps_run=(), manifest=manifest)
+        return Resumed(assessment=assessment, steps_run=(), judged=())
     if assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM:
-        assert assessment.earliest_affected_stage is not None
-        invalidate_from(manifest, assessment.earliest_affected_stage, now=at)
+        earliest = assessment.earliest_affected_stage
+        assert earliest is not None
+        invalidate_from(manifest, earliest, now=at)
         manifest.fingerprint = current
-        _enter_processing(manifest, refreshed_preflight=True)
-    else:
-        _enter_processing(manifest)
-    save_manifest(manifest, root=workspace.runs_root)
+        _refresh_preflight(manifest)
+        save_manifest(manifest, root=workspace.runs_root)
+        _clear_invalidated(workspace, run_id, earliest)
 
     started = next_incomplete_stage(manifest)
     ran: list[StepId] = []
+    judged: tuple[str, ...] = ()
     if started is not None:
         for step in StepId:
             if step < started:
                 continue
-            _produce(workspace, run_id, step, at=at)
-            _promote_step(workspace, manifest, step, at=at)
-            write_checkpoint(manifest, root=workspace.runs_root, now=at)
+            judged += _produce(workspace, run_id, step)
             ran.append(step)
-    return Resumed(assessment=assessment, steps_run=tuple(ran), manifest=manifest)
+    write_checkpoint(
+        load_manifest(run_id, root=workspace.runs_root), root=workspace.runs_root, now=at
+    )
+    return Resumed(assessment=assessment, steps_run=tuple(ran), judged=judged)
 
 
 def _changed(
@@ -646,11 +440,11 @@ def _changed(
 # -- the run never completed ------------------------------------------------
 
 
-def test_run_interrupted_before_its_manifest_offers_nothing_to_resume(
+def test_a_run_interrupted_before_its_manifest_offers_nothing_to_resume(
     workspace: Workspace,
 ) -> None:
     # start_run writes the run's inventory copy before the manifest, so a crash
-    # between them leaves a directory with private data and no state file. It
+    # between them leaves a directory holding private data and no state file. It
     # must not be offered for resume, and it must not break the listing.
     manifest = _start(workspace)
     (_run_directory(workspace, manifest.run_id) / RUN_MANIFEST_FILENAME).unlink()
@@ -658,42 +452,29 @@ def test_run_interrupted_before_its_manifest_offers_nothing_to_resume(
     assert list_unfinished(workspace.runs_root, now=_NOW) == []
 
 
-# -- interrupt before the checkpoint ---------------------------------------
+# -- interrupted between two steps ------------------------------------------
 
 
 @pytest.mark.parametrize("step", list(StepId), ids=lambda step: step.name.lower())
-def test_interrupt_before_checkpoint_reruns_the_step(workspace: Workspace, step: StepId) -> None:
-    """The artifacts are durable but the checkpoint never landed.
-
-    The two tests below cover the other shape of the same interruption, where
-    the step stopped part way through its own work.
-    """
+def test_the_step_whose_driver_never_ran_is_where_the_resume_starts(
+    workspace: Workspace, step: StepId
+) -> None:
+    """Every step in turn is the one the process died before reaching."""
     manifest = _start(workspace)
     run_id = manifest.run_id
     previous = StepId(step - 1) if step > StepId.A_COLLECTED else None
     if previous is not None:
-        _advance_through(workspace, manifest, previous, at=_NOW)
+        _advance_through(workspace, run_id, previous, at=_NOW)
     else:
-        _enter_processing(manifest)
         write_checkpoint(manifest, root=workspace.runs_root, now=_NOW)
-
-    upstream_before = {
-        earlier: _step_files(workspace, run_id, earlier, content_only=False)
+    upstream = {
+        earlier: _step_files(workspace, run_id, earlier)
         for earlier in StepId
         if previous is not None and earlier <= previous
     }
-    # The interrupted step: produced, marked in progress, never checkpointed.
-    _produce(workspace, run_id, step, at=_NOW)
-    manifest.stages[step].status = advance_stage(
-        manifest.stages[step].status, StageStatus.IN_PROGRESS, stage=step
-    )
-    save_manifest(manifest, root=workspace.runs_root)
-    interrupted_content = _step_files(workspace, run_id, step, content_only=True)
 
     reread = load_manifest(run_id, root=workspace.runs_root)
     assert reread.last_checkpoint_at == _NOW
-    assert reread.stages[step].status is StageStatus.IN_PROGRESS
-    assert reread.stages[step].current_artifact_id is None
     assert next_incomplete_stage(reread) is step
 
     resumed = _resume(workspace, run_id, reread.fingerprint)
@@ -701,119 +482,201 @@ def test_interrupt_before_checkpoint_reruns_the_step(workspace: Workspace, step:
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
     assert resumed.steps_run[0] is step
     assert resumed.steps_run[-1] is StepId.E_VERIFIED
-    # The rerun reproduces the interrupted step exactly, and nothing earlier
-    # was touched: the interruption cost work, never data.
-    assert _step_files(workspace, run_id, step, content_only=True) == interrupted_content
-    for earlier, before in upstream_before.items():
-        assert _step_files(workspace, run_id, earlier, content_only=False) == before
+    # Nothing earlier was touched: the interruption cost work, never data.
+    for earlier, before in upstream.items():
+        assert _step_files(workspace, run_id, earlier) == before
     final = load_manifest(run_id, root=workspace.runs_root)
-    assert final.stages[step].status is StageStatus.PROMOTED
+    assert next_incomplete_stage(final) is None
     assert final.last_checkpoint_at == _LATER
 
 
-def test_interrupt_inside_step_c_reruns_only_what_was_lost(workspace: Workspace) -> None:
-    # The authorship judgment stopped after the first of two batches, before
-    # anything applied the decisions. Nothing is promoted, so the whole step
-    # reruns and the corpus is complete.
-    manifest = _start(workspace)
-    run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.B_DEDUPLICATED, at=_NOW)
-
-    index = authorship_batches.prepare_authorship_batches(
-        run_id, batch_size=5, runs_root=workspace.runs_root
-    )
-    assert len(index.batches) == 2
-    _write_authorship_decisions(workspace, run_id, batch_limit=1)
-    decisions = authorship_batches.decisions_dir(run_id, runs_root=workspace.runs_root)
-    assert len(list(decisions.glob("decisions-*.jsonl"))) == 1
-
-    resumed = _resume(workspace, run_id, manifest.fingerprint)
-
-    assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.steps_run[0] is StepId.C_AUTHORED
-    assert len(list(decisions.glob("decisions-*.jsonl"))) == 2
-    corpus = _corpus(workspace, run_id)
-    assert len(corpus) == index.candidate_count - 1  # the pasted candidate is excluded
-    assert all(u.text for u in corpus)
-
-
-def test_interrupted_unit_is_rerun_and_promoted_units_are_not(workspace: Workspace) -> None:
-    """The utterance is the checkpoint unit, not the batch (specification, 9.3)."""
-    manifest = _start(workspace)
-    run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
-    unit_count = len(_corpus(workspace, run_id))
-    assert unit_count > 4
-
-    first_pass = _write_findings(workspace, run_id, produced_at=_NOW, unit_limit=4)
-    assert len(first_pass) == 4
-    # A unit whose body was written but whose sidecar never landed is not
-    # promoted, so the resume has to redo it.
-    (_findings_dir(workspace, run_id) / f"{first_pass[-1]}.meta.json").unlink()
-    promoted = first_pass[:-1]
-    before = {
-        name: data
-        for name, data in _step_files(
-            workspace, run_id, StepId.D_MISTAKES, content_only=False
-        ).items()
-        if any(unit in name for unit in promoted)
-    }
-
-    second_pass = _write_findings(workspace, run_id, produced_at=_LATER)
-
-    assert first_pass[-1] in second_pass
-    assert not set(promoted) & set(second_pass)
-    assert len(promoted) + len(second_pass) == unit_count
-    after = _step_files(workspace, run_id, StepId.D_MISTAKES, content_only=False)
-    for name, data in before.items():
-        assert after[name] == data, f"a promoted unit was rewritten: {name}"
-    for unit in promoted:
-        meta = read_model(
-            _findings_dir(workspace, run_id) / f"{unit}.meta.json", FindingsArtifactMeta
-        )
-        assert meta.envelope.created_at == _NOW
-    for unit in second_pass:
-        directory = _findings_dir(workspace, run_id)
-        meta = read_model(directory / f"{unit}.meta.json", FindingsArtifactMeta)
-        assert meta.envelope.created_at == _LATER
-        assert verify_findings_artifact(directory / f"{unit}.md", meta, item_ref=unit) == []
-
-
-# -- interrupt after the checkpoint ----------------------------------------
-
-
 @pytest.mark.parametrize("step", list(StepId), ids=lambda step: step.name.lower())
-def test_interrupt_after_checkpoint_does_not_reprocess(workspace: Workspace, step: StepId) -> None:
+def test_a_checkpointed_step_is_never_reprocessed(workspace: Workspace, step: StepId) -> None:
     """Everything through ``step`` is promoted and checkpointed."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, step, at=_NOW)
+    manifest = _advance_through(workspace, run_id, step, at=_NOW)
     # A clean stop: the run checkpointed and the process ended.
     manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
     save_manifest(manifest, root=workspace.runs_root)
 
     done = [earlier for earlier in StepId if earlier <= step]
-    before = {
-        earlier: _step_files(workspace, run_id, earlier, content_only=False) for earlier in done
-    }
+    before = {earlier: _step_files(workspace, run_id, earlier) for earlier in done}
     identifiers = {
         earlier: manifest.stages[earlier].current_artifact_id
         for earlier in done
         if manifest.stages[earlier].current_artifact_id is not None
     }
+    assert identifiers or step < StepId.C_AUTHORED
 
     resumed = _resume(workspace, run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
     assert set(resumed.steps_run).isdisjoint(done)
     for earlier in done:
-        assert _step_files(workspace, run_id, earlier, content_only=False) == before[earlier]
+        assert _step_files(workspace, run_id, earlier) == before[earlier]
     final = load_manifest(run_id, root=workspace.runs_root)
     for earlier, artifact_id in identifiers.items():
         assert final.stages[earlier].current_artifact_id == artifact_id
-        assert final.stages[earlier].current_artifact_hash == _step_hash(workspace, run_id, earlier)
     assert next_incomplete_stage(final) is None
-    assert final.status is RunStatus.PROCESSING
+    # A resume that found work is processing again; one that found none leaves
+    # the run exactly where the clean stop left it.
+    expected = RunStatus.PROCESSING if resumed.steps_run else RunStatus.CHECKPOINTED
+    assert final.status is expected
+
+
+# -- interrupted inside a step: the file is the checkpoint unit -------------
+
+
+def test_a_resumed_step_c_asks_only_for_the_session_files_it_is_missing(
+    workspace: Workspace,
+) -> None:
+    """The session file is the checkpoint unit (specification, 9.3).
+
+    A judgment already on disk is paid for, so the resumed pass must not buy it
+    again — and it must not skip the rest, which is the failure that looks
+    identical from the manifest and costs the run half its corpus.
+    """
+    manifest = _start(workspace)
+    run_id = manifest.run_id
+    _advance_through(workspace, run_id, StepId.B_DEDUPLICATED, at=_NOW)
+
+    first = authorship.prepare(run_id, runs_root=workspace.runs_root)
+    assert len(first.sessions) > 1
+    assert [session.already_written for session in first.sessions] == [False] * len(first.sessions)
+    # The agents got through the first file and the process stopped before
+    # anything applied their work.
+    done = _judge_authorship(workspace, run_id, limit=1)
+    assert len(done) == 1
+    finished = _step(workspace, run_id, StepId.C_AUTHORED) / done[0]
+    paid_for = finished.read_bytes()
+
+    reported = {
+        session.file_name: session.already_written
+        for session in authorship.prepare(run_id, runs_root=workspace.runs_root).sessions
+    }
+    assert reported[done[0]] is True
+    missing = sorted(name for name, written in reported.items() if not written)
+    assert missing == sorted(set(reported) - set(done))
+
+    reread = load_manifest(run_id, root=workspace.runs_root)
+    assert next_incomplete_stage(reread) is StepId.C_AUTHORED
+    resumed = _resume(workspace, run_id, reread.fingerprint)
+
+    assert resumed.assessment.decision is ResumeDecision.CONTINUE
+    assert resumed.steps_run[0] is StepId.C_AUTHORED
+    assert sorted(resumed.judged) == missing
+    assert finished.read_bytes() == paid_for, "a finished judgment was asked for twice"
+    # And the corpus is whole: skipping the finished file did not drop it.
+    index = read_model(
+        _step(workspace, run_id, StepId.C_AUTHORED) / CORPUS_INDEX_NAME, AuthoredCorpusIndex
+    )
+    assert index.session_count == len(first.sessions)
+    assert index.quarantined_session_count == 0
+    assert index.utterance_count == first.utterance_count
+
+
+def test_a_repair_pass_asks_for_exactly_the_sessions_that_failed(workspace: Workspace) -> None:
+    """A quarantined judgment is repairable, not lost (specification, 6.4).
+
+    Its words leave the denominator, and until something read the repair list
+    there was no way to get them back short of redoing the whole run.
+    """
+    manifest = _start(workspace)
+    run_id = manifest.run_id
+    _advance_through(workspace, run_id, StepId.B_DEDUPLICATED, at=_NOW)
+    files = [path.name for path in session_files(_step(workspace, run_id, StepId.B_DEDUPLICATED))]
+    spoiled = files[-1]
+
+    _judge_authorship(workspace, run_id, spoil=spoiled)
+    applied = authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
+    assert applied.sessions_quarantined == 1
+    assert [diagnostic.code for diagnostic in applied.diagnostics] == [
+        "AUTHORSHIP_SPAN_NOT_VERBATIM"
+    ]
+    assert read_repair_list(run_id, runs_root=workspace.runs_root) == [spoiled]
+
+    repair = authorship.prepare(run_id, runs_root=workspace.runs_root, repair_only=True)
+
+    # Exactly the failed session, and it is asked for rather than reported as
+    # already written: its file was moved out of the corpus, not left in place.
+    assert [session.file_name for session in repair.sessions] == [spoiled]
+    assert repair.sessions[0].already_written is False
+    _judge_authorship(workspace, run_id)
+    repaired = authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
+    assert repaired.sessions_quarantined == 0
+    assert repaired.sessions_verified == len(files)
+    assert read_repair_list(run_id, runs_root=workspace.runs_root) == []
+
+
+def test_a_quarantined_step_is_repaired_by_the_resume_rather_than_redone(
+    workspace: Workspace,
+) -> None:
+    """A step the driver refused keeps its diagnostics and re-enters work.
+
+    A step that raised and left its status at ``in_progress`` is
+    indistinguishable from one still running; naming the failure is what lets a
+    resume repair it instead of trusting it.
+    """
+    manifest = _start(workspace)
+    run_id = manifest.run_id
+    run_directory = _run_directory(workspace, run_id)
+    _advance_through(workspace, run_id, StepId.C_AUTHORED, at=_NOW)
+
+    # One step-d file cites a span past the end of the utterance it addresses,
+    # which is the check that stops a record from quoting text nobody wrote.
+    assignments = mistakes.prepare_mistakes(run_id, runs_root=workspace.runs_root)
+    for assignment in assignments:
+        session = read_session(Path(assignment.read))
+        records = _records_for(session)
+        if assignment is assignments[0]:
+            target = next(utterance for utterance in session if utterance.text.strip())
+            records = [
+                MistakeRecord(
+                    utterance_id=target.utterance_id,
+                    evidence_span=EvidenceSpan(start=0, end=len(target.text) + 50),
+                    mistake=_MARKED[0][1],
+                    rule=_MARKED[0][2],
+                    example=_MARKED[0][3],
+                    example_type=ExampleType.SYNTHETIC,
+                    source_type=target.source_adapter,
+                    modality=target.modality,
+                )
+            ]
+        write_jsonl_models(Path(assignment.write), records)
+    outcome = mistakes.apply_mistakes(run_id, runs_root=workspace.runs_root)
+    assert not outcome.passed
+    assert "SCHEMA_INVALID_VALUE" in {diagnostic.code for diagnostic in outcome.diagnostics}
+    for diagnostic in outcome.diagnostics:
+        log_event(
+            run_directory,
+            "item_quarantined",
+            stage_id=StepId.D_MISTAKES,
+            diagnostic_codes=[diagnostic.code],
+        )
+    write_checkpoint(
+        load_manifest(run_id, root=workspace.runs_root), root=workspace.runs_root, now=_NOW
+    )
+
+    # A fresh read of the run: the quarantine and its history are still there.
+    reread = load_manifest(run_id, root=workspace.runs_root)
+    assert reread.stages[StepId.D_MISTAKES].status is StageStatus.QUARANTINED
+    assert next_incomplete_stage(reread) is StepId.D_MISTAKES
+
+    resumed = _resume(workspace, run_id, reread.fingerprint)
+
+    assert resumed.assessment.decision is ResumeDecision.CONTINUE
+    assert resumed.steps_run == (StepId.D_MISTAKES, StepId.E_VERIFIED)
+    assert (
+        load_manifest(run_id, root=workspace.runs_root).stages[StepId.D_MISTAKES].status
+        is StageStatus.PROMOTED
+    )
+    # The repair does not erase what the failed pass recorded.
+    assert {event.kind for event in read_events(run_directory)} == {"item_quarantined"}
+    # The log is content-free by construction; prove it over the real bytes.
+    log_bytes = (run_directory / "logs" / "events.jsonl").read_bytes()
+    for phrase in (b"I very like", b"deploy script", b"learning progress"):
+        assert phrase not in log_bytes
 
 
 # -- resumption in a fresh process -----------------------------------------
@@ -855,11 +718,7 @@ print(
 
 def _fresh_process(script: Path, *args: str, cwd: Path) -> dict[str, object]:
     result = subprocess.run(
-        [sys.executable, str(script), *args],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
+        [sys.executable, str(script), *args], cwd=cwd, check=False, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr[-2000:]
     return dict(json.loads(result.stdout))
@@ -867,11 +726,7 @@ def _fresh_process(script: Path, *args: str, cwd: Path) -> dict[str, object]:
 
 def _driver_process(module: str, *args: str, cwd: Path) -> dict[str, object]:
     result = subprocess.run(
-        [sys.executable, "-m", module, *args],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", module, *args], cwd=cwd, check=False, capture_output=True, text=True
     )
     assert result.returncode == 0, f"{module} failed: {result.stderr[-2000:]}"
     return dict(json.loads(result.stdout))
@@ -881,7 +736,7 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
     """Resumption may not depend on the conversation or on process state."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.D_MISTAKES, at=_NOW)
+    manifest = _advance_through(workspace, run_id, StepId.D_MISTAKES, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.CHECKPOINTED)
     save_manifest(manifest, root=workspace.runs_root)
 
@@ -898,16 +753,20 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
     assert payload["next_step"] == int(StepId.E_VERIFIED)
     assert payload["unfinished"] == [run_id]
 
-    promoted = _driver_process(
-        "glite_english_audit.pipeline.promote_records",
+    # The step-e agents run in this process because they are the model's part.
+    # Their driver, and the review after it, do not.
+    _confirm_mistakes(workspace, run_id)
+    confirmed = _driver_process(
+        "glite_english_audit.pipeline.verify",
         "--run-id",
         run_id,
+        "--apply",
         "--runs-root",
         str(workspace.runs_root),
         cwd=tmp_path,
     )
-    # The review is not a step, so it is not what the resume continued into;
-    # it is the run's last local act, and it still has to work from the run
+    # The review is not a step, so it is not what the resume continued into; it
+    # is the run's last local act, and it still has to work from the run
     # directory alone.
     reviewed = _driver_process(
         "glite_english_audit.pipeline.build_review",
@@ -918,29 +777,32 @@ def test_resume_works_in_a_fresh_process(workspace: Workspace, tmp_path: Path) -
         cwd=tmp_path,
     )
 
-    assert promoted["approved"] == 2
-    assert promoted["withheld_for_privacy"] == 1
-    assert reviewed["records"] == 2
-    assert reviewed["verified_total_mistakes"] == 3
+    assert confirmed["records_dropped"] == 1
+    assert reviewed["verified_total_mistakes"] == len(_MARKED)
+    assert reviewed["records"] == reviewed["shared_mistakes"] == len(_MARKED) - 1
+    assert reviewed["withheld_for_privacy"] == 1
     # Driver output reaches the agent conversation, so it carries counts only.
-    blob = json.dumps([promoted, reviewed, payload])
-    for phrase in ("I very like", "I am agree", "someone@example.com"):
+    blob = json.dumps([confirmed, reviewed, payload])
+    for phrase in ("I very like", "I am agree", "learning progress"):
         assert phrase not in blob
 
 
 # -- the frozen record cutoff ----------------------------------------------
 
 
-def test_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace) -> None:
+def test_a_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace) -> None:
     """New source records never invalidate a resume (specification, 13.5)."""
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.A_COLLECTED, at=_NOW)
+    _advance_through(workspace, run_id, StepId.A_COLLECTED, at=_NOW)
     selection = manifest.selection
     assert selection is not None
     assert selection.record_cutoff_at == _NOW
-    collected = _collected(workspace, run_id)
-    before = _step_files(workspace, run_id, StepId.A_COLLECTED, content_only=True)
+    collected = sum(
+        len(read_session(path))
+        for path in session_files(_step(workspace, run_id, StepId.A_COLLECTED))
+    )
+    before = _step_files(workspace, run_id, StepId.A_COLLECTED)
 
     transcript = (
         workspace.home
@@ -975,13 +837,20 @@ def test_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace)
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
     # Every session file step a wrote is byte for byte what it was: the resume
     # continued from step b and never re-read the source.
-    assert _step_files(workspace, run_id, StepId.A_COLLECTED, content_only=True) == before
+    assert _step_files(workspace, run_id, StepId.A_COLLECTED) == before
 
     # The record is real and in period: a later audit, with a later cutoff,
     # picks it up. That is what makes the exclusion above a cutoff decision.
-    next_audit = _start(workspace, now=_NOW + timedelta(days=2))
+    # A later audit rediscovers first, and it has to: the inventory records how
+    # many candidate messages each instance held, and the adapter's own verify()
+    # fails an instance that now yields a different number. Reusing the previous
+    # audit's inventory is what makes a new message look like a defect.
+    later = _NOW + timedelta(days=2)
+    _write_inventory(workspace.home, workspace.inventory_dir / _INVENTORY_NAME, now=later)
+    next_audit = _start(workspace, now=later)
     counts = collect.collect(next_audit.run_id, runs_root=workspace.runs_root, repo=workspace.repo)
-    assert int(str(counts["candidate_utterances"])) == len(collected) + 1
+    assert counts["excluded_instances"] == []
+    assert counts["candidate_utterances"] == collected + 1
 
 
 # -- the four resume decisions ---------------------------------------------
@@ -989,49 +858,51 @@ def test_record_after_the_cutoff_belongs_to_the_next_audit(workspace: Workspace)
 
 def test_resume_continue_finishes_the_remaining_steps(workspace: Workspace) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
+    _advance_through(workspace, manifest.run_id, StepId.C_AUTHORED, at=_NOW)
 
     resumed = _resume(workspace, manifest.run_id, manifest.fingerprint)
 
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    # Findings, mistake records and safe records were three stages and are one
-    # step, so what used to be five remaining stages is two remaining steps.
     assert resumed.steps_run == (StepId.D_MISTAKES, StepId.E_VERIFIED)
     reviewed = build_review.build_review(manifest.run_id, runs_root=workspace.runs_root)
     counts = reviewed.counts
     assert counts.shared_mistakes + counts.withheld_for_privacy == counts.verified_total_mistakes
 
 
-def test_resume_invalidate_downstream_recomputes_from_the_semantic_steps(
+def test_a_changed_skill_recomputes_from_the_first_step_a_model_produces(
     workspace: Workspace,
 ) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    _advance_through(workspace, run_id, StepId.E_VERIFIED, at=_NOW)
     # Steps a and b are the whole deterministic prefix: collection is a script
     # and so is deduplication, so no skill, prompt or model change can reach
     # either of them.
     kept = {
-        step: _step_files(workspace, run_id, step, content_only=False)
+        step: _step_files(workspace, run_id, step)
         for step in StepId
         if step <= StepId.B_DEDUPLICATED
     }
     deduplicated_artifact = manifest.stages[StepId.B_DEDUPLICATED].current_artifact_id
 
-    changed = _changed(manifest.fingerprint, skill_versions={"analyze-english-text": 2})
+    changed = _changed(manifest.fingerprint, skill_versions={"find-english-mistakes": 2})
     resumed = _resume(workspace, run_id, changed)
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
     # The skill that changed is step d's, but the fingerprint holds one map of
     # skill versions for the whole run rather than one entry per step, so the
     # policy cannot attribute a change to the step that owns it. It takes the
-    # conservative reading and recomputes from the first step a model produces,
-    # which is c, the authorship judgment (``run_store.EARLIEST_SEMANTIC_STEP``).
-    assert resumed.assessment.earliest_affected_stage is StepId.C_AUTHORED
+    # conservative reading and recomputes from the first step a model produces.
+    assert resumed.assessment.earliest_affected_stage is EARLIEST_SEMANTIC_STEP
     assert resumed.steps_run == (StepId.C_AUTHORED, StepId.D_MISTAKES, StepId.E_VERIFIED)
-    # Everything upstream of the change is kept, byte for byte and by pointer.
+    # And every session file of the invalidated step was judged again. A resume
+    # that reported the step recomputed while reusing the old judgments would
+    # satisfy every assertion above and none of this one.
+    assert sorted(resumed.judged) == sorted(
+        path.name for path in session_files(_step(workspace, run_id, StepId.C_AUTHORED))
+    )
     for step, before in kept.items():
-        assert _step_files(workspace, run_id, step, content_only=False) == before
+        assert _step_files(workspace, run_id, step) == before
     final = load_manifest(run_id, root=workspace.runs_root)
     assert final.stages[StepId.B_DEDUPLICATED].current_artifact_id == deduplicated_artifact
     assert final.fingerprint == changed
@@ -1043,32 +914,36 @@ def test_resume_invalidate_downstream_recomputes_from_the_semantic_steps(
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "earliest"),
     [
-        {"skill_versions": {"filter-authored-english": 3}},
-        {"prompt_versions": {"find-mistakes": 2}},
-        {"model_ids": {"find-mistakes": "example-model-2"}},
+        ({"skill_versions": {"filter-authored-english": 3}}, EARLIEST_SEMANTIC_STEP),
+        ({"prompt_versions": {"find-mistakes": 2}}, EARLIEST_SEMANTIC_STEP),
+        ({"model_ids": {"find-mistakes": "example-model-2"}}, EARLIEST_SEMANTIC_STEP),
+        ({"client_version": "99.0.0"}, EARLIEST_CLIENT_CODE_STEP),
     ],
-    ids=["skill", "prompt", "model"],
+    ids=["skill", "prompt", "model", "client"],
 )
-def test_resume_detects_a_changed_skill_prompt_or_model(
-    workspace: Workspace, overrides: dict[str, object]
+def test_resume_recomputes_from_the_earliest_step_the_change_can_reach(
+    workspace: Workspace, overrides: dict[str, object], earliest: StepId
 ) -> None:
-    # Which of the three fields moved, and which step's skill or prompt it
-    # names, does not change the answer: all three describe how a model is
-    # asked, so all three land on the earliest step a model produces and leave
-    # the deterministic steps before it alone.
+    # The first three describe how a model is asked, so they land on the first
+    # step a model produces. The fourth is pure Python, and it lands one step
+    # later because that is where client code starts deciding what may be
+    # shared: the privacy scanner and the packaging allowlist (specification,
+    # 6.6, 8.3). A run checkpointed before a scanner fix must not resume with
+    # records the known-bad scanner approved.
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.D_MISTAKES, at=_NOW)
-    kept = _step_files(workspace, run_id, StepId.B_DEDUPLICATED, content_only=False)
+    _advance_through(workspace, run_id, StepId.E_VERIFIED, at=_NOW)
+    untouched = {step: _step_files(workspace, run_id, step) for step in StepId if step < earliest}
 
     resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, **overrides))
 
     assert resumed.assessment.decision is ResumeDecision.INVALIDATE_DOWNSTREAM
-    assert resumed.assessment.earliest_affected_stage is StepId.C_AUTHORED
-    assert resumed.steps_run[0] is StepId.C_AUTHORED
-    assert _step_files(workspace, run_id, StepId.B_DEDUPLICATED, content_only=False) == kept
+    assert resumed.assessment.earliest_affected_stage is earliest
+    assert resumed.steps_run == tuple(step for step in StepId if step >= earliest)
+    for step, before in untouched.items():
+        assert _step_files(workspace, run_id, step) == before
 
 
 @pytest.mark.parametrize(
@@ -1088,7 +963,7 @@ def test_resume_detects_an_incompatible_change(
     # these changes takes the conservative branch: reuse nothing
     # (specification, 9.4).
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
+    _advance_through(workspace, manifest.run_id, StepId.C_AUTHORED, at=_NOW)
 
     resumed = _resume(workspace, manifest.run_id, _changed(manifest.fingerprint, **overrides))
 
@@ -1100,14 +975,10 @@ def test_invalidate_from_clears_pointers_and_keeps_a_quarantined_step(
     workspace: Workspace,
 ) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
-    mistakes = manifest.stages[StepId.D_MISTAKES]
-    mistakes.status = advance_stage(
-        mistakes.status, StageStatus.IN_PROGRESS, stage=StepId.D_MISTAKES
-    )
-    mistakes.status = advance_stage(
-        mistakes.status, StageStatus.QUARANTINED, stage=StepId.D_MISTAKES
-    )
+    _advance_through(workspace, manifest.run_id, StepId.E_VERIFIED, at=_NOW)
+    manifest = load_manifest(manifest.run_id, root=workspace.runs_root)
+    mistakes_state = manifest.stages[StepId.D_MISTAKES]
+    mistakes_state.status = StageStatus.QUARANTINED
 
     invalidated = invalidate_from(manifest, StepId.D_MISTAKES, now=_LATER)
 
@@ -1129,15 +1000,15 @@ def test_resume_restart_reuses_nothing_and_leaves_the_old_run_alone(
 ) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
-    before = {step: _step_files(workspace, run_id, step, content_only=False) for step in StepId}
+    _advance_through(workspace, run_id, StepId.C_AUTHORED, at=_NOW)
+    before = {step: _step_files(workspace, run_id, step) for step in StepId}
 
     resumed = _resume(workspace, run_id, _changed(manifest.fingerprint, tokenizer_version="9.9.9"))
 
     assert resumed.assessment.decision is ResumeDecision.RESTART
     assert resumed.steps_run == ()
     for step in StepId:
-        assert _step_files(workspace, run_id, step, content_only=False) == before[step]
+        assert _step_files(workspace, run_id, step) == before[step]
     unchanged = load_manifest(run_id, root=workspace.runs_root)
     assert unchanged.stages[StepId.C_AUTHORED].status is StageStatus.PROMOTED
 
@@ -1153,7 +1024,7 @@ def test_resume_restart_reuses_nothing_and_leaves_the_old_run_alone(
 def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
+    _advance_through(workspace, run_id, StepId.C_AUTHORED, at=_NOW)
     expired_moment = _NOW + timedelta(days=30, seconds=1)
 
     resumed = _resume(workspace, run_id, manifest.fingerprint, at=expired_moment)
@@ -1165,17 +1036,17 @@ def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
     assert expire_stale_runs(workspace.runs_root, now=expired_moment) == [run_id]
     run_directory = _run_directory(workspace, run_id)
     # The state file is kept and every private artifact is deleted. Naming the
-    # survivors rather than a list of directories is what keeps this true of
-    # the layout rather than of one version of it: when the nine stages became
-    # five steps, the run's inventory copy and the snapshot manifests moved out
-    # of the step tree and up to the run root, and the inventory names the
-    # user's applications and the absolute paths they keep their data under.
+    # survivors rather than a list of directories is what keeps this true of the
+    # layout rather than of one version of it: when the nine stages became five
+    # steps, the run's inventory copy and the snapshot manifests moved out of the
+    # step tree and up to the run root, and the inventory names the user's
+    # applications and the absolute paths they keep their data under.
     assert sorted(
         str(path.relative_to(run_directory)) for path in run_directory.rglob("*") if path.is_file()
     ) == [RUN_MANIFEST_FILENAME]
 
-    # The status alone is enough afterwards: a checkpoint written later must
-    # not make a run whose private inputs were deleted look resumable.
+    # The status alone is enough afterwards: a checkpoint written later must not
+    # make a run whose private inputs were deleted look resumable.
     swept = load_manifest(run_id, root=workspace.runs_root)
     assert swept.status is RunStatus.EXPIRED
     write_checkpoint(swept, root=workspace.runs_root, now=expired_moment)
@@ -1185,18 +1056,14 @@ def test_resume_expired_after_the_retention_limit(workspace: Workspace) -> None:
     )
 
 
-def test_thirty_day_boundary_keeps_a_run_resumable(workspace: Workspace) -> None:
+def test_the_thirty_day_boundary_keeps_a_run_resumable(workspace: Workspace) -> None:
     manifest = _start(workspace)
     run_id = manifest.run_id
-    _advance_through(workspace, manifest, StepId.C_AUTHORED, at=_NOW)
+    _advance_through(workspace, run_id, StepId.C_AUTHORED, at=_NOW)
     boundary = _NOW + timedelta(days=30)
 
-    assert (
-        describe_resume(manifest, manifest.fingerprint, now=boundary).decision
-        is ResumeDecision.CONTINUE
-    )
     assert expire_stale_runs(workspace.runs_root, now=boundary) == []
-    assert step_dir(run_id, StepId.C_AUTHORED, root=workspace.runs_root).is_dir()
+    assert _step(workspace, run_id, StepId.C_AUTHORED).is_dir()
 
     resumed = _resume(workspace, run_id, manifest.fingerprint, at=boundary)
     assert resumed.assessment.decision is ResumeDecision.CONTINUE
@@ -1205,7 +1072,7 @@ def test_thirty_day_boundary_keeps_a_run_resumable(workspace: Workspace) -> None
 
 def test_a_completed_run_is_never_offered_for_resume(workspace: Workspace) -> None:
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    manifest = _advance_through(workspace, manifest.run_id, StepId.E_VERIFIED, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.REVIEW)
     manifest.status = advance_run(manifest.status, RunStatus.COMPLETED)
     save_manifest(manifest, root=workspace.runs_root)
@@ -1214,62 +1081,6 @@ def test_a_completed_run_is_never_offered_for_resume(workspace: Workspace) -> No
 
     assert assessment.decision is ResumeDecision.EXPIRED
     assert list_unfinished(workspace.runs_root, now=_LATER) == []
-
-
-# -- quarantined failures --------------------------------------------------
-
-
-def test_quarantined_failures_and_diagnostics_survive_a_resume(workspace: Workspace) -> None:
-    manifest = _start(workspace)
-    run_id = manifest.run_id
-    run_directory = _run_directory(workspace, run_id)
-    _advance_through(workspace, manifest, StepId.B_DEDUPLICATED, at=_NOW)
-
-    authorship_batches.prepare_authorship_batches(
-        run_id, batch_size=5, runs_root=workspace.runs_root
-    )
-    _write_authorship_decisions(workspace, run_id, corrupt_marker="I very like")
-    applied = apply_authorship.apply_authorship(run_id, runs_root=workspace.runs_root)
-    codes = sorted({diagnostic.code for diagnostic in applied.diagnostics})
-    assert applied.quarantined_decisions == 1
-    assert codes == ["AUTHORSHIP_SPAN_NOT_VERBATIM"]
-    for diagnostic in applied.diagnostics:
-        log_event(
-            run_directory,
-            "item_quarantined",
-            stage_id=StepId.C_AUTHORED,
-            diagnostic_codes=[diagnostic.code],
-        )
-    state = manifest.stages[StepId.C_AUTHORED]
-    state.status = advance_stage(state.status, StageStatus.IN_PROGRESS, stage=StepId.C_AUTHORED)
-    state.status = advance_stage(state.status, StageStatus.QUARANTINED, stage=StepId.C_AUTHORED)
-    write_checkpoint(manifest, root=workspace.runs_root, now=_NOW)
-
-    # A fresh read of the run: the quarantine and its history are still there.
-    reread = load_manifest(run_id, root=workspace.runs_root)
-    assert reread.stages[StepId.C_AUTHORED].status is StageStatus.QUARANTINED
-    assert next_incomplete_stage(reread) is StepId.C_AUTHORED
-    events = read_events(run_directory)
-    assert [event.kind for event in events] == ["item_quarantined"]
-    assert events[0].diagnostic_codes == ["AUTHORSHIP_SPAN_NOT_VERBATIM"]
-
-    resumed = _resume(workspace, run_id, reread.fingerprint)
-
-    assert resumed.assessment.decision is ResumeDecision.CONTINUE
-    assert resumed.steps_run[0] is StepId.C_AUTHORED
-    # The resume re-asks for the quarantined unit and this time the judgment
-    # verifies, so the utterance rejoins the corpus.
-    assert any("I very like" in utterance.text for utterance in _corpus(workspace, run_id))
-    # The repair does not erase what the failed pass recorded.
-    assert [event.kind for event in read_events(run_directory)] == ["item_quarantined"]
-    assert (
-        load_manifest(run_id, root=workspace.runs_root).stages[StepId.C_AUTHORED].status
-        is StageStatus.PROMOTED
-    )
-    # The log is content-free by construction; prove it over the real bytes.
-    log_bytes = (run_directory / "logs" / "events.jsonl").read_bytes()
-    for phrase in (b"I very like", b"deploy script", b"learning progress"):
-        assert phrase not in log_bytes
 
 
 # -- retention -------------------------------------------------------------
@@ -1285,7 +1096,7 @@ def _failing_extract(
 def test_expiry_deletes_snapshots_left_by_a_failed_extraction(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Manifest-bounded snapshot cleanup never ran, so retention must reach them."""
+    """Manifest-bounded snapshot cleanup never runs here, so retention must."""
     manifest = _start(workspace)
     run_id = manifest.run_id
     monkeypatch.setattr(ClaudeCodeAdapter, "extract", _failing_extract)
@@ -1297,8 +1108,8 @@ def test_expiry_deletes_snapshots_left_by_a_failed_extraction(
     assert copied, "an interrupted extraction leaves the copied source behind"
     assert any(b"learning progress" in path.read_bytes() for path in copied)
 
-    manifest.last_checkpoint_at = _NOW - timedelta(days=31)
-    save_manifest(manifest, root=workspace.runs_root)
+    stale = load_manifest(run_id, root=workspace.runs_root)
+    write_checkpoint(stale, root=workspace.runs_root, now=_NOW - timedelta(days=31))
     assert expire_stale_runs(workspace.runs_root, now=_NOW) == [run_id]
     assert not snapshots.exists()
 
@@ -1309,7 +1120,7 @@ def test_completed_cleanup_keeps_only_the_package_and_the_manifest(
     manifest = _start(workspace)
     run_id = manifest.run_id
     run_directory = _run_directory(workspace, run_id)
-    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    manifest = _advance_through(workspace, run_id, StepId.E_VERIFIED, at=_NOW)
     log_event(run_directory, "checkpoint_written", stage_id=StepId.E_VERIFIED)
     (run_directory / "submission" / "package.json").write_text("{}", encoding="utf-8")
     # A source whose extraction failed can leave a snapshot behind; completion
@@ -1361,8 +1172,8 @@ def test_cleanup_refuses_a_run_directory_that_is_a_symlink(
     # The worst case for a store that deletes fixed names under a directory: a
     # link named like a run, holding a manifest that matches that name. Every
     # containment check resolves the run directory first, so without a check on
-    # the link itself the target's own 'steps' and 'logs' are inside the
-    # bounds and a home directory is one deletion away.
+    # the link itself the target's own 'steps' and 'logs' are inside the bounds
+    # and a home directory is one deletion away.
     home = _source_home(tmp_path)
     planted_id = "run-" + "a" * 32
     for name in ("steps", "logs", "snapshots", "submission"):
@@ -1403,7 +1214,7 @@ def test_cleanup_refuses_a_step_directory_pointing_at_source_data(
     home = _source_home(tmp_path)
     before = _victim_files(home)
     manifest = _start(workspace)
-    _advance_through(workspace, manifest, StepId.E_VERIFIED, at=_NOW)
+    manifest = _advance_through(workspace, manifest.run_id, StepId.E_VERIFIED, at=_NOW)
     manifest.status = advance_run(manifest.status, RunStatus.REVIEW)
     manifest.status = advance_run(manifest.status, RunStatus.COMPLETED)
     save_manifest(manifest, root=workspace.runs_root)
@@ -1438,9 +1249,9 @@ def test_retention_touches_nothing_outside_the_run_directory(
     home = _source_home(tmp_path)
     victim_before = _victim_files(home)
     stale = _start(workspace)
-    _advance_through(workspace, stale, StepId.C_AUTHORED, at=_NOW - timedelta(days=31))
+    _advance_through(workspace, stale.run_id, StepId.C_AUTHORED, at=_NOW - timedelta(days=31))
     live = _start(workspace)
-    _advance_through(workspace, live, StepId.A_COLLECTED, at=_NOW)
+    _advance_through(workspace, live.run_id, StepId.A_COLLECTED, at=_NOW)
     neighbor = workspace.runs_root.parent / "calibration"
     neighbor.mkdir(parents=True, exist_ok=True)
     (neighbor / "local-history.jsonl").write_text("{}\n", encoding="utf-8")
@@ -1453,5 +1264,5 @@ def test_retention_touches_nothing_outside_the_run_directory(
     assert (neighbor / "local-history.jsonl").is_file()
     assert loose.is_file()
     assert (workspace.repo / ".gitignore").is_file()
-    assert step_dir(live.run_id, StepId.A_COLLECTED, root=workspace.runs_root).is_dir()
+    assert _step(workspace, live.run_id, StepId.A_COLLECTED).is_dir()
     assert not (_run_directory(workspace, stale.run_id) / "steps").exists()
