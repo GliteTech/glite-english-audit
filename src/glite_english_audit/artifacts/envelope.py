@@ -23,6 +23,20 @@ def utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
+def as_utc(moment: datetime) -> datetime:
+    """Return ``moment`` as an aware UTC datetime, reading naive input as UTC.
+
+    A few sources store timezone-unknown local wall-clock time; Aider is the
+    one shipped example. Their timestamps therefore reach the shared pipeline
+    naive, and every comparison with an aware period bound, cutoff, or
+    proximity window would raise ``TypeError``. Reading them as UTC is the
+    single project-wide convention: it costs at most the machine's UTC offset
+    in period precision and keeps ordering identical on every platform, which
+    a local-time reading would not.
+    """
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
 class ArtifactEnvelope(BaseModel):
     """Identity and lineage metadata for one artifact."""
 

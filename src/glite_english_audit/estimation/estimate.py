@@ -34,13 +34,13 @@ import argparse
 import json
 import math
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from glite_english_audit.artifacts.enums import AgentRuntime
-from glite_english_audit.artifacts.envelope import utc_now
+from glite_english_audit.artifacts.envelope import as_utc, utc_now
 from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
@@ -177,11 +177,6 @@ def profile_runtime_id(runtime: AgentRuntime) -> str:
     return runtime.value.replace("_", "-")
 
 
-def _as_utc(moment: datetime) -> datetime:
-    """Attach UTC to a naive timestamp so window arithmetic cannot raise."""
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-
-
 def window_fraction(
     record: SourceInstanceRecord, *, start: datetime, end: datetime
 ) -> float | None:
@@ -192,8 +187,8 @@ def window_fraction(
     """
     if record.earliest_timestamp is None or record.latest_timestamp is None:
         return None
-    first = _as_utc(record.earliest_timestamp)
-    last = _as_utc(record.latest_timestamp)
+    first = as_utc(record.earliest_timestamp)
+    last = as_utc(record.latest_timestamp)
     if last < first:
         first, last = last, first
     span_seconds = (last - first).total_seconds()

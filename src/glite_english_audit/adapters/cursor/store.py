@@ -44,7 +44,8 @@ SUPPORTED_BUBBLE_VERSION = 3
 BUBBLE_TYPE_USER = 1
 
 # Mirrors the claude_code adapter: prompts longer than this carry a
-# possible-paste flag so normalization can quarantine them (spec 6.2).
+# possible-paste content flag (spec 6.2). No stage consumes the flag yet; the
+# stage-3 authorship skill removes pasted material.
 PASTE_LENGTH_THRESHOLD = 2000
 
 # Spec 6.3: the post-sigil residual observed in E11 is ~0%. A quarter of an

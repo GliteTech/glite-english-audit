@@ -7,6 +7,13 @@ deterministic and resumable: the same corpus always yields the same batches in
 the same order, and a rerun after an interruption reproduces them exactly.
 Batches are transport units only; the utterance stays the checkpoint unit
 (specification, 9.3).
+
+A batch line is a deliberate projection of the corpus record, not the whole
+:class:`NormalizedUtterance`: session hashes, path hashes, timestamps, and
+adapter versions cannot help judge English, so sending them into a model's
+context spends privacy for nothing. :class:`AnalysisUtterance` names that
+projection, so the ``analyze-english-text`` skill can tell an agent to validate
+each line against a model that actually matches the bytes on disk.
 """
 
 import argparse
@@ -14,7 +21,9 @@ import json
 import sys
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import StageId
+from pydantic import BaseModel, ConfigDict
+
+from glite_english_audit.artifacts.enums import Modality, StageId
 from glite_english_audit.artifacts.io import ensure_private_dir, read_jsonl_models
 from glite_english_audit.artifacts.models import NormalizedUtterance
 from glite_english_audit.normalization.tokenizer import count_words
@@ -23,6 +32,22 @@ from glite_english_audit.paths import stage_dir
 CORPUS_NAME = "corpus.jsonl"
 BATCH_DIR_NAME = "batches"
 DEFAULT_BATCH_SIZE = 25
+
+
+class AnalysisUtterance(BaseModel):
+    """One eligible utterance as the ``analyze-english-text`` skill reads it.
+
+    Exactly the three fields a stage-4 batch line carries. ``extra="forbid"``
+    is the point: widening the batch writer without widening this model, or
+    the reverse, fails the round-trip test instead of silently changing what
+    reaches the model.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    utterance_id: str
+    text: str
+    modality: Modality
 
 
 def prepare_batches(
@@ -47,7 +72,9 @@ def prepare_batches(
         path.write_text(
             "\n".join(
                 json.dumps(
-                    {"utterance_id": u.utterance_id, "text": u.text, "modality": u.modality.value},
+                    AnalysisUtterance(
+                        utterance_id=u.utterance_id, text=u.text, modality=u.modality
+                    ).model_dump(mode="json"),
                     ensure_ascii=False,
                 )
                 for u in chunk

@@ -32,10 +32,12 @@ been tested, per adapter and per platform.
 Nine adapters ship today. Stability drives default selection: stable sources with a supported
 schema are selected by default, beta sources are not.
 
-An adapter is stable only once its user experience has been observed on a real installation, not
-merely once its tests pass. Four of the nine are beta for that reason: their formats are
-implemented and tested against synthetic fixtures, but nobody has yet watched one run against a
-real install of that application.
+Five of the nine are beta. Four of them — Aider, Gemini CLI, Cline, and Roo Code — are beta
+because an adapter is stable only once its user experience has been observed on a real
+installation, not merely once its tests pass: their formats are implemented and tested against
+synthetic fixtures, but nobody has yet watched one run against a real install. Cursor is beta for
+a different reason: only one macOS storage generation is known to keep the prompt exactly as
+typed, so everything else is inventoried rather than analyzed.
 
 | Source | Adapter ID | Stability | Notes |
 |---|---|---|---|
@@ -47,7 +49,7 @@ real install of that application.
 | Cline | `cline` | beta | Per-task API history |
 | Roo Code | `roo_code` | beta | Per-task API history |
 | Wispr Flow | `wispr_flow` | stable | Dictation. Only the raw ASR text is read; formatted, edited, clipboard, and context columns are never ingested. Native Windows is required; WSL fails closed. |
-| Cursor | `cursor` | stable | Each stored prompt is reconciled against the editor state before it counts as yours; file-mention tokens are stripped. |
+| Cursor | `cursor` | beta | Each stored prompt is reconciled against the editor state before it counts as yours; file-mention tokens are stripped. |
 
 Platform status, tested application versions, storage fingerprints, and raw-field provenance are in
 `specifications/compatibility_matrix.md`. The evidence behind each adapter is in
@@ -127,7 +129,8 @@ download is your only way to retrieve a report later, so keep it.
 - No application-level encryption of resumable private artifacts; V1 relies on your operating
   system account and disk security.
 - No localization. All user-facing text is English.
-- Cursor text is not analyzed, and beta sources are never selected for you.
+- No default selection of beta sources. Cursor and the four unobserved adapters are offered, never
+  chosen for you.
 
 See `FUTURE.md` for what a later version may add.
 

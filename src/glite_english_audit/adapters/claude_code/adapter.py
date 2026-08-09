@@ -29,6 +29,7 @@ from glite_english_audit.artifacts.enums import (
     Stability,
     TextStatus,
 )
+from glite_english_audit.artifacts.io import ensure_private_dir, restrict_private_file
 from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
@@ -448,7 +449,7 @@ class ClaudeCodeAdapter:
         source_path: Path,
         target_dir: Path,
     ) -> SnapshotCapture:
-        target_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(target_dir)
         entries: list[SnapshotFileEntry] = []
         path_hashes: dict[str, str] = {}
         for source_file in self._transcript_files(source_path):
@@ -464,6 +465,7 @@ class ClaudeCodeAdapter:
         )
         meta_path = target_dir / _SNAPSHOT_META_NAME
         meta_path.write_bytes(payload)
+        restrict_private_file(meta_path)
         entries.append(
             SnapshotFileEntry(
                 relative_path=_SNAPSHOT_META_NAME,
@@ -482,6 +484,9 @@ class ClaudeCodeAdapter:
                 digest.update(chunk)
                 size += len(chunk)
                 writer.write(chunk)
+        # A snapshot copy is private runtime data whatever the source's mode
+        # was (specification, 3.6).
+        restrict_private_file(target)
         return digest.hexdigest(), size
 
     # -- extraction --------------------------------------------------------

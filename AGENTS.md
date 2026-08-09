@@ -67,6 +67,9 @@ src/glite_english_audit/
 │                             # wispr_flow (registered in adapters/__init__.py)
 ├── normalization/            # tokenizer, language spans, authorship filter, dedup,
 │                             # stage-3 filter_corpus CLI
+├── pipeline/                 # the stage drivers an agent invokes: start_run, collect,
+│                             # authorship_batches, apply_authorship, batches,
+│                             # promote_records, build_review, save_choice
 ├── verification/             # deterministic verifiers, corpus/skill verifiers,
 │                             # privacy scanner, fixture policy, generate_wrappers
 ├── progress/                 # progress model and rendering
@@ -78,7 +81,8 @@ specifications/               # committed specs: agent_skills_specification.md,
                               # compatibility_matrix.md, sources/<adapter_id>.md, ...
 styleguide/                   # python, agent-instruction, and prompting style guides
 calibration/                  # committed default token-usage profile (numbers only)
-fixtures/                     # synthetic fixtures: fixtures/<adapter_id>/<variant>/
+fixtures/                     # synthetic fixtures: fixtures/<adapter_id>/<variant>/,
+                              # plus fixtures/privacy_adversarial/ for the privacy corpus
 tests/                        # pytest; files test_<area>_<topic>.py; use tmp_path
 temp/                         # private, ignored development area (research findings, drafts)
 runtime/                      # private, ignored runtime data the product writes

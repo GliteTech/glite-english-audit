@@ -144,8 +144,8 @@ the user reviews every record on the local review page before anything is sent.
 
 ## 5. Retention
 
-Private run state lives outside the Git checkout, with owner-only permissions (`0700`
-directories, `0600` files on POSIX; a user-limited ACL on Windows):
+Private run state lives in one place, with owner-only permissions (`0700` directories, `0600`
+files on POSIX; a user-limited ACL on Windows):
 
 - Every platform: `<repository>/runtime/`
 

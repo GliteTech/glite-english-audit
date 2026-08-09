@@ -1,4 +1,4 @@
-"""Aider source adapter (stable).
+"""Aider source adapter (beta).
 
 Source specification: ``specifications/sources/aider.md``.
 """

@@ -2,9 +2,10 @@
 
 Status: source specification for the `wispr_flow` adapter (spec section 4.2 research gate),
 awaiting review.
-Adapter ID: `wispr_flow`. Target stability: stable only after the section 9 verification gates
-pass; until a real-installation smoke test confirms the schema fingerprint, the adapter must be
-treated as beta and must fail closed on any fingerprint mismatch.
+Adapter ID: `wispr_flow`. Stability: stable. The macOS real-installation smoke test recorded in
+`specifications/compatibility_matrix.md` confirmed the schema fingerprint on 2026-08-09. The
+native Windows smoke test the section 9 gates require is still outstanding, and the adapter
+fails closed on any fingerprint mismatch on every platform.
 Research log: `temp/findings/wispr_flow-source-research.md` (evidence IDs E1–E13 cited below).
 Access date for all cited evidence: 2026-08-08.
 
@@ -55,7 +56,7 @@ Details:
   locking) is not established over DrvFS. Per project spec 1.3 this adapter fails closed in
   WSL: when `/mnt/<drive>/Users/<user>/AppData/Roaming/Wispr Flow/flow.sqlite` exists,
   discovery reports the instance as `inaccessible` with diagnostic
-  `WSL_WINDOWS_HOST_DB_USE_NATIVE_WINDOWS`, contributes no counts and no text, and the agent
+  `SOURCE_WSL_HOST_STORE_HINT`, contributes no counts and no text, and the agent
   directs the user to run the audit from native Windows.
 - Mobile (iOS/Android) apps exist (E3) but their storage is out of scope and unreachable;
   not applicable.
@@ -270,7 +271,7 @@ name allowlisted columns explicitly and must never use `SELECT *`.
    else. Missing root or missing `flow.sqlite` → `not_found`.
 2. Preflight: confirm `flow.sqlite` is a regular file, readable, with SQLite magic header. A
    header that is not SQLite (or an encrypted/corrupt store) → `unsupported_schema` with
-   diagnostic `SOURCE_NOT_SQLITE`; permission failure → `inaccessible`.
+   diagnostic `SOURCE_UNSUPPORTED_SCHEMA`; permission failure → `inaccessible`.
 3. Take a discovery snapshot (6.2) — discovery also never queries the live database — then
    open the snapshot read-only (`mode=ro` URI).
 4. Fingerprint (structure reads only): `sqlite_master` table and column listing
@@ -300,7 +301,7 @@ spec 4.6 it is never treated as a flat file:
    bounded times, then fall back to (3).
 3. Fallback: byte-copy `flow.sqlite` + `flow.sqlite-wal` + `flow.sqlite-shm` (those that
    exist), then verify the copy opens and `PRAGMA integrity_check` passes on the snapshot; a
-   failed check discards the copy and retries once before reporting `SNAPSHOT_INCONSISTENT`.
+   failed check discards the copy and retries once before reporting `SOURCE_LOCKED`.
 4. Snapshot manifest records source sizes, mtimes, SHA-256 of copies, journal mode observed,
    and the cleanup manifest. Snapshot files are `0600` in `0700` directories.
 5. The adapter never locks the live DB exclusively, never runs `PRAGMA wal_checkpoint`, never
@@ -343,13 +344,13 @@ reported range.
 ## 8. Failure behavior
 
 - Root or DB missing → `not_found`. Present but unreadable → `inaccessible`
-  (`SOURCE_PERMISSION_DENIED`; on macOS the diagnostic text may mention Full Disk Access).
+  (`SOURCE_INACCESSIBLE`; on macOS the diagnostic text may mention Full Disk Access).
 - Non-SQLite or encrypted file at the DB path → `unsupported_schema`
-  (`SOURCE_NOT_SQLITE`); never attempt decryption.
+  (`SOURCE_UNSUPPORTED_SCHEMA`); never attempt decryption.
 - Missing `History` table or any required column → `detected, unsupported schema`
   (`SOURCE_UNSUPPORTED_SCHEMA`); no extraction, no guessing (spec 4.2).
 - Snapshot cannot be made consistent (backup API fails and fallback copy fails integrity) →
-  `SNAPSHOT_INCONSISTENT`, instance skipped for this run; the live store is never used
+  `SOURCE_LOCKED`, instance skipped for this run; the live store is never used
   directly.
 - Row-level anomalies: NULL/duplicate `transcriptEntityId` → affected rows excluded with
   `pk_anomaly` counters; if more than 1% of candidate rows are anomalous, the store falls to
@@ -357,20 +358,19 @@ reported range.
 - Unknown `status` values, unknown extra columns, unknown extra tables: tolerated, counted,
   never parsed beyond names.
 - SQLite-level corruption reported by `integrity_check` on the snapshot → discard snapshot,
-  report `SOURCE_CORRUPT_DB`; never run recovery tooling against the live file.
-- WSL detection of a Windows-host store → `WSL_WINDOWS_HOST_DB_USE_NATIVE_WINDOWS`
+  report `SOURCE_UNSUPPORTED_SCHEMA`; never run recovery tooling against the live file.
+- WSL detection of a Windows-host store → `SOURCE_WSL_HOST_STORE_HINT`
   (section 1); zero counts, zero text.
 - The adapter never writes to, locks, truncates, repairs, or deletes anything under the data
   root, and never triggers the app's own reset/delete functions.
 
 ## 9. Unresolved questions and required behavior when evidence is insufficient
 
-1. No real-installation verification: the entire schema is third-party evidence. Required
-   behavior: the fingerprint (6.1) is mandatory before any extraction; any mismatch is
-   `detected, unsupported schema`. The stable release gate additionally requires a private
-   smoke test against at least one real installation per claimed platform (macOS and native
-   Windows) confirming the fingerprint, column allowlist, and timestamp format. Until then the
-   adapter ships as beta at best.
+1. Partial real-installation verification: the macOS smoke test on 2026-08-09 confirmed the
+   fingerprint, column allowlist, and timestamp format; the native Windows schema is still
+   third-party evidence only. Required behavior: the fingerprint (6.1) is mandatory before any
+   extraction; any mismatch is `detected, unsupported schema`. No Windows release claim may
+   rest on this adapter until its Windows smoke test runs.
 2. Windows schema parity: all deep reverse engineering is macOS; Windows parity is implied by
    cross-platform integrations (E5) only. Required behavior: identical fingerprint rules; the
    Windows smoke test is a separate gate, and Windows-specific drift falls to
@@ -410,13 +410,13 @@ database fixtures are generated by a committed builder script (synthetic DDL mir
 | `success-current` | Full-column `History` with: plain dictations; a row with `formattedText`/`editedText`/`textboxContents`/`axText`/`url` populated with sentinel strings; `audio` BLOB bytes; statuses `formatted`, `dismissed`, `extension_paste`; one archived row; `conversationId` groups; `Dictionary`, `polish`, `notes`, `meetings`, `links` tables with sentinel rows; `SequelizeMeta` | Only `asrText` values extracted; no sentinel from any denylisted column/table appears in any output or log; flags set correctly |
 | `success-minimal` | `History` with only the required + a subset of optional columns (older-generation simulation); no post-2025 tables | Optional columns feature-detected; extraction succeeds; fingerprint reports the reduced variant |
 | `empty` | (a) valid store, zero `History` rows; (b) rows with only empty/NULL `asrText`; (c) data root without `flow.sqlite` | found-empty vs not-found; `empty_asr_rows` counted; retention-policy emptiness is not an error |
-| `malformed` | (a) non-SQLite bytes at `flow.sqlite`; (b) truncated store failing `integrity_check`; (c) NULL and duplicate `transcriptEntityId` rows above and below the 1% threshold | `SOURCE_NOT_SQLITE`, `SOURCE_CORRUPT_DB`, `pk_anomaly` handling and threshold fall-through |
+| `malformed` | (a) non-SQLite bytes at `flow.sqlite`; (b) truncated store failing `integrity_check`; (c) NULL and duplicate `transcriptEntityId` rows above and below the 1% threshold | `SOURCE_UNSUPPORTED_SCHEMA`, `SOURCE_UNSUPPORTED_SCHEMA`, `pk_anomaly` handling and threshold fall-through |
 | `unsupported` | (a) `History` missing `asrText`; (b) `History` renamed; (c) plausible-but-unknown schema (extra required-column rename) | `detected, unsupported schema`; zero extracted text |
 | `wal-live` | Store in WAL mode with `-wal`/`-shm` present and uncheckpointed committed rows | Backup-API snapshot captures WAL content; fallback copy path also tested; source files bit-identical after snapshot |
 | `timestamps` | Rows with `+00:00` text form, ISO-8601 form, non-UTC offset, empty, and garbage timestamps | Parsing matrix; `undated` handling; period-filter behavior |
 | `denylist` | Data root with fake `config.json` (`sk-FAKEFAKEFAKE0000`), `SharedStorage`, `backup-2026-01-01T00-00-00.000Z.sqlite`, `Local Storage/`, logs | Opened-path audit proves only `flow.sqlite*` opened; backup DB never opened |
 | `windows-roaming` | Same store under a simulated `<home>/AppData/Roaming/Wispr Flow/` layout | Path resolution on Windows; identical extraction |
-| `wsl-failclosed` | Simulated `/mnt/c/Users/<fake>/AppData/Roaming/Wispr Flow/flow.sqlite` visible from a WSL-flagged environment | `WSL_WINDOWS_HOST_DB_USE_NATIVE_WINDOWS`; zero counts; native-Windows hint surfaced |
+| `wsl-failclosed` | Simulated `/mnt/c/Users/<fake>/AppData/Roaming/Wispr Flow/flow.sqlite` visible from a WSL-flagged environment | `SOURCE_WSL_HOST_STORE_HINT`; zero counts; native-Windows hint surfaced |
 | `dedup-cross-source` | Wispr store plus a synthetic Claude Code fixture containing the same sentence seconds later | Shared normalizer selects one canonical utterance; Wispr copy wins `spoken_asr` modality |
 
 Platform matrix: the suite runs on macOS, Linux (fixtures only — adapter reports not-applicable

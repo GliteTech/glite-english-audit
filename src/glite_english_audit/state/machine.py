@@ -73,7 +73,7 @@ SEMANTIC_STAGES: frozenset[StageId] = frozenset(
 
 They are promoted only after both the deterministic and the independent
 semantic verifier pass; for privacy stages the confidentiality verifier is the
-second line of defence (specification, 6.6). The remaining stages are fully
+second line of defense (specification, 6.6). The remaining stages are fully
 deterministic and promote straight from ``VERIFIED_DETERMINISTIC``.
 """
 

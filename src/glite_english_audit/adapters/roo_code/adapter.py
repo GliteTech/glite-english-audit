@@ -39,6 +39,7 @@ from glite_english_audit.artifacts.enums import (
     Stability,
     TextStatus,
 )
+from glite_english_audit.artifacts.io import ensure_private_dir, restrict_private_file
 from glite_english_audit.artifacts.models import (
     NormalizedUtterance,
     SnapshotFileEntry,
@@ -476,7 +477,7 @@ class RooCodeAdapter:
         source_path: Path,
         target_dir: Path,
     ) -> SnapshotCapture:
-        target_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(target_dir)
         entries: list[SnapshotFileEntry] = []
         session_map: dict[str, str] = {}
         tasks_dir = source_path / "tasks"
@@ -496,7 +497,7 @@ class RooCodeAdapter:
                 if source_file.stat().st_size > self._max_file_bytes:
                     continue
                 target_file = target_dir / subdir / name
-                target_file.parent.mkdir(parents=True, exist_ok=True)
+                ensure_private_dir(target_file.parent)
                 digest, size = self._copy_validated(source_file, target_file)
                 entries.append(
                     SnapshotFileEntry(
@@ -511,6 +512,7 @@ class RooCodeAdapter:
         )
         meta_path = target_dir / _SNAPSHOT_META_NAME
         meta_path.write_bytes(payload)
+        restrict_private_file(meta_path)
         entries.append(
             SnapshotFileEntry(
                 relative_path=_SNAPSHOT_META_NAME,
@@ -537,6 +539,9 @@ class RooCodeAdapter:
                 digest.update(chunk)
                 size += len(chunk)
                 writer.write(chunk)
+        # A snapshot copy is private runtime data whatever the source's mode
+        # was (specification, 3.6).
+        restrict_private_file(target)
         return digest.hexdigest(), size
 
     def _parses_as_json(self, target: Path) -> bool:

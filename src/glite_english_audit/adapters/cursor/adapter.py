@@ -295,7 +295,10 @@ class CursorAdapter:
 
     @property
     def stability(self) -> Stability:
-        return Stability.STABLE
+        # Beta keeps the adapter out of the default selection. The project
+        # specification (1.4, 4.7) ships Cursor as beta until a tested variant
+        # proves raw provenance on more than the one macOS generation below.
+        return Stability.BETA
 
     # -- access guards -----------------------------------------------------
 
@@ -405,7 +408,9 @@ class CursorAdapter:
 
     def _probe_root(self, root: Path, home: Path) -> _Probe:
         global_db = root / "globalStorage" / "state.vscdb"
-        if not global_db.is_file():
+        # A symlink here would be a path out of the allowlisted tree, the same
+        # check the workspace databases already get below.
+        if not global_db.is_file() or global_db.is_symlink():
             # Spec 10.7: an untested server-side store is detected, never read.
             if (home / ".cursor-server").is_dir():
                 return self._degenerate_probe(

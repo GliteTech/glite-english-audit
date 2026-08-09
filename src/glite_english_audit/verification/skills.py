@@ -22,6 +22,15 @@ REQUIRED_SECTIONS = (
     "## Done When",
     "## Forbidden",
 )
+OUTPUT_FORMAT_SECTION = "## Output Format"
+"""Required because every canonical skill in this repository writes an artifact.
+
+The specification states the rule conditionally ("whenever the skill produces
+an artifact"). No deterministic check can read that condition out of prose, so
+this verifier applies it unconditionally, which is exact for the shipped set
+and stricter than the specification for a hypothetical read-only skill.
+"""
+
 EMPHASIS_BUDGET = 5
 WRAPPER_DIRS = (".claude/skills", ".codex/skills")
 
@@ -160,6 +169,15 @@ def check_skill(parsed: ParsedSkill, repo_root: Path) -> list[Diagnostic]:
                     item_ref=slug,
                 )
             )
+
+    if not re.search(rf"^{re.escape(OUTPUT_FORMAT_SECTION)}$", parsed.body, re.MULTILINE):
+        diagnostics.append(
+            Diagnostic.from_code(
+                "SKILL_OUTPUT_FORMAT_MISSING",
+                f"skills/{slug}: produces an artifact but has no {OUTPUT_FORMAT_SECTION!r} section",
+                item_ref=slug,
+            )
+        )
 
     emphasis_count = len(_EMPHASIS_PATTERN.findall(parsed.body))
     if emphasis_count > EMPHASIS_BUDGET:

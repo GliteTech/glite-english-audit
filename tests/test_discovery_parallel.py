@@ -16,10 +16,16 @@ import pytest
 
 from glite_english_audit.adapters.claude_code.adapter import ClaudeCodeAdapter
 from glite_english_audit.adapters.codex.adapter import CodexAdapter
-from glite_english_audit.artifacts.enums import OsEnvironment
-from glite_english_audit.artifacts.models import SourceInstanceRecord
+from glite_english_audit.artifacts.enums import OsEnvironment, Stability
+from glite_english_audit.artifacts.models import NormalizedUtterance, SourceInstanceRecord
+from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.discovery import inventory, parallel, registry
-from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome, SourceAdapter
+from glite_english_audit.discovery.base import (
+    DiscoveryContext,
+    DiscoveryOutcome,
+    SnapshotCapture,
+    SourceAdapter,
+)
 
 # A string that exists nowhere else in the tree, so finding it anywhere proves
 # a leak rather than a coincidence.
@@ -263,7 +269,12 @@ def test_parallel_scanning_keeps_the_opened_path_audit(tmp_path: Path) -> None:
 
 
 class _StubAdapter:
-    """A minimal adapter that yields one record and no paths."""
+    """A minimal adapter that yields one record and no paths.
+
+    Implements the whole :class:`SourceAdapter` protocol, not just the part
+    these tests call: a partial stub would type-check as a different thing
+    from what ``run_discovery`` is handed at runtime.
+    """
 
     def __init__(self, adapter_id: str, *, delay: float = 0.0) -> None:
         self._adapter_id = adapter_id
@@ -278,12 +289,34 @@ class _StubAdapter:
         return "1.0.0"
 
     @property
-    def stability(self) -> str:
-        return "stable"
+    def stability(self) -> Stability:
+        return Stability.STABLE
 
     def discover(self, context: DiscoveryContext) -> DiscoveryOutcome:
         time.sleep(self._delay)
         return DiscoveryOutcome(records=[], instance_paths={f"{self._adapter_id}-key": Path(".")})
+
+    def snapshot(
+        self,
+        instance: SourceInstanceRecord,
+        source_path: Path,
+        target_dir: Path,
+    ) -> SnapshotCapture:
+        raise NotImplementedError
+
+    def extract(
+        self,
+        instance: SourceInstanceRecord,
+        snapshot_dir: Path,
+    ) -> Iterator[NormalizedUtterance]:
+        raise NotImplementedError
+
+    def verify(
+        self,
+        instance: SourceInstanceRecord,
+        utterances: list[NormalizedUtterance],
+    ) -> list[Diagnostic]:
+        raise NotImplementedError
 
 
 class _ExplodingAdapter(_StubAdapter):

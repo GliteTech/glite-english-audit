@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 # Spec 4.2: pasted text is user-transferred, not user-authored. Prompts longer
-# than this carry a possible-paste flag so normalization can quarantine them.
+# than this carry a possible-paste content flag. No stage consumes the flag
+# yet; the stage-3 authorship skill is what currently removes pasted material.
 PASTE_LENGTH_THRESHOLD = 2000
 
 KNOWN_RECORD_TYPES: frozenset[str] = frozenset(

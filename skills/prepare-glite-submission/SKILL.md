@@ -7,7 +7,7 @@ Use after stage 7 is promoted, as the final audit stage."
 
 # Prepare Glite Submission
 
-**Version**: 1
+**Version**: 2
 
 ## Goal
 
@@ -51,11 +51,19 @@ upload on the Glite website.
 ## Steps
 
 1. Confirm in the run manifest that stages 0-7 are promoted.
-2. Start the review server:
-   `uv run python -m glite_english_audit.review_server --run-id <run-id>`. It builds
-   the review data from the approved records plus counts, runs the content-free
-   capability check, and prints the local URL with the token.
-3. Tell the user: "Your review page is ready: <address>. Open it in your browser.
+2. Build the review data: `uv run python -m glite_english_audit.pipeline.build_review
+   --run-id <run-id>`. It computes the count set from the run's own artifacts rather
+   than trusting any stage's self-report, and writes the private
+   `ReviewedSubmissionArtifact` with every record included. Run it even when the
+   orchestration already did: it is idempotent, and the server cannot start without
+   its output.
+3. Start the review server:
+   `uv run python -m glite_english_audit.review_server --run-id <run-id>`. It loads
+   the artifact step 2 wrote, runs the content-free capability check, and prints the
+   local URL with the token. It builds nothing: with no artifact from step 2 it
+   prints "No reviewed submission artifact exists for this run yet" and exits
+   non-zero.
+4. Tell the user: "Your review page is ready: <address>. Open it in your browser.
    Nothing is sent until you confirm there." Copy `<address>` exactly as the command
    printed it; the address carries a per-run token and no other form works. Explain the
    page in two or three sentences: every record is shown exactly as it would be
@@ -64,22 +72,27 @@ upload on the Glite website.
    confirmations are required before sending, and both start unchecked — that you
    are at least 18, and that you accept permanent, irrevocable storage, the
    disclosed uses, and external AI processing of submitted records.
-4. Wait for the user to finish in the browser. This wait is part of stage 8, not a
+5. Wait for the user to finish in the browser. This wait is part of stage 8, not a
    mid-run question. While waiting, answer questions about what the page shows, but
    change nothing.
-5. The page materializes the decisions: it writes the `ReviewedSubmissionArtifact`,
-   then `materialize_package()` emits the `SubmissionPackage` from the allowlist.
-   Deterministic checks run before any send or download: schema, count arithmetic,
-   payload hash, and the allowlist.
-6. Report the outcome in the conversation:
+6. The page applies each include and exclude decision to its in-memory copy of the
+   reviewed artifact and recomputes the counts, then `materialize_package()` emits
+   the `SubmissionPackage` from the allowlist. Deterministic checks run before any
+   send or download: schema, count arithmetic, payload hash, and the allowlist. The
+   server writes nothing to disk — the artifact on disk is the one step 2 wrote, and
+   the package reaches the user through the browser.
+7. Report the outcome in the conversation:
    - Sent: "Sent 84 mistakes anonymously. You excluded 3; each excluded record adds
      1 to the anonymous withheld count, and its details were not sent. Your download
      of the exact package is your only way to retrieve the report later — keep it."
-   - Downloaded only: state where the package was saved, that no compatible Glite
-     endpoint was available or configured, and that the package can be uploaded on
-     the Glite website later. The same 18+ confirmation is required there.
+   - Downloaded only: say the browser downloaded the package as
+     `glite-submission-package.json`, that no compatible Glite endpoint was available
+     or configured, and that the file can be uploaded on the Glite website later. The
+     same 18+ confirmation is required there. You cannot see where the browser put
+     it, so do not name a folder — say it went to their downloads and let them find
+     it.
    - No records included: nothing is sent, and no report exists. Say so plainly.
-7. Hand control back to `skills/run-english-audit/SKILL.md` for retention cleanup.
+8. Hand control back to `skills/run-english-audit/SKILL.md` for retention cleanup.
 
 Outcome wording:
 
@@ -102,9 +115,11 @@ only be included or excluded; edits would break the verified privacy guarantees.
 ## Output Format
 
 - Private: `ReviewedSubmissionArtifact` in
-  `src/glite_english_audit/artifacts/models.py` — envelope, `ReviewedRecord` list
-  with include decisions, and `AuditCounts` whose invariants tie shared and withheld
-  counts to the decisions.
+  `src/glite_english_audit/artifacts/models.py` — envelope, `ReviewedRecord` list,
+  and `AuditCounts` whose invariants tie shared and withheld counts to the include
+  decisions. `pipeline.build_review` writes it once, with every record included; the
+  user's exclusions live in the server's session and reach disk only through the
+  package the browser downloads.
 - Exported: `SubmissionPackage` validating against
   `schemas/submission_package.schema.json`; field semantics in
   `specifications/submission_contract.md`. It carries its own schema version,
@@ -114,8 +129,8 @@ only be included or excluded; edits would break the verified privacy guarantees.
 
 ## Done When
 
-- The `ReviewedSubmissionArtifact` exists, validates, and matches the user's
-  include and exclude decisions.
+- `pipeline.build_review` ran and its `ReviewedSubmissionArtifact` exists and
+  validates, so the review server started instead of exiting non-zero.
 - If at least one record was included: the package exists, passes
   `verify_submission_package()` and `verify_package_against_review()`, and was
   downloaded or sent exactly once (idempotent; no background retry after a failure).
@@ -147,11 +162,12 @@ privacy).
 Intermediate decision: the capability check finds no endpoint configuration file, so
 the page is download-only and the Send action is omitted.
 
-The server prints `http://127.0.0.1:8391/t/FAKEEXAMPLETOKEN0000/`. The user opens
-it, excludes 3 records, and downloads the package. The two send confirmations stay
-unchecked; in download-only mode they are collected later, on the Glite website,
-before a manual upload is accepted. The reviewed artifact records 84 included, 3
-excluded.
+`pipeline.build_review` writes the reviewed artifact with all 87 records included.
+The server then prints `http://127.0.0.1:8391/t/FAKEEXAMPLETOKEN0000/`. The user
+opens it, excludes 3 records, and downloads the package; the session recomputes the
+counts to 84 included and 3 excluded. The two send confirmations stay unchecked; in
+download-only mode they are collected later, on the Glite website, before a manual
+upload is accepted.
 
 Exact output (package counts, condensed):
 
@@ -170,9 +186,10 @@ Exact output (package counts, condensed):
 
 Verification result: `verify_submission_package()` passes — 84 records match
 `shared_mistakes`, 84 + 3 + 5 = 92, the payload hash recomputes, and no field
-outside the allowlist is present. The outcome message: "Saved the package to your
-run folder. No Glite endpoint is configured, so nothing was sent. You can upload the
-file on the Glite website later; 3 excluded records count only as withheld."
+outside the allowlist is present. The outcome message: "Your browser downloaded
+glite-submission-package.json. No Glite endpoint is configured, so nothing was sent.
+You can upload that file on the Glite website later; 3 excluded records count only
+as withheld."
 
 Failure/repair behavior: if the artifact claimed `shared_mistakes: 85` with 84
 included records, validation would fail with a count mismatch

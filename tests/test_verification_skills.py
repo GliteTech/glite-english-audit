@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from glite_english_audit.diagnostics.codes import Diagnostic
+from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.verification.generate_wrappers import generate_all
 from glite_english_audit.verification.skills import (
+    OUTPUT_FORMAT_SECTION,
     REQUIRED_SECTIONS,
     check_skill,
     check_wrappers,
@@ -50,6 +51,10 @@ The output exists.
 ## Forbidden
 
 Do not skip checks.
+
+## Output Format
+
+One JSON object per line.
 """
 
 
@@ -157,6 +162,16 @@ def test_each_missing_required_section(tmp_path: Path, section: str) -> None:
     missing = [d for d in diagnostics if d.code == "SKILL_SECTION_MISSING"]
     assert len(missing) == 1
     assert section in missing[0].message
+
+
+def test_missing_output_format_section(tmp_path: Path) -> None:
+    body = _VALID_BODY.replace(f"{OUTPUT_FORMAT_SECTION}\n", "## Renamed Section\n")
+    _write_skill(tmp_path, "demo-skill", body=body)
+    diagnostics = _check(tmp_path, "demo-skill")
+    assert "SKILL_OUTPUT_FORMAT_MISSING" in _codes(diagnostics)
+    # A warning, so it reports without blocking; the CLI exits on errors only.
+    warning = next(d for d in diagnostics if d.code == "SKILL_OUTPUT_FORMAT_MISSING")
+    assert warning.severity is Severity.WARNING
 
 
 def test_emphasis_budget_exceeded(tmp_path: Path) -> None:

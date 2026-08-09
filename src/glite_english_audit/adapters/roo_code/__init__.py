@@ -1,4 +1,4 @@
-"""Roo Code source adapter (stable).
+"""Roo Code source adapter (beta).
 
 Source specification: ``specifications/sources/roo_code.md``.
 """

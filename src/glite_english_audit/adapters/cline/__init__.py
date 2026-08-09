@@ -1,4 +1,4 @@
-"""Cline source adapter (stable).
+"""Cline source adapter (beta).
 
 Source specification: ``specifications/sources/cline.md``.
 """

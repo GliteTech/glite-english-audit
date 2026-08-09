@@ -465,8 +465,9 @@ handled downstream by the privacy pipeline.
   after the spec 3.6 path-safety preflight. Never treat the live file as an immutable flat
   file (spec 4.6).
 - Free-space preflight: the global database can exceed several GB. If free space is below the
-  database size plus margin, snapshotting fails closed with `SNAPSHOT_INSUFFICIENT_SPACE`;
-  no partial snapshot is used.
+  database size plus margin, snapshotting fails closed before the first byte is copied and the
+  run records the instance as excluded; no partial snapshot is used. There is no registered
+  diagnostic code for this condition, so the preflight raises rather than reporting one.
 - Workspace databases selected for the index are snapshotted the same way (they are small).
 - If the backup API reports the database is locked beyond the bounded retry budget:
   `inaccessible` with a diagnostic advising the user to close Cursor; never force, never

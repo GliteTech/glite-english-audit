@@ -154,13 +154,13 @@ class SnapshotFileEntry(BaseModel):
     @field_validator("relative_path")
     @classmethod
     def _relative(cls, value: str) -> str:
-        # Checked under both path flavours because Windows is a supported
+        # Checked under both path flavors because Windows is a supported
         # platform: there a backslash separates components and a drive letter
         # or UNC prefix makes the path absolute, so '..\\..' escapes exactly
         # like '../..' does on POSIX.
         msg = f"snapshot entry path must be relative and contained: {value!r}"
-        for flavour in (PurePosixPath, PureWindowsPath):
-            pure = flavour(value)
+        for flavor in (PurePosixPath, PureWindowsPath):
+            pure = flavor(value)
             if pure.anchor or pure.drive or ".." in pure.parts or not pure.parts:
                 raise ValueError(msg)
         return value

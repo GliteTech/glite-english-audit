@@ -130,8 +130,9 @@ The Markdown body must contain:
 
 Additionally required:
 
-* `## Output Format` whenever the skill produces an artifact. Reference the generated schema in
-  `schemas/` or the owning specification; do not restate field lists.
+* `## Output Format` whenever the skill produces an artifact. Name the owning Pydantic model or
+  specification; do not restate field lists. Every skill in this repository produces one, so
+  `verify_skills` requires the section from all of them and warns when it is absent.
 
 Recommended sections:
 
