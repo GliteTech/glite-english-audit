@@ -50,6 +50,28 @@ Field meanings:
 | `p50_total_tokens_per_message` | Median total tokens per message. |
 | `p90_total_tokens_per_message` | 90th-percentile total tokens per message. |
 
+The unit these per-message fields count is the unit the step processes, which is not a message for
+every step. See section 7.
+
+### 1.1 Priced cells and retired cells
+
+The profile has two lists. `entries` are the cells an estimate may use; `retired_entries` are cells
+whose step the pipeline no longer runs. A retired cell is the same record it always was — the
+measurement happened and deleting it would destroy a record — but a step that does not run must
+never reach the total the user consents to at the preflight, so no estimator, model resolution, or
+confidence calculation reads `retired_entries`.
+
+Retired so far:
+
+| Step | Why |
+|---|---|
+| `verify-findings` | Deleted. Problems with a finding are fixed in the skill that extracts mistakes. |
+| `create-safe-records` | Merged into `find-mistakes`, which now owns privacy-clean output. |
+
+Both were priced for some time after their steps stopped existing: together they charged 563 of the
+2,533 units the estimator billed per 1,000 candidate messages, so 22% of the number the user
+consented to described work nobody did.
+
 ## 2. Partitioning keys
 
 Measurements are comparable only inside a calibration cell. A cell is keyed by:
@@ -118,3 +140,40 @@ Users can clear local calibration history at any time; clearing only widens futu
 Pre-release calibration harnesses run under the Git-ignored `temp/token-calibration/` directory
 and fail if that directory is tracked. They read real source data in place and retain only the
 numerical coefficients described above, written to `calibration/token-usage-profile.json`.
+
+## 7. What each committed cell was measured on
+
+Every cell states its own unit and its own provenance, because they differ. A profile edit that
+changes a number without changing this section is undocumented.
+
+| Step | Unit priced | Measured on |
+|---|---|---|
+| `judge-authorship` | One candidate utterance | Claude Code, `claude-fable-5`, medium, 198 utterances (2026-08-08/09) |
+| `find-mistakes` | One retained utterance | Claude Code, `claude-fable-5`, medium, 250 messages in 10 batches of 25 (2026-08-08) |
+| `confirm-confidentiality` | One session file | Claude Code, `claude-opus-5`, xhigh, 31 session agents (2026-08-09) |
+
+### 7.1 The confidentiality cell
+
+Source: one real end-to-end audit on 2026-08-09 — 31 sessions, 191 candidate messages, 5,369
+English words after the authorship step, 84 mistake records. Step e ran one agent per session file,
+including the sessions that held no record, and consumed 798,083 fresh input tokens, 2,417,478
+cached input tokens, and 26,628 output tokens across those 31 agents. The committed cell carries
+the fresh cost as `fixed_input_tokens_per_batch` (25,745 per call, one call per session file) and
+the p50/p90 of per-session cached-plus-output as the per-unit totals. Its
+`average_words_per_message` is the run's 173.2 authored words per session, nominal: both fresh
+coefficients are 0.0, so no word count moves this cell.
+
+The unit is the session file rather than the mistake record, and that is a finding of the run, not
+a convenience. Of the 28 sessions whose record count the run reported, the 15 that held no record
+at all cost a mean 106,982 tokens and the 13 that held one or more cost a mean 105,887; the session
+holding 25 records cost less than the median empty one. At this record volume the cost tracks the
+agent, not the records it judges, so pricing
+per record would state a relationship the measurement contradicts. The 2.7 records an average
+session held are inside the per-session number instead of multiplying it. The limit is stated
+plainly: nothing in this sample shows where a denser corpus starts to cost more, so a corpus whose
+sessions hold far more than 2.7 records needs a new measurement.
+
+This is one run, on one machine, under one runtime and one model. `messages_measured` is therefore
+31 sessions, which the section 4 rule converts to a single sample — far under the 10 needed for
+high confidence — so the cell is reported low-confidence and its upper bound is widened. It is a
+measurement, not a calibration.

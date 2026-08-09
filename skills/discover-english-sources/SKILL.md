@@ -130,26 +130,27 @@ agent sees only the derived `InstanceInventorySummary`.
    numbers describe the run they are about to start and not some other one.
 
    It prints one object per preset (words, utterances, token range, minutes
-   range, confidence) plus a rendered table with its notes. Show that table, or
-   put its numbers in the options; do not summarize it as "a few hours".
+   range, confidence) plus a rendered table with its notes. The table carries
+   the two numbers a period is chosen on, words and time; the token range stays
+   in the JSON for the preflight. Show that table, or put its numbers in the
+   options; do not summarize it as "a few hours".
 
-   Repeat what the notes say rather than dropping them. They state which counts
-   are interpolated, which model steps are not calibrated, and that quota and
-   price are unavailable. A number the tool marks low confidence is not
-   presented as measured, and a subscription percentage the tool did not compute
-   is not invented.
+   Repeat what the notes say rather than dropping them. They state that the
+   numbers are estimates worked out from each app's date range, that the run can
+   exceed them, and that no price is available. A range stays a range when you
+   repeat it, and a subscription percentage the tool did not compute is not
+   invented.
 
-   Do: "Last 30 days — 355,000 words, 3–13 hours. That is an estimate from
-   partly calibrated measurements, and I cannot see your usage limits."
+   Do: "Last 30 days — 355,000 words, 3–13 hours. That is an estimate and the
+   run can go over it, and I cannot tell you what it costs in money."
    Don't: "Last 30 days will take about 6 hours" — a single number the tool
    never produced, with the uncertainty removed.
 
-   Relay every note the command returns, not the ones that seem important. They
-   are already the short list: the command emits only the caveats that apply to
-   this inventory, and each one exists because a number above it is wrong in a
-   specific way without it. Count them and check you have that many. A real run
-   dropped one of seven, and the dropped one is invisible to the reader by
-   definition.
+   Relay every note the command returns, not the ones that seem important.
+   There are three, four when a source reports no dates, and each one exists
+   because a number above it is read wrongly without it. Count them and check
+   you have that many. A real run silently dropped one, and a dropped note is
+   invisible to the reader by definition.
 
    If you comment on which app or period to drop, do the subtraction first. Rerun
    the command with `--exclude-source` for the app you are about to name, and
@@ -311,9 +312,12 @@ aggregate numbers; neither carries a label, a path, or any text.
 - Do not estimate a period yourself, and do not offer a period the estimate
   command did not cover. Guessing "a few hours" is the failure this skill's step
   5 exists to remove.
-- Do not offer the table's "Custom dates" row as a choice. It is a row, not a
-  preset: it carries no numbers, and `pipeline.start_run --period` cannot record a
-  custom range. Offer the five presets that have estimates.
+- Do not offer a custom date range. `pipeline.start_run --period` cannot record
+  one, so offer the periods the table lists and, for a user who asks for specific
+  dates, the smallest preset that covers them.
+- Do not re-add a period the table folded away. When a preset's window reaches
+  further back than the user's history, that preset and Everything are the same
+  run, and the table prints Everything alone rather than the same numbers twice.
 - Do not report your own validation to the user: that every row parsed, that the
   artifact has the right permissions, that a document is out of date. Those are
   your job, not their reading. Fix a defect or note it for the maintainer; do not
@@ -367,21 +371,19 @@ Then `uv run python -m glite_english_audit.estimation.estimate`, whose `table`
 field is shown before the period question:
 
 ```text
-Period          Words  Time        Expected use
-Last 7 days        97  0–2 min     502K–867K tokens, low confidence
-Last 30 days   13,442  0.9–3.5 h   21.5M–46.7M tokens, low confidence
-Last 3 months  44,251  2.8–11.5 h  70.4M–152.9M tokens, low confidence
-Last year      71,700  4.6–18.6 h  113.7M–247.2M tokens, low confidence
-Everything     71,700  4.6–18.6 h  113.7M–247.2M tokens, low confidence
-Custom dates                       Calculated after dates are entered
+Period          Words  Time
+Last 7 days        97  0–2 min
+Last 30 days   13,442  0.9–3.5 h
+Last 3 months  44,251  2.8–11.5 h
+Everything     71,700  4.6–18.6 h
 ```
 
-Both projects went quiet a week ago, so the seven-day row is nearly empty and
-still costs half a million tokens: the per-batch prompt overhead is paid even
-for three messages. Each preset then becomes one option with its words and time
-in the description, and the notes printed under the table are repeated — the
-counts are interpolated from each source's date range, two model steps are not
-yet calibrated, and quota and price are unavailable.
+Both projects went quiet a week ago, so the seven-day row is nearly empty. Last
+year is not a row: this history starts in March, so that preset and Everything
+are the same run. Each remaining period then becomes one option with its words
+and time in the description, and the three notes printed under the table are
+repeated — the numbers are estimates worked out from each app's date range, the
+run can exceed them, and no price is available.
 
 Verification result: the deterministic inventory verifier validates every summary
 row against `InstanceInventorySummary`, confirms adapter IDs are registered public

@@ -116,22 +116,22 @@ runtime; naming both is confusing and wrong.
       default; the user can uncheck any source or instance. Beta, experimental,
       inaccessible, unsupported-schema, cleaned-only, and unknown-provenance sources
       are not selected automatically.
-   2. Period: offer exactly the five presets Last 7 days, Last 30 days, Last 3
-      months, Last year, and Everything. The estimate table prints a sixth "Custom
-      dates" row, but that row is not a preset and `pipeline.start_run --period`
-      cannot accept one: there is no way to record a custom range, so do not offer
-      it as a choice. If the user asks for specific dates, say the audit runs in
-      fixed periods, and offer the smallest preset that covers the range they want.
+   2. Period: offer the periods the estimate table lists, which are the presets
+      `pipeline.start_run --period` accepts. The table prints one row per distinct
+      period: when a preset's window reaches further back than the user's history,
+      that preset and Everything are the same run, and only Everything is printed —
+      do not offer the folded ones as separate choices. There is no way to record a
+      custom range, so if the user asks for specific dates, say the audit runs in
+      fixed periods and offer the smallest preset that covers the range they want.
       Before asking, run
       `uv run python -m glite_english_audit.estimation.estimate`
       (`src/glite_english_audit/estimation/estimate.py`; profile format in
       `specifications/token_estimation_profile.md`), passing the apps the user just
       chose with the same `--include-source`, `--exclude-source`, and
       `--exclude-label` arguments the run will use. Show its `table` and repeat its
-      `notes`: which counts are interpolated and which steps are not calibrated.
-      Warn when a preset is unlikely to fit the remaining allowance. These are
-      calibrated estimates, not guarantees, and a range the command marks low
-      confidence stays a range when you repeat it.
+      `notes` — three of them, four when a source reports no dates. Warn when a
+      preset is unlikely to fit the remaining allowance. These are estimates, not
+      guarantees, and a range stays a range when you repeat it.
    3. Processing profile. First find out whether there is a choice to offer:
 
       ```
@@ -233,9 +233,9 @@ runtime; naming both is confusing and wrong.
    ```
    Don't: naming the four measured cells behind that model. Don't: "58,232 a
    minute ago — the window slid", which is the product narrating its own
-   arithmetic at someone deciding whether to spend two hours. Don't: the
-   parallelism note from the command's `notes` — the user does not choose how many
-   sessions run at once. Don't: the retry delay, the cumulative wait limit and the
+   arithmetic at someone deciding whether to spend two hours. Don't: how many
+   sessions run at once — the user does not choose it, and the estimate no longer
+   says. Don't: the retry delay, the cumulative wait limit and the
    difference between them, which are the policy below and not the user's decision.
 
    The allowance figure carries its age and is never presented as a live reading:
@@ -567,18 +567,18 @@ Intermediate decisions: discovery returns two instances, "Claude Code 1" (stable
 selected by default. The user keeps both, sees the period table:
 
 ```text
-Period          Words  Time        Expected use
-Last 7 days     4,333  16–65 min   6.8M–14.7M tokens, low confidence
-Last 30 days   18,571  1.1–4.7 h   28.5M–61.9M tokens, low confidence
-Last 3 months  51,268  3.2–12.8 h  78.5M–170.6M tokens, low confidence
-Last year      81,800  5–20.5 h    125M–271.8M tokens, low confidence
-Everything     81,800  5–20.5 h    125M–271.8M tokens, low confidence
-Custom dates                       Calculated after dates are entered
+Period          Words  Time
+Last 7 days     4,333  16–65 min
+Last 30 days   18,571  1.1–4.7 h
+Last 3 months  51,268  3.2–12.8 h
+Everything     81,800  5–20.5 h
 ```
 
-The notes under it are repeated in the conversation: the counts are interpolated
-from each source's date range, and two model steps have fewer than ten measured
-samples.
+Last year is not a row: this history does not reach back a year, so that preset
+and Everything are the same run. The three notes under the table are repeated in the
+conversation — the numbers are estimates worked out from each app's date range,
+the run can exceed them, and no price is available. Token totals stay in the
+command's JSON for the preflight.
 
 The user picks Last 30 days and the Recommended profile, confirms provider transfer
 ("Send the selected text to your current AI provider through Claude Code?"), and

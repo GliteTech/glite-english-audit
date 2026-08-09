@@ -94,12 +94,22 @@ class TokenUsageProfileEntry(BaseModel):
 
 
 class TokenUsageProfile(BaseModel):
-    """The committed calibration profile: numbers only (specification, 3.7)."""
+    """The committed calibration profile: numbers only (specification, 3.7).
+
+    ``entries`` are the cells an estimate may use. ``retired_entries`` are cells
+    whose step the pipeline no longer runs: verify-findings was deleted and
+    create-safe-records was merged into find-mistakes. Those measurements
+    happened and deleting them would destroy a record, but a step that does not
+    run must not reach a total the user consents to, so they are kept in a field
+    no estimator reads. Nothing else distinguishes the two: a retired cell is
+    the same record it always was.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(ge=1)
     entries: tuple[TokenUsageProfileEntry, ...]
+    retired_entries: tuple[TokenUsageProfileEntry, ...] = ()
 
     def entry_for(
         self, *, step: str, runtime: str, model: str, effort: str

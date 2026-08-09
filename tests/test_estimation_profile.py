@@ -18,12 +18,14 @@ from glite_english_audit.estimation.profile import (
     resolve_models,
 )
 
+# The steps the pipeline actually runs. verify-findings was deleted and
+# create-safe-records was merged into find-mistakes, so neither may be priced.
 EXPECTED_STEPS = {
     "judge-authorship",
     "find-mistakes",
-    "verify-findings",
-    "create-safe-records",
+    "confirm-confidentiality",
 }
+RETIRED_STEPS = {"verify-findings", "create-safe-records"}
 EXPECTED_RUNTIMES = {"claude-code", "codex"}
 
 
@@ -79,12 +81,13 @@ def test_committed_profile_loads_and_covers_all_cells() -> None:
 
 
 def test_committed_profile_calibration_state() -> None:
-    # Claude Code cells were measured on real owner data (2026-08-08);
-    # Codex cells stay uncalibrated until a calibration run under Codex.
+    # Claude Code cells were measured on real owner data: authorship and
+    # mistakes on claude-fable-5 (2026-08-08), confidentiality on claude-opus-5
+    # (2026-08-09). Codex cells stay uncalibrated until a run under Codex.
     profile = load_token_usage_profile()
     for entry in profile.entries:
         if entry.runtime == "claude-code":
-            assert entry.model == "claude-fable-5"
+            assert entry.model in {"claude-fable-5", "claude-opus-5"}
             assert entry.messages_measured > 0
             assert not entry.is_uncalibrated
             assert entry.p90_total_tokens_per_message >= entry.p50_total_tokens_per_message
@@ -93,6 +96,27 @@ def test_committed_profile_calibration_state() -> None:
             assert entry.messages_measured == 0
             assert entry.is_uncalibrated
     assert [e for e in profile.low_confidence_entries() if e.runtime == "codex"]
+
+
+def test_a_retired_step_is_kept_as_a_record_and_priced_by_nothing() -> None:
+    """Both halves matter, and they pull in opposite directions.
+
+    verify-findings and create-safe-records were really measured, so deleting
+    the numbers would destroy a record of work that happened. But the pipeline
+    stopped running either step, and while they sat in ``entries`` they were
+    22% of the token total the user is asked to consent to. Keeping them out of
+    the priced set is what makes keeping them safe.
+    """
+    profile = load_token_usage_profile()
+    priced = {entry.step for entry in profile.entries}
+    retired = {entry.step for entry in profile.retired_entries}
+    assert priced == EXPECTED_STEPS
+    assert retired == RETIRED_STEPS
+    assert priced.isdisjoint(retired)
+    assert all(entry.messages_measured >= 0 for entry in profile.retired_entries)
+    # Every model resolution and every estimate reads ``entries`` alone.
+    resolved = resolve_models(profile, runtime="claude-code", processing_profile="recommended")
+    assert RETIRED_STEPS.isdisjoint(resolved)
 
 
 def test_default_profile_path_points_into_calibration_dir() -> None:
@@ -192,7 +216,7 @@ def test_record_rejects_negative_counts() -> None:
 
 
 def test_judge_authorship_cell_reproduces_the_run_it_was_measured_from() -> None:
-    """The step-3 cell must still predict the run that produced it.
+    """The step-c cell must still predict the run that produced it.
 
     On 2026-08-09 a real audit judged authorship for 198 candidate utterances
     in eight concurrent batches and consumed 4,418,856 tokens end to end
@@ -219,6 +243,41 @@ def test_judge_authorship_cell_reproduces_the_run_it_was_measured_from() -> None
     assert entry.messages_measured == measured_utterances
 
 
+def test_confirm_confidentiality_cell_reproduces_the_run_it_was_measured_from() -> None:
+    """Step e used to be priced at nothing. This pins what replaced the zero.
+
+    On 2026-08-09 a real audit ran the confidentiality check over 31 session
+    files and consumed 3,242,189 tokens (798,083 fresh input, 2,417,478 cached
+    input, 26,628 output). The cell charges a fixed cost per session file plus a
+    per-session total, because the run showed the record count predicting
+    nothing: the 15 sessions holding no record cost as much as the 13 that did.
+
+    One run on one machine, so the band is wide and the cell stays
+    low-confidence. A profile edit that leaves this band is either a new
+    measurement, which should say so, or a mistake.
+    """
+    measured_tokens = 3_242_189
+    measured_sessions = 31
+
+    entry = load_token_usage_profile().entry_for(
+        step="confirm-confidentiality",
+        runtime="claude-code",
+        model="claude-opus-5",
+        effort="xhigh",
+    )
+    assert entry is not None
+    predicted = measured_sessions * (
+        entry.p50_total_tokens_per_message + entry.fixed_input_tokens_per_batch
+    )
+    assert 0.8 <= predicted / measured_tokens <= 1.2, (
+        f"the committed cell predicts {predicted:,.0f} tokens for the run that measured "
+        f"{measured_tokens:,}"
+    )
+    assert entry.messages_measured == measured_sessions
+    # One run is one sample under the 13.7 rule, not 31 of them.
+    assert entry.messages_measured // 25 < 10
+
+
 def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
     """Specification 10.8 requires the resolved models in the manifest.
 
@@ -228,12 +287,7 @@ def test_a_profile_resolves_to_the_models_it_will_actually_use() -> None:
     """
     profile = load_token_usage_profile()
     resolved = resolve_models(profile, runtime="claude-code", processing_profile="recommended")
-    assert set(resolved) == {
-        "judge-authorship",
-        "find-mistakes",
-        "verify-findings",
-        "create-safe-records",
-    }
+    assert set(resolved) == EXPECTED_STEPS
     assert all(model for model in resolved.values())
 
 
