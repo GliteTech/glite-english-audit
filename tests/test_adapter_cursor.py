@@ -587,7 +587,9 @@ def test_wsl_fails_closed_with_host_store_hint(
     hinted = _single_record(
         CursorAdapter().discover(_context(tmp_path / "wsl-home", os_environment=OsEnvironment.WSL))
     )
-    assert hinted.accessibility is Accessibility.NOT_FOUND
+    # Inaccessible, not missing: the probe just saw this store. Reporting it
+    # as not found would deny having seen the thing the hint is about.
+    assert hinted.accessibility is Accessibility.INACCESSIBLE
     assert hinted.diagnostic_code == "SOURCE_WSL_HOST_STORE_HINT"
     assert hinted.candidate_messages == 0
 

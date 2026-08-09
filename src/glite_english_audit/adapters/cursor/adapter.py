@@ -370,10 +370,16 @@ class CursorAdapter:
     def _wsl_probe(self, context: DiscoveryContext) -> _Probe:
         """Spec section 1: WSL fails closed; a visible host store adds a hint."""
         root = context.home / ".config" / "Cursor" / "User"
-        code = "SOURCE_WSL_HOST_STORE_HINT" if _windows_host_store_seen() else "SOURCE_NOT_FOUND"
+        host_store_seen = _windows_host_store_seen()
+        code = "SOURCE_WSL_HOST_STORE_HINT" if host_store_seen else "SOURCE_NOT_FOUND"
         return _Probe(
             root=root,
-            accessibility=Accessibility.NOT_FOUND,
+            # A host store this probe can see was found; what is missing is
+            # permission to read it from WSL. Reporting it as not found denies
+            # having seen the thing the hint is about.
+            accessibility=(
+                Accessibility.INACCESSIBLE if host_store_seen else Accessibility.NOT_FOUND
+            ),
             diagnostic_code=code,
             fingerprint="absent",
             estimated_records=0,

@@ -349,7 +349,9 @@ class RooCodeAdapter:
                 _empty_probe(
                     root,
                     Stability.BETA,
-                    Accessibility.NOT_FOUND,
+                    # The store was found; what is missing is permission to
+                    # read it from here.
+                    Accessibility.INACCESSIBLE,
                     "SOURCE_WSL_HOST_STORE_HINT",
                     "windows-host",
                 )

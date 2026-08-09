@@ -590,3 +590,39 @@ def test_never_opens_denylisted_files(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "api_conversation_history.json" in opened_names
     assert "ui_messages.json" in opened_names
     assert f"{SESSION_G3}.messages.json" in opened_names
+
+
+def test_the_wsl_host_store_hint_reaches_the_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hint used to exist only in a list nothing outside the adapter read.
+
+    Discovery returns records. A diagnostic the adapter keeps to itself never
+    reaches the inventory, so a WSL user with a Windows-host store was told
+    nothing at all — while five sibling adapters put the same hint on a record,
+    where it shows up.
+    """
+    mount = tmp_path / "mnt"
+    host_store = (
+        mount
+        / "c"
+        / "Users"
+        / "fake-user"
+        / "AppData"
+        / "Roaming"
+        / "Code"
+        / "User"
+        / "globalStorage"
+        / cline_adapter_module._EXTENSION_DIR
+    )
+    host_store.mkdir(parents=True)
+    monkeypatch.setattr(cline_adapter_module, "_WSL_MOUNT_BASE", mount)
+
+    outcome = ClineAdapter().discover(
+        _context(tmp_path / "wsl-home", os_environment=OsEnvironment.WSL)
+    )
+    hints = [r for r in outcome.records if r.diagnostic_code == "SOURCE_WSL_HOST_STORE_HINT"]
+    assert len(hints) == 1
+    # Inaccessible, not missing: it was found, and this run refuses to read it.
+    assert hints[0].accessibility is Accessibility.INACCESSIBLE
+    assert hints[0].candidate_messages == 0

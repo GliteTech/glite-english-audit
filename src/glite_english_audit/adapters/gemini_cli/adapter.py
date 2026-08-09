@@ -345,7 +345,9 @@ class GeminiCliAdapter:
             return None
         return _degenerate_instance(
             host_root,
-            accessibility=Accessibility.FOUND,
+            # Inaccessible, not found: the store exists and this run refuses to
+            # read it. "Found" would claim it is part of the audit.
+            accessibility=Accessibility.INACCESSIBLE,
             diagnostic_code="SOURCE_WSL_HOST_STORE_HINT",
             fingerprint="wsl-host-untested",
             stability=Stability.EXPERIMENTAL,

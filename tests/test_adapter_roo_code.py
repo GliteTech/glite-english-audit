@@ -531,7 +531,9 @@ def test_wsl_discovery_and_host_store_hint(tmp_path: Path, monkeypatch: pytest.M
     assert len(found) == 1
     assert found[0].candidate_messages == 1
     assert len(hints) == 1
-    assert hints[0].accessibility is Accessibility.NOT_FOUND
+    # Every adapter reports a visible-but-unreadable host store the same way:
+    # inaccessible. It was found; what is missing is permission to read it.
+    assert hints[0].accessibility is Accessibility.INACCESSIBLE
     assert hints[0].stability is Stability.BETA
     assert hints[0].candidate_messages == 0
     assert hints[0].schema_fingerprint == "windows-host"

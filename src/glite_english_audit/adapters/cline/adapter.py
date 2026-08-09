@@ -496,6 +496,18 @@ class ClineAdapter:
             )
 
         if context.os_environment is OsEnvironment.WSL and _windows_host_store_visible():
+            # As an inventory record, not only a diagnostic list. The list is
+            # this adapter's own and nothing outside it ever read one, so the
+            # hint never reached the user; every other WSL-aware adapter puts
+            # it on a record, which is what discovery actually returns.
+            add_probe(
+                _degenerate_provisional(
+                    family_b,
+                    accessibility=Accessibility.INACCESSIBLE,
+                    diagnostic_code="SOURCE_WSL_HOST_STORE_HINT",
+                    fingerprint="wsl-host-untested",
+                )
+            )
             self._discovery_diagnostics.append(
                 Diagnostic.from_code(
                     "SOURCE_WSL_HOST_STORE_HINT",
