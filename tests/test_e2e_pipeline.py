@@ -8,11 +8,14 @@ fixtures on a temporary runs root and then reads the run back off disk, rather
 than reproducing the transformations in memory where the file layout cannot be
 wrong.
 
-Only the agents are faked. Steps c, d and e each hand an agent one session file
-and expect one back, so the fakes here write exactly those files: a
-deterministic authorship judgment, a deterministic pair of mistake records, and
-a second reader that withholds one of them. Everything between the files is the
-product's own code, and no model and no network are involved anywhere.
+Only the agents are faked. Each of steps c, d and e is handed a projection and
+answers with a decision its driver expands into the session file, so the fakes
+here write exactly what each step asks for: a deterministic authorship judgment,
+a deterministic pair of mistake drafts, and a second reader that names the one
+record it will not share. No fake writes a session file, which is why a
+bookkeeping field being right on disk is evidence about the drivers rather than
+about this module. Everything between the files is the product's own code, and
+no model and no network are involved anywhere.
 
 The fixture home is copied and given one extra message: a sentence dictated in
 Wispr Flow, pasted into Claude Code two minutes later. That is the case
@@ -23,6 +26,7 @@ construction, so nothing that reads one file at a time could ever collapse them.
 import json
 import shutil
 import subprocess
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -40,14 +44,13 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
+    read_jsonl_models,
     read_model,
     write_jsonl_models,
     write_model,
 )
 from glite_english_audit.artifacts.models import (
-    EvidenceSpan,
     MistakeRecord,
-    NormalizedUtterance,
     ReviewedSubmissionArtifact,
 )
 from glite_english_audit.discovery.base import DiscoveryContext
@@ -62,6 +65,16 @@ from glite_english_audit.pipeline import (
     mistakes,
     start_run,
     verify,
+)
+from glite_english_audit.pipeline.agent_io import (
+    DECISION_SUFFIX,
+    PROJECTION_SUFFIX,
+    VERDICT_SUFFIX,
+    AuthoredLine,
+    DropList,
+    MistakeDraft,
+    RecordForConfidentiality,
+    UtteranceForJudgment,
 )
 from glite_english_audit.pipeline.deduplicate import REMOVED_NAME
 from glite_english_audit.sessions import (
@@ -229,38 +242,45 @@ def _authored_text(text: str) -> str:
 
 
 def _write_step_c(prepared: authorship.PreparedStep) -> None:
-    """Answer every named session file with one of the same name."""
+    """Answer every projection with one decision per item it was given.
+
+    Index and kept text, and nothing else: the session file is the driver's to
+    write, so a bookkeeping field is no longer something this fake could get
+    wrong and no longer something the run has to take on trust.
+    """
     for session in prepared.sessions:
+        projected = read_jsonl_models(Path(session.input_path), UtteranceForJudgment)
         write_jsonl_models(
             Path(session.output_path),
-            [
-                utterance.model_copy(update={"text": _authored_text(utterance.text)})
-                for utterance in read_session(Path(session.input_path))
-            ],
+            [AuthoredLine(i=item.i, text=_authored_text(item.text)) for item in projected],
         )
 
 
-def _records_for(utterances: list[NormalizedUtterance]) -> list[MistakeRecord]:
-    """The step-d agent: one record per flagged phrase, already shareable."""
-    records: list[MistakeRecord] = []
+def _drafts_for(utterances: Iterable[UtteranceForJudgment]) -> list[MistakeDraft]:
+    """The step-d agent: one draft per flagged phrase, addressed by index.
+
+    What it judged and where, and nothing else. The utterance ID, the source and
+    the modality it used to copy are the driver's to re-derive from the line the
+    index names, so a record on disk carrying the wrong one of the three is now
+    the expander's fault and never this fake's.
+    """
+    drafts: list[MistakeDraft] = []
     for utterance in utterances:
         for phrase, mistake, rule, example in _FLAGGED:
             start = utterance.text.find(phrase)
             if start < 0:
                 continue
-            records.append(
-                MistakeRecord(
-                    utterance_id=utterance.utterance_id,
-                    evidence_span=EvidenceSpan(start=start, end=start + len(phrase)),
+            drafts.append(
+                MistakeDraft(
+                    i=utterance.i,
+                    span=(start, start + len(phrase)),
                     mistake=mistake,
                     rule=rule,
                     example=example,
                     example_type=ExampleType.SYNTHETIC,
-                    source_type=utterance.source_adapter,
-                    modality=utterance.modality,
                 )
             )
-    return records
+    return drafts
 
 
 def _lines(path: Path) -> int:
@@ -284,20 +304,24 @@ def audited(tmp_path_factory: pytest.TempPathFactory) -> _AuditedRun:
     authored = authorship.apply_authorship(run_id, runs_root=runs_root)
 
     assigned_d = mistakes.prepare_mistakes(run_id, runs_root=runs_root)
-    written: dict[str, list[MistakeRecord]] = {}
     for assignment in assigned_d:
-        records = _records_for(read_session(Path(assignment.read)))
-        written[assignment.name] = records
-        write_jsonl_models(Path(assignment.write), records)
+        projected = read_jsonl_models(Path(assignment.read), UtteranceForJudgment)
+        write_jsonl_models(Path(assignment.write), _drafts_for(projected))
     produced = mistakes.apply_mistakes(run_id, runs_root=runs_root)
 
-    # The second reader withholds the last record it read and confirms the rest.
-    # Step e may drop a record and may not write one, so this is the only shape
-    # of disagreement the run can survive, and the counts must show it.
-    withheld = [record for name in sorted(written) for record in written[name]][-1]
+    # The second reader withholds the last record it was shown and confirms the
+    # rest. It answers with indices into the file it read, so removal is the only
+    # disagreement it can express at all, and the counts must show this one.
+    withholding = [entry for entry in produced.next_step if entry.items][-1]
+    withheld = list(
+        read_jsonl_models(
+            step_dir(run_id, StepId.D_MISTAKES, root=runs_root) / withholding.name, MistakeRecord
+        )
+    )[-1]
     for assignment in produced.next_step:
-        confirmed = [record for record in written[assignment.name] if record != withheld]
-        write_jsonl_models(Path(assignment.write), confirmed)
+        shown = list(read_jsonl_models(Path(assignment.read), RecordForConfidentiality))
+        drop = [shown[-1].i] if assignment.name == withholding.name else []
+        write_model(Path(assignment.write), DropList(drop=drop))
     verified = verify.apply_verification(run_id, runs_root=runs_root)
 
     reviewed = build_review.build_review(run_id, runs_root=runs_root)
@@ -543,14 +567,22 @@ def test_the_session_index_travels_with_the_files_and_reaches_no_agent(
     assert INDEX_NAME not in handed_out
     for session_hash in index.values():
         assert session_hash not in handed_out
-    # And every file named for an agent is a session file of this run.
+    # And every file named for an agent belongs to a session of this run. Each
+    # step hands over a projection and takes back a decision rather than the
+    # session file itself, but both are that file's name plus a fixed suffix, so
+    # what a name carries a model is still the sequence number and nothing else.
+    for_agents = names | {
+        name.removesuffix(".jsonl") + suffix
+        for name in names
+        for suffix in (PROJECTION_SUFFIX, DECISION_SUFFIX, VERDICT_SUFFIX)
+    }
     named = [Path(entry.input_path).name for entry in audited.prepared_c.sessions]
     named += [Path(entry.output_path).name for entry in audited.prepared_c.sessions]
     named += [Path(entry.read).name for entry in audited.assigned_d]
     named += [Path(entry.write).name for entry in audited.assigned_d]
     named += [Path(entry.read).name for entry in audited.produced.next_step]
     named += [Path(entry.write).name for entry in audited.produced.next_step]
-    assert set(named) <= names
+    assert set(named) <= for_agents
 
 
 def test_the_run_ends_in_a_package_that_passes_the_full_gate(audited: _AuditedRun) -> None:

@@ -22,7 +22,7 @@ import importlib
 import itertools
 import json
 import subprocess
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,6 +40,7 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
+    read_jsonl_models,
     read_model,
     write_jsonl_models,
     write_model,
@@ -75,7 +76,15 @@ from glite_english_audit.pipeline import (
     start_run,
     verify,
 )
-from glite_english_audit.pipeline.mistakes import read_records
+from glite_english_audit.pipeline.agent_io import (
+    AuthoredLine,
+    DropList,
+    MistakeDraft,
+    RecordForConfidentiality,
+    UtteranceForJudgment,
+    projection_path,
+    verdict_path,
+)
 from glite_english_audit.sessions import read_index, read_session, session_files
 from glite_english_audit.state.run_store import load_manifest
 from glite_english_audit.submission.package import materialize_package
@@ -221,7 +230,11 @@ def _authored(text: str) -> str:
 
 
 def _judge_authorship(workspace: Workspace, run_id: str, *, spoil: str | None = None) -> None:
-    """Run step c's ``--prepare`` and write the file each agent owes back.
+    """Run step c's ``--prepare`` and write the decisions each agent owes back.
+
+    An agent reads a projection and answers one line per index; the driver is
+    what turns those answers into the session file, so nothing here writes a
+    step-c artifact.
 
     ``spoil`` names a session file whose judgment claims a span the step-b text
     does not contain — the failure the deterministic span scan must quarantine.
@@ -232,60 +245,64 @@ def _judge_authorship(workspace: Workspace, run_id: str, *, spoil: str | None = 
         # agents are not asked to pay for it twice.
         if session.already_written:
             continue
-        judged = [
-            utterance.model_copy(update={"text": _authored(utterance.text)})
-            for utterance in read_session(Path(session.input_path))
-        ]
+        projected = read_jsonl_models(Path(session.input_path), UtteranceForJudgment)
+        judged = [AuthoredLine(i=item.i, text=_authored(item.text)) for item in projected]
         if spoil == session.file_name:
             judged[0] = judged[0].model_copy(update={"text": _INVENTED_SPAN})
         write_jsonl_models(Path(session.output_path), judged)
 
 
-def _records_for(session: list[NormalizedUtterance]) -> list[MistakeRecord]:
-    """One shareable record per marked construction in one session file."""
-    records: list[MistakeRecord] = []
-    for utterance in session:
+def _drafts_for(projected: Iterable[UtteranceForJudgment]) -> list[MistakeDraft]:
+    """One shareable draft per marked construction in one session file.
+
+    Nothing here names the utterance or where it came from: the index addresses
+    the line the driver resolves the span against, and identity and provenance
+    are the driver's to re-derive from it.
+    """
+    drafts: list[MistakeDraft] = []
+    for utterance in projected:
         for phrase, what, rule, example in _MARKED:
             start = utterance.text.find(phrase)
             if start < 0:
                 continue
-            records.append(
-                MistakeRecord(
-                    utterance_id=utterance.utterance_id,
-                    evidence_span=EvidenceSpan(start=start, end=start + len(phrase)),
+            drafts.append(
+                MistakeDraft(
+                    i=utterance.i,
+                    span=(start, start + len(phrase)),
                     mistake=what,
                     rule=rule,
                     example=example,
                     example_type=ExampleType.SYNTHETIC,
-                    source_type=utterance.source_adapter,
-                    modality=utterance.modality,
                 )
             )
-    return records
+    return drafts
 
 
 def _write_mistakes(workspace: Workspace, run_id: str) -> None:
-    """Run step d's ``--prepare`` and write one mistake file per session."""
+    """Run step d's ``--prepare`` and write the drafts each agent owes back.
+
+    The records this becomes reach disk only when the driver applies the step,
+    so nothing here writes a step-d artifact.
+    """
     for assignment in mistakes.prepare_mistakes(run_id, runs_root=workspace.runs_root):
-        write_jsonl_models(
-            Path(assignment.write), _records_for(read_session(Path(assignment.read)))
-        )
+        projected = read_jsonl_models(Path(assignment.read), UtteranceForJudgment)
+        write_jsonl_models(Path(assignment.write), _drafts_for(projected))
 
 
 def _confirm_mistakes(workspace: Workspace, run_id: str) -> None:
-    """Write step e's files: step d's records again, minus the withheld one.
+    """Write step e's verdicts: which of the records it was offered to withhold.
 
-    Step e may only drop, never add or alter, so the stand-in copies the file
-    line for line and removes one record. Its driver is what enforces that.
+    A verdict names positions in what the agent read, so the driver rebuilds the
+    file from step d's own records and a step-e file carrying a record step d
+    never wrote is not something to catch — it cannot be written. A session with
+    nothing to withhold still answers, with an empty drop list.
     """
     source = step_dir(run_id, StepId.D_MISTAKES, root=workspace.runs_root)
     target = step_dir(run_id, StepId.E_VERIFIED, root=workspace.runs_root)
     for path in session_files(source):
-        produced, parse_diagnostics = read_records(path)
-        assert parse_diagnostics == []
-        write_jsonl_models(
-            target / path.name, [record for record in produced if record.mistake != _WITHHELD]
-        )
+        offered = read_jsonl_models(projection_path(target, path.name), RecordForConfidentiality)
+        withheld = [record.i for record in offered if record.mistake == _WITHHELD]
+        write_model(verdict_path(target, path.name), DropList(drop=withheld))
 
 
 def _run_step(workspace: Workspace, run_id: str, step: StepId, *, spoil: str | None = None) -> None:

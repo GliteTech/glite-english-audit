@@ -50,6 +50,13 @@ from glite_english_audit.diagnostics.codes import Diagnostic
 AGENT_DIR_NAME = "agent"
 PROJECTION_SUFFIX = ".in.jsonl"
 DECISION_SUFFIX = ".out.jsonl"
+VERDICT_SUFFIX = ".out.json"
+"""Step e answers with one object for a whole session, not a line per record.
+
+A different suffix, because a name is an instruction: an agent handed a
+``.jsonl`` path writes one record per line, which is exactly the mistake the
+drop list exists to make impossible.
+"""
 
 
 class UtteranceForJudgment(BaseModel):
@@ -150,8 +157,13 @@ def projection_path(step_directory: Path, session_file: str) -> Path:
 
 
 def decision_path(step_directory: Path, session_file: str) -> Path:
-    """The file an agent writes for one session."""
+    """The file an agent writes for one session, one answer per line."""
     return agent_dir(step_directory) / (_stem(session_file) + DECISION_SUFFIX)
+
+
+def verdict_path(step_directory: Path, session_file: str) -> Path:
+    """The file step e writes for one session: a single drop list."""
+    return agent_dir(step_directory) / (_stem(session_file) + VERDICT_SUFFIX)
 
 
 def _stem(session_file: str) -> str:
@@ -192,10 +204,24 @@ def expand_authored(
     file answers step b line for line, so a missing index is a question nobody
     answered and a repeated one is two answers to the same question; neither can
     be resolved by guessing.
+
+    The two authorship codes carry over from when the agent named utterances
+    directly. An index past the end still names an utterance this session does
+    not contain, and a repeated index is still more than one decision covering
+    one utterance — the same two failures, addressed a shorter way.
     """
-    diagnostics = _index_diagnostics(
-        [line.i for line in decisions], expected=len(source), item_ref=item_ref, complete=True
-    )
+    indices = [line.i for line in decisions]
+    diagnostics = _out_of_range(indices, len(source), "AUTHORSHIP_UNKNOWN_UTTERANCE", item_ref)
+    diagnostics.extend(_duplicates(indices, "AUTHORSHIP_DUPLICATE_DECISION", item_ref))
+    if not diagnostics and len(indices) != len(source):
+        diagnostics.append(
+            Diagnostic.from_code(
+                "CARDINALITY_MISMATCH",
+                f"step c answered {len(indices)} of the {len(source)} items in this session; "
+                "every item is answered exactly once, an unauthored one with empty text",
+                item_ref=item_ref,
+            )
+        )
     if diagnostics:
         return [], diagnostics
     by_index = {line.i: line.text for line in decisions}
@@ -214,13 +240,13 @@ def expand_mistakes(
 ) -> tuple[list[MistakeRecord], list[Diagnostic]]:
     """Rebuild step d's artifact from the step-c utterances plus what was judged.
 
-    Unlike step c this does not require full coverage: a session with no
-    mistakes is an empty file, and most utterances hold none. Indices may repeat
-    — two records may cite one utterance — and whether their spans collide is
-    the overlap check's question, not this one's.
+    Unlike step c this requires no coverage: a session with no mistakes is an
+    empty file, and most utterances hold none. Indices may repeat — two records
+    may cite one utterance — and whether their spans collide is the overlap
+    check's question, not this one's.
     """
-    diagnostics = _index_diagnostics(
-        [draft.i for draft in drafts], expected=len(source), item_ref=item_ref, complete=False
+    diagnostics = _out_of_range(
+        [draft.i for draft in drafts], len(source), "LINEAGE_MISSING_INPUT", item_ref
     )
     if diagnostics:
         return [], diagnostics
@@ -250,7 +276,7 @@ def expand_mistakes(
                 example_type=draft.example_type,
                 # Both re-derived from the utterance the span addresses. The
                 # skill used to spell this resolution out in prose, which made
-                # it a thing an agent could get wrong.
+                # each of them something a model could get wrong.
                 source_type=utterance.source_adapter,
                 modality=(
                     Modality.SPOKEN_ASR
@@ -271,54 +297,39 @@ def expand_verified(
     step-e file that altered or invented a record is not something to detect —
     it is something that cannot be expressed.
     """
-    diagnostics = _index_diagnostics(
-        dropped.drop, expected=len(produced), item_ref=item_ref, complete=False
-    )
-    seen: set[int] = set()
-    for index in dropped.drop:
-        if index in seen:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "CARDINALITY_MISMATCH",
-                    "step e names a record twice, so its count of what it withheld is wrong",
-                    item_ref=f"{item_ref}:{index}",
-                )
-            )
-        seen.add(index)
+    diagnostics = _out_of_range(dropped.drop, len(produced), "CARDINALITY_MISMATCH", item_ref)
+    diagnostics.extend(_duplicates(dropped.drop, "CARDINALITY_MISMATCH", item_ref))
     if diagnostics:
         return [], diagnostics
-    return [record for index, record in enumerate(produced, 1) if index not in seen], []
+    withheld = set(dropped.drop)
+    return [record for index, record in enumerate(produced, 1) if index not in withheld], []
 
 
-def _index_diagnostics(
-    indices: Sequence[int], *, expected: int, item_ref: str, complete: bool
+def _out_of_range(
+    indices: Sequence[int], available: int, code: str, item_ref: str
 ) -> list[Diagnostic]:
-    """Check that every index addresses a line that exists.
-
-    ``complete`` additionally requires each line to be answered exactly once,
-    which step c needs and the other two steps must not have.
-    """
-    diagnostics: list[Diagnostic] = []
-    for index in indices:
-        if index > expected:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "CARDINALITY_MISMATCH",
-                    f"an answer addresses item {index} of a session holding {expected}",
-                    item_ref=f"{item_ref}:{index}",
-                )
-            )
-    if not complete:
-        return diagnostics
-
-    counted = sorted(indices)
-    if counted != list(range(1, expected + 1)):
-        diagnostics.append(
-            Diagnostic.from_code(
-                "CARDINALITY_MISMATCH",
-                f"step c answered {len(indices)} of the {expected} items in this session, "
-                "each exactly once being the contract",
-                item_ref=item_ref,
-            )
+    """Diagnostics for answers addressing a line the session does not have."""
+    return [
+        Diagnostic.from_code(
+            code,
+            f"an answer addresses item {index} of a session holding {available}",
+            item_ref=f"{item_ref}:{index}",
         )
-    return diagnostics
+        for index in sorted({index for index in indices if index > available})
+    ]
+
+
+def _duplicates(indices: Sequence[int], code: str, item_ref: str) -> list[Diagnostic]:
+    """Diagnostics for an item answered more than once."""
+    seen: set[int] = set()
+    repeated: set[int] = set()
+    for index in indices:
+        if index in seen:
+            repeated.add(index)
+        seen.add(index)
+    return [
+        Diagnostic.from_code(
+            code, f"item {index} is answered more than once", item_ref=f"{item_ref}:{index}"
+        )
+        for index in sorted(repeated)
+    ]

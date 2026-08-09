@@ -1,4 +1,4 @@
-"""Step c with an agent in the loop: session files out, judged session files in.
+"""Step c with an agent in the loop: text out, the spans it kept back in.
 
 The agent picks which spans of each utterance the learner actually wrote; this
 module's verifier decides whether to believe it. That verifier is what most of
@@ -8,8 +8,9 @@ denominator of every rate this product reports, and nothing downstream can tell
 the difference afterwards.
 
 The unit of acceptance is the file, not the utterance. So each failure below is
-checked for what it does to the whole session: the file leaves the corpus, its
-words leave the count, and its name goes on the list of sessions to ask again.
+checked for what it does to the whole session: the session leaves the corpus,
+its words leave the count, and its name goes on the list of sessions to ask
+again.
 """
 
 import json
@@ -42,12 +43,18 @@ from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline import authorship
+from glite_english_audit.pipeline.agent_io import (
+    AuthoredLine,
+    decision_path,
+    expand_authored,
+    projection_path,
+)
 from glite_english_audit.pipeline.authorship import (
     QUARANTINE_DIR_NAME,
     AuthoredSession,
     corpus_digest,
     english_words,
-    read_authored,
+    read_decisions,
     span_diagnostic,
     verify_session,
 )
@@ -155,13 +162,20 @@ def _source(runs_root: Path, file_name: str) -> list[NormalizedUtterance]:
     return read_session(_step_b(runs_root) / file_name)
 
 
-def _judge(path: Path, source: Sequence[NormalizedUtterance], texts: Sequence[str]) -> None:
-    """Write the step-c file an agent would leave: same items, ``texts`` kept."""
+def _judge(
+    out: Path, file_name: str, source: Sequence[NormalizedUtterance], texts: Sequence[str]
+) -> None:
+    """Write the decisions an agent would leave: one answer per item, in order.
+
+    ``source`` is only here to hold the two sequences the same length; the
+    agent never sees a step-b record, and the driver re-attaches every field
+    but ``text`` from step b itself.
+    """
     rows = [
-        {**item.model_dump(mode="json"), "text": text}
-        for item, text in zip(source, texts, strict=True)
+        AuthoredLine(i=index, text=text).model_dump(mode="json")
+        for index, (_, text) in enumerate(zip(source, texts, strict=True), 1)
     ]
-    path.write_text(
+    decision_path(out, file_name).write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
     )
 
@@ -173,9 +187,9 @@ def _judge_all(runs_root: Path, out: Path, third: Sequence[str]) -> None:
     goes, the prose stays, the wholly pasted utterance comes back empty — so a
     test says only what happened in session 3.
     """
-    _judge(out / "session-0001.jsonl", _source(runs_root, "session-0001.jsonl"), [_PLAIN, _KEPT])
-    _judge(out / "session-0002.jsonl", _source(runs_root, "session-0002.jsonl"), [""])
-    _judge(out / "session-0003.jsonl", _source(runs_root, "session-0003.jsonl"), third)
+    _judge(out, "session-0001.jsonl", _source(runs_root, "session-0001.jsonl"), [_PLAIN, _KEPT])
+    _judge(out, "session-0002.jsonl", _source(runs_root, "session-0002.jsonl"), [""])
+    _judge(out, "session-0003.jsonl", _source(runs_root, "session-0003.jsonl"), third)
 
 
 def _prepare_and_judge(runs_root: Path, third: Sequence[str]) -> Path:
@@ -268,47 +282,62 @@ def test_a_reordering_is_not_reported_as_an_invention() -> None:
     assert _span_code(reordered, _MIXED) == "AUTHORSHIP_SPAN_ORDER_INVALID"
 
 
-# --- one file against its step-b session -----------------------------------
+# --- one session's decisions against its step-b session --------------------
 
 
-def test_a_faithful_repeat_of_the_step_b_session_has_nothing_to_report() -> None:
+def _decide_code(source: list[NormalizedUtterance], decisions: list[AuthoredLine]) -> str | None:
+    """The first code the real path reports: expand the decisions, then verify."""
+    authored, expansion = expand_authored(source, decisions, item_ref="session-0001.jsonl")
+    if expansion:
+        return expansion[0].code
+    found = verify_session(source, authored, item_ref="session-0001.jsonl")
+    return None if found is None else found.code
+
+
+def test_a_faithful_judgment_has_nothing_to_report() -> None:
     source = [_utterance(1, _PLAIN), _utterance(2, _MIXED)]
-    assert _session_code(source, [_utterance(1, _PLAIN), _utterance(2, _KEPT)]) is None
+    answers = [AuthoredLine(i=1, text=_PLAIN), AuthoredLine(i=2, text=_KEPT)]
+    assert _decide_code(source, answers) is None
 
 
 @pytest.mark.parametrize(
-    ("name", "authored"),
+    ("name", "answers"),
     [
-        ("an item dropped", [_utterance(1, _PLAIN)]),
-        ("nothing returned at all", []),
-        ("an item invented", [_utterance(1, _PLAIN), _utterance(2, _MIXED), _utterance(2, _MIXED)]),
+        ("an item left unanswered", [AuthoredLine(i=1, text=_PLAIN)]),
+        ("nothing answered at all", []),
     ],
 )
-def test_an_item_count_that_changed_quarantines_the_file(
-    name: str, authored: list[NormalizedUtterance]
+def test_a_session_answered_incompletely_quarantines_the_file(
+    name: str, answers: list[AuthoredLine]
 ) -> None:
     # Step c answers item for item. Letting the count move would let a session
     # lose utterances silently, which is exactly the loss no later step could
     # detect: the file is still there and still parses.
     source = [_utterance(1, _PLAIN), _utterance(2, _MIXED)]
-    assert _session_code(source, authored) == "CARDINALITY_MISMATCH", name
+    assert _decide_code(source, answers) == "CARDINALITY_MISMATCH", name
 
 
-def test_items_returned_in_a_different_order_quarantine_the_file() -> None:
+def test_the_order_the_answers_arrive_in_does_not_matter() -> None:
+    """Each answer names the item it belongs to, so it cannot be misplaced.
+
+    Reordering used to be a failure worth a diagnostic, because the agent
+    rewrote the whole session and the driver paired the two files by position.
+    An index cannot be reordered into the wrong item.
+    """
     source = [_utterance(1, "alpha beta"), _utterance(2, "gamma delta")]
-    swapped = [_utterance(2, "gamma delta"), _utterance(1, "alpha beta")]
-    assert _session_code(source, swapped) == "CARDINALITY_MISMATCH"
+    shuffled = [AuthoredLine(i=2, text="gamma delta"), AuthoredLine(i=1, text="alpha beta")]
+    assert _decide_code(source, shuffled) is None
 
 
-def test_an_item_naming_an_utterance_this_session_never_held_is_named_as_such() -> None:
+def test_an_answer_naming_an_item_this_session_never_held_is_named_as_such() -> None:
     source = [_utterance(1, _PLAIN)]
-    assert _session_code(source, [_utterance(9, _PLAIN)]) == "AUTHORSHIP_UNKNOWN_UTTERANCE"
+    assert _decide_code(source, [AuthoredLine(i=9, text=_PLAIN)]) == "AUTHORSHIP_UNKNOWN_UTTERANCE"
 
 
-def test_two_items_covering_the_same_utterance_are_named_as_such() -> None:
+def test_two_answers_covering_the_same_item_are_named_as_such() -> None:
     source = [_utterance(1, "alpha"), _utterance(2, "beta")]
-    doubled = [_utterance(1, "alpha"), _utterance(1, "alpha")]
-    assert _session_code(source, doubled) == "AUTHORSHIP_DUPLICATE_DECISION"
+    doubled = [AuthoredLine(i=1, text="alpha"), AuthoredLine(i=1, text="alpha")]
+    assert _decide_code(source, doubled) == "AUTHORSHIP_DUPLICATE_DECISION"
 
 
 @pytest.mark.parametrize(
@@ -324,27 +353,14 @@ def test_two_items_covering_the_same_utterance_are_named_as_such() -> None:
 def test_an_item_that_changed_a_field_other_than_text_quarantines_the_file(
     name: str, update: dict[str, object]
 ) -> None:
-    # Everything but `text` is provenance the adapters established. A rewritten
-    # timestamp or modality would travel unchecked into every later step, and
-    # the modality decides which grammar rules a mistake is judged against.
+    # No agent can reach this any more: the expander copies every field but
+    # `text` straight from step b. The check is kept because it now guards the
+    # expander, and because an invariant nothing asserts is one nobody notices
+    # breaking — a rewritten modality decides which grammar rules a mistake is
+    # judged against.
     source = [_utterance(1, _PLAIN)]
     drifted = _utterance(1, _PLAIN).model_copy(update=update)
     assert _session_code(source, [drifted]) == "SCHEMA_INVALID_VALUE", name
-
-
-def test_a_timestamp_the_agent_spelled_differently_still_compares_equal() -> None:
-    """``Z`` and ``+00:00`` are the same instant, and models write both.
-
-    Comparing the raw lines instead of the parsed models would quarantine an
-    otherwise perfect judgment over a formatting choice nobody made
-    deliberately.
-    """
-    row = json.loads(_utterance(1, _MIXED).model_dump_json())
-    row["timestamp"] = "2026-08-01T12:01:00Z"
-    row["text"] = _KEPT
-    parsed = read_authored(json.dumps(row).encode("utf-8"), item_ref="session-0001.jsonl")
-    assert not isinstance(parsed, Diagnostic), parsed
-    assert _session_code([_utterance(1, _MIXED)], parsed) is None
 
 
 # --- reading what the agent wrote ------------------------------------------
@@ -356,7 +372,10 @@ def test_a_timestamp_the_agent_spelled_differently_still_compares_equal() -> Non
         ("truncated mid-object", b"{oops\n", "SCHEMA_INVALID_JSON"),
         ("not UTF-8 at all", b"\xff\xfe\n", "SCHEMA_INVALID_JSON"),
         ("a bare string per line", b'"a string"\n', "SCHEMA_INVALID_VALUE"),
-        ("only the fields it felt like", b'{"utterance_id": "u-001"}\n', "SCHEMA_MISSING_FIELD"),
+        # An answer is an index and the text kept at it. Naming the item and
+        # then saying nothing about it is not an empty judgment, which is
+        # spelled `""`; it is an answer that never arrived.
+        ("the item named but never judged", b'{"i": 1}\n', "SCHEMA_MISSING_FIELD"),
     ],
 )
 def test_a_file_the_agent_mangled_is_diagnosed_rather_than_raised(
@@ -364,7 +383,7 @@ def test_a_file_the_agent_mangled_is_diagnosed_rather_than_raised(
 ) -> None:
     # This file is model output. A malformed one has to quarantine its session
     # and let the other sessions finish, not end the run with a traceback.
-    found = read_authored(raw, item_ref="session-0001.jsonl")
+    found = read_decisions(raw, item_ref="session-0001.jsonl")
     assert isinstance(found, Diagnostic), name
     assert found.code == code, name
 
@@ -372,16 +391,16 @@ def test_a_file_the_agent_mangled_is_diagnosed_rather_than_raised(
 def test_a_field_the_agent_added_of_its_own_accord_is_refused() -> None:
     # An extra field is a model deciding the schema is a suggestion. Accepting
     # it would let commentary or a confidence score ride into a later step.
-    row = json.loads(_utterance(1, _PLAIN).model_dump_json())
+    row = AuthoredLine(i=1, text=_PLAIN).model_dump(mode="json")
     row["note"] = "I was not sure about this one"
-    found = read_authored(json.dumps(row).encode("utf-8"), item_ref="session-0001.jsonl")
+    found = read_decisions(json.dumps(row).encode("utf-8"), item_ref="session-0001.jsonl")
     assert isinstance(found, Diagnostic)
     assert found.code == "SCHEMA_UNEXPECTED_FIELD"
 
 
 def test_a_blank_line_between_records_is_not_a_defect() -> None:
-    raw = (_utterance(1, _PLAIN).model_dump_json() + "\n\n").encode("utf-8")
-    parsed = read_authored(raw, item_ref="session-0001.jsonl")
+    raw = (AuthoredLine(i=1, text=_PLAIN).model_dump_json() + "\n\n").encode("utf-8")
+    parsed = read_decisions(raw, item_ref="session-0001.jsonl")
     assert not isinstance(parsed, Diagnostic)
     assert len(parsed) == 1
 
@@ -417,8 +436,39 @@ def test_prepare_names_every_step_b_session_and_where_its_answer_goes(tmp_path: 
     assert not prepared.repair_only
     out = Path(prepared.output_dir)
     for entry in prepared.sessions:
-        assert Path(entry.input_path).parent == _step_b(tmp_path)
-        assert Path(entry.output_path) == out / entry.file_name
+        # Both sit under `agent/`: the projection the driver wrote for an agent
+        # to read, and the decision it writes back. Neither is the step-c
+        # session file, which the driver builds itself once the decision passes.
+        assert Path(entry.input_path) == projection_path(out, entry.file_name)
+        assert Path(entry.output_path) == decision_path(out, entry.file_name)
+        assert Path(entry.input_path).is_file(), entry.file_name
+
+
+def test_the_projection_holds_the_text_to_judge_and_nothing_that_names_the_learner(
+    tmp_path: Path,
+) -> None:
+    """Three fields, because the other ten only identify whose words these are.
+
+    A step-b line carries a session hash, a path hash and an utterance id built
+    from the session hash. None of the three changes an authorship judgment and
+    all three travel to a provider with it. This is the argument
+    :mod:`glite_english_audit.sessions` already makes for numbering the files
+    opaquely, and until the projection existed the contents gave away what the
+    file name was withholding.
+    """
+    _seed(tmp_path)
+    prepared = authorship.prepare(_RUN, runs_root=tmp_path)
+    first = next(e for e in prepared.sessions if e.file_name == "session-0001.jsonl")
+    raw = Path(first.input_path).read_text(encoding="utf-8")
+
+    # Modality stays: the dictation rules turn on it. The index replaces the
+    # utterance id, and it is local to the file, so it names nothing outside it.
+    assert [json.loads(line) for line in raw.splitlines()] == [
+        {"i": 1, "modality": "written", "text": _PLAIN},
+        {"i": 2, "modality": "written", "text": _MIXED},
+    ]
+    for identifier in (_SESSION_HASHES["session-0001.jsonl"], "c" * 64, "u-001"):
+        assert identifier not in raw
 
 
 def test_prepare_carries_the_session_index_across_so_the_names_still_mean_something(
@@ -449,7 +499,7 @@ def test_prepare_marks_the_sessions_an_interrupted_run_already_judged(tmp_path: 
     # file as unwritten would pay for every judgment a second time.
     _seed(tmp_path)
     out = Path(authorship.prepare(_RUN, runs_root=tmp_path).output_dir)
-    _judge(out / "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _KEPT])
+    _judge(out, "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _KEPT])
     again = authorship.prepare(_RUN, runs_root=tmp_path)
     written = {entry.file_name: entry.already_written for entry in again.sessions}
     assert written == {
@@ -502,8 +552,8 @@ def test_keeping_every_word_leaves_the_denominator_exactly_where_it_was(tmp_path
     """
     _seed(tmp_path, third=(_THANKS, _RUSSIAN))
     out = _prepare_and_judge(tmp_path, [_THANKS, _RUSSIAN])
-    _judge(out / "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _MIXED])
-    _judge(out / "session-0002.jsonl", _source(tmp_path, "session-0002.jsonl"), [_PASTED])
+    _judge(out, "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _MIXED])
+    _judge(out, "session-0002.jsonl", _source(tmp_path, "session-0002.jsonl"), [_PASTED])
     result = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert result.diagnostics == []
     assert result.words_after == result.words_before
@@ -523,45 +573,52 @@ def test_an_utterance_step_c_emptied_keeps_its_line(tmp_path: Path) -> None:
     assert [item.utterance_id for item in kept] == ["u-003"]
     assert kept[0].text == ""
 
-    # The same session with the line deleted instead is a defect, not a variant.
-    (out / "session-0002.jsonl").write_text("", encoding="utf-8")
+    # The same session left unanswered instead is a defect, not a variant: an
+    # empty decision file says nothing about the item, where `""` says the
+    # learner wrote none of it.
+    decision_path(out, "session-0002.jsonl").write_text("", encoding="utf-8")
     second = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert [d.code for d in second.diagnostics] == ["CARDINALITY_MISMATCH"]
     assert second.sessions_quarantined == 1
 
 
 @pytest.mark.parametrize(
-    ("name", "source", "authored", "code"),
+    ("name", "source", "authored", "code", "item"),
     [
         (
             "a sentence the model invented",
             (_THANKS, _RERUN),
             ("we should ship this on Friday", _RERUN),
             "AUTHORSHIP_SPAN_NOT_VERBATIM",
+            1,
         ),
         (
             "the learner's point in the model's words",
             (_THANKS, _RERUN),
             ("I agree that the second variant is better.", _RERUN),
             "AUTHORSHIP_SPAN_NOT_VERBATIM",
+            1,
         ),
         (
             "a translation of what they said",
             (_THANKS, _RUSSIAN),
             (_THANKS, "we need to fix the deploy script today"),
             "AUTHORSHIP_SPAN_NOT_VERBATIM",
+            2,
         ),
         (
             "their words in an order they never used",
             (_THANKS, _RERUN),
             ("Thanks.\nI am agree", _RERUN),
             "AUTHORSHIP_SPAN_ORDER_INVALID",
+            1,
         ),
         (
             "one span counted twice through an overlap",
             (_THANKS, _RERUN),
             ("I am agree that the second\nsecond variant", _RERUN),
             "AUTHORSHIP_SPAN_ORDER_INVALID",
+            1,
         ),
     ],
 )
@@ -571,9 +628,10 @@ def test_a_bad_span_quarantines_its_whole_file_and_the_words_it_stood_beside(
     source: tuple[str, str],
     authored: tuple[str, str],
     code: str,
+    item: int,
 ) -> None:
     # The file is the unit of work, so there is no partial acceptance: the
-    # second utterance of session 3 was judged correctly and still loses its
+    # other utterance of session 3 was judged correctly and still loses its
     # words. Accepting the good half would leave a corpus whose provenance is
     # half checked and wholly counted.
     _seed(tmp_path, third=source)
@@ -581,7 +639,9 @@ def test_a_bad_span_quarantines_its_whole_file_and_the_words_it_stood_beside(
     result = authorship.apply_authorship(_RUN, runs_root=tmp_path)
 
     assert [d.code for d in result.diagnostics] == [code], name
-    assert result.diagnostics[0].item_ref == "session-0003.jsonl"
+    # The item, not only the file. A repairing agent told just the file name has
+    # to re-read all of it to find out which answer was the bad one.
+    assert result.diagnostics[0].item_ref == f"session-0003.jsonl:{item}", name
     assert result.sessions_quarantined == 1
     assert [e.file_name for e in result.index.sessions] == [
         "session-0001.jsonl",
@@ -589,21 +649,30 @@ def test_a_bad_span_quarantines_its_whole_file_and_the_words_it_stood_beside(
     ]
     assert result.words_after == _KEPT_WORDS
     assert result.index.quarantined_utterance_count == 2
+    # Nothing to move out of the corpus, because nothing entered it: the driver
+    # writes a session file only for a judgment that verified, so a rejected one
+    # never becomes a file a later step could read by mistake.
     assert not (out / "session-0003.jsonl").exists()
-    assert (out / QUARANTINE_DIR_NAME / "session-0003.jsonl").is_file()
+    assert not (out / QUARANTINE_DIR_NAME / "session-0003.jsonl").exists()
+    # The rejected answer does leave, though. `prepare` re-asks for a session by
+    # finding no decision file, so an answer left in place would report the
+    # session as judged and turn the repair below into a no-op.
+    rejected = decision_path(out, "session-0003.jsonl")
+    assert not rejected.exists()
+    assert (out / QUARANTINE_DIR_NAME / rejected.name).is_file()
     assert authorship.read_repair_list(_RUN, runs_root=tmp_path) == ["session-0003.jsonl"]
     # What survived is a corpus a fresh reader can still verify on its own.
     assert verify_corpus(_RUN, runs_root=tmp_path) == []
 
 
 def test_a_session_nobody_judged_is_quarantined_and_asked_again(tmp_path: Path) -> None:
-    # An agent that crashed leaves no file. Treating that as "nothing to keep"
-    # would silently drop the session's words from the denominator.
+    # An agent that crashed leaves no decision file. Treating that as "nothing
+    # to keep" would silently drop the session's words from the denominator.
     _seed(tmp_path)
     prepared = authorship.prepare(_RUN, runs_root=tmp_path)
     out = Path(prepared.output_dir)
-    _judge(out / "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _KEPT])
-    _judge(out / "session-0002.jsonl", _source(tmp_path, "session-0002.jsonl"), [""])
+    _judge(out, "session-0001.jsonl", _source(tmp_path, "session-0001.jsonl"), [_PLAIN, _KEPT])
+    _judge(out, "session-0002.jsonl", _source(tmp_path, "session-0002.jsonl"), [""])
 
     result = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert [d.code for d in result.diagnostics] == ["LINEAGE_MISSING_INPUT"]
@@ -620,11 +689,13 @@ def test_a_step_c_file_step_b_never_produced_is_quarantined_but_never_repaired(
     It cannot be repaired, because no step-b session is waiting for it — asking
     for it again would ask about a session that does not exist. It still has to
     leave the corpus directory, or a later step reads utterances the index
-    never counted.
+    never counted. Only the driver writes here now, so a stray file is a
+    leftover from an earlier run shape rather than something an agent did, and
+    a leftover is exactly what nobody goes looking for.
     """
     _seed(tmp_path)
     out = _prepare_and_judge(tmp_path, [_THANKS, _RERUN])
-    _judge(out / "session-0042.jsonl", _source(tmp_path, "session-0002.jsonl"), [""])
+    write_jsonl_models(out / "session-0042.jsonl", _source(tmp_path, "session-0002.jsonl"))
 
     result = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert [(d.code, d.item_ref) for d in result.diagnostics] == [
@@ -642,19 +713,35 @@ def test_a_quarantined_session_is_asked_again_and_rejoins_the_corpus(tmp_path: P
 
     The failed session was named in a file that nothing read, so its words left
     the denominator with no way back short of redoing the whole run.
+
+    The session passes once first, so that the failure has an earlier artifact
+    to strand. That is the only way a step-c session file reaches quarantine now
+    that the driver writes them: a judgment that never verified never became a
+    file.
     """
     _seed(tmp_path)
-    out = _prepare_and_judge(tmp_path, ["I agree the second variant is better.", _RERUN])
+    out = _prepare_and_judge(tmp_path, [_THANKS, _RERUN])
+    authorship.apply_authorship(_RUN, runs_root=tmp_path)
+
+    _judge(
+        out,
+        "session-0003.jsonl",
+        _source(tmp_path, "session-0003.jsonl"),
+        ["I agree the second variant is better.", _RERUN],
+    )
     first = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert first.sessions_quarantined == 1
+    assert (out / QUARANTINE_DIR_NAME / "session-0003.jsonl").is_file()
 
     repair = authorship.prepare(_RUN, runs_root=tmp_path, repair_only=True)
     assert repair.repair_only
-    # Only the failed session, and it is waiting to be written, not already done.
+    # Only the failed session, and it is waiting to be judged again, not already
+    # done. A repair pass that reports its one session as written is a repair
+    # pass the orchestrator skips, and the words stay out of the denominator.
     assert [entry.file_name for entry in repair.sessions] == ["session-0003.jsonl"]
     assert repair.sessions[0].already_written is False
 
-    _judge(out / "session-0003.jsonl", _source(tmp_path, "session-0003.jsonl"), [_THANKS, _RERUN])
+    _judge(out, "session-0003.jsonl", _source(tmp_path, "session-0003.jsonl"), [_THANKS, _RERUN])
     second = authorship.apply_authorship(_RUN, runs_root=tmp_path)
     assert second.diagnostics == []
     assert second.sessions_verified == 3

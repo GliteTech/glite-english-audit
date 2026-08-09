@@ -50,17 +50,13 @@ from glite_english_audit.artifacts.enums import (
 )
 from glite_english_audit.artifacts.io import (
     ensure_private_dir,
+    read_jsonl_models,
     read_model,
     write_jsonl_models,
     write_model,
 )
 from glite_english_audit.artifacts.manifest import CompatibilityFingerprint, RunManifest
-from glite_english_audit.artifacts.models import (
-    EvidenceSpan,
-    MistakeRecord,
-    NormalizedUtterance,
-    SourceInstanceRecord,
-)
+from glite_english_audit.artifacts.models import NormalizedUtterance, SourceInstanceRecord
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.paths import step_dir
@@ -73,9 +69,18 @@ from glite_english_audit.pipeline import (
     start_run,
     verify,
 )
+from glite_english_audit.pipeline.agent_io import (
+    AuthoredLine,
+    DropList,
+    MistakeDraft,
+    RecordForConfidentiality,
+    UtteranceForJudgment,
+    decision_path,
+    projection_path,
+    verdict_path,
+)
 from glite_english_audit.pipeline.authorship import INDEX_NAME as CORPUS_INDEX_NAME
 from glite_english_audit.pipeline.authorship import AuthoredCorpusIndex, read_repair_list
-from glite_english_audit.pipeline.mistakes import read_records
 from glite_english_audit.sessions import read_session, session_files
 from glite_english_audit.state.event_log import log_event, read_events
 from glite_english_audit.state.machine import advance_run
@@ -267,56 +272,67 @@ def _judge_authorship(
             continue
         if limit is not None and len(judged) >= limit:
             break
-        items = [
-            utterance.model_copy(update={"text": _authored(utterance.text)})
-            for utterance in read_session(Path(session.input_path))
+        # A projection in and a decision out: the agent is handed an index, a
+        # modality and the text, and answers with the index and the spans it
+        # kept. The driver's --apply turns those into the session artifact.
+        decisions = [
+            AuthoredLine(i=item.i, text=_authored(item.text))
+            for item in read_jsonl_models(Path(session.input_path), UtteranceForJudgment)
         ]
         if spoil == session.file_name:
-            items[0] = items[0].model_copy(update={"text": _INVENTED_SPAN})
-        write_jsonl_models(Path(session.output_path), items)
+            decisions[0] = decisions[0].model_copy(update={"text": _INVENTED_SPAN})
+        write_jsonl_models(Path(session.output_path), decisions)
         judged.append(session.file_name)
     return tuple(judged)
 
 
-def _records_for(session: list[NormalizedUtterance]) -> list[MistakeRecord]:
-    """One shareable record per marked construction in one session file."""
-    records: list[MistakeRecord] = []
-    for utterance in session:
+def _offered(assignment: mistakes.SessionAssignment) -> list[UtteranceForJudgment]:
+    """The utterances one step-d agent is handed, numbered as the driver numbers them."""
+    return list(read_jsonl_models(Path(assignment.read), UtteranceForJudgment))
+
+
+def _drafts_for(offered: list[UtteranceForJudgment]) -> list[MistakeDraft]:
+    """One draft per marked construction in one session's projection.
+
+    A draft says which line and which characters, never whose utterance: the
+    identity and provenance a record carries are the driver's to re-derive, so
+    a judgment that got them wrong is not a failure this fake can simulate.
+    """
+    drafts: list[MistakeDraft] = []
+    for item in offered:
         for phrase, what, rule, example in _MARKED:
-            start = utterance.text.find(phrase)
+            start = item.text.find(phrase)
             if start < 0:
                 continue
-            records.append(
-                MistakeRecord(
-                    utterance_id=utterance.utterance_id,
-                    evidence_span=EvidenceSpan(start=start, end=start + len(phrase)),
+            drafts.append(
+                MistakeDraft(
+                    i=item.i,
+                    span=(start, start + len(phrase)),
                     mistake=what,
                     rule=rule,
                     example=example,
                     example_type=ExampleType.SYNTHETIC,
-                    source_type=utterance.source_adapter,
-                    modality=utterance.modality,
                 )
             )
-    return records
+    return drafts
 
 
 def _write_mistakes(workspace: Workspace, run_id: str) -> None:
     for assignment in mistakes.prepare_mistakes(run_id, runs_root=workspace.runs_root):
-        write_jsonl_models(
-            Path(assignment.write), _records_for(read_session(Path(assignment.read)))
-        )
+        write_jsonl_models(Path(assignment.write), _drafts_for(_offered(assignment)))
 
 
 def _confirm_mistakes(workspace: Workspace, run_id: str) -> None:
-    """Step d's records again, minus the withheld one. Step e may only drop."""
+    """The indices step e withholds. It may drop, and a drop list can do nothing else."""
     source = _step(workspace, run_id, StepId.D_MISTAKES)
     target = _step(workspace, run_id, StepId.E_VERIFIED)
     for path in session_files(source):
-        produced, parse_diagnostics = read_records(path)
-        assert parse_diagnostics == []
-        write_jsonl_models(
-            target / path.name, [record for record in produced if record.mistake != _WITHHELD]
+        # Read from the projection, which is all a step-e agent is given: the
+        # published face of each record, without the addresses it must not judge.
+        offered = read_jsonl_models(projection_path(target, path.name), RecordForConfidentiality)
+        write_model(
+            verdict_path(target, path.name),
+            DropList(drop=[record.i for record in offered if record.mistake == _WITHHELD]),
         )
 
 
@@ -548,7 +564,10 @@ def test_a_resumed_step_c_asks_only_for_the_session_files_it_is_missing(
     # anything applied their work.
     done = _judge_authorship(workspace, run_id, limit=1)
     assert len(done) == 1
-    finished = _step(workspace, run_id, StepId.C_AUTHORED) / done[0]
+    # The judgment that was paid for is the decision file, not the artifact:
+    # nothing has applied yet, so the artifact does not exist and could not tell
+    # a reused judgment from a repurchased one.
+    finished = decision_path(_step(workspace, run_id, StepId.C_AUTHORED), done[0])
     paid_for = finished.read_bytes()
 
     reported = {
@@ -599,7 +618,9 @@ def test_a_repair_pass_asks_for_exactly_the_sessions_that_failed(workspace: Work
     repair = authorship.prepare(run_id, runs_root=workspace.runs_root, repair_only=True)
 
     # Exactly the failed session, and it is asked for rather than reported as
-    # already written: its file was moved out of the corpus, not left in place.
+    # already written. A repair pass exists to replace the decision that failed,
+    # so a decision left on disk for reuse is the one outcome that turns the
+    # repair into a no-op and loses the session's words for good.
     assert [session.file_name for session in repair.sessions] == [spoiled]
     assert repair.sessions[0].already_written is False
     _judge_authorship(workspace, run_id)
@@ -627,23 +648,21 @@ def test_a_quarantined_step_is_repaired_by_the_resume_rather_than_redone(
     # which is the check that stops a record from quoting text nobody wrote.
     assignments = mistakes.prepare_mistakes(run_id, runs_root=workspace.runs_root)
     for assignment in assignments:
-        session = read_session(Path(assignment.read))
-        records = _records_for(session)
+        offered = _offered(assignment)
+        drafts = _drafts_for(offered)
         if assignment is assignments[0]:
-            target = next(utterance for utterance in session if utterance.text.strip())
-            records = [
-                MistakeRecord(
-                    utterance_id=target.utterance_id,
-                    evidence_span=EvidenceSpan(start=0, end=len(target.text) + 50),
+            target = next(item for item in offered if item.text.strip())
+            drafts = [
+                MistakeDraft(
+                    i=target.i,
+                    span=(0, len(target.text) + 50),
                     mistake=_MARKED[0][1],
                     rule=_MARKED[0][2],
                     example=_MARKED[0][3],
                     example_type=ExampleType.SYNTHETIC,
-                    source_type=target.source_adapter,
-                    modality=target.modality,
                 )
             ]
-        write_jsonl_models(Path(assignment.write), records)
+        write_jsonl_models(Path(assignment.write), drafts)
     outcome = mistakes.apply_mistakes(run_id, runs_root=workspace.runs_root)
     assert not outcome.passed
     assert "SCHEMA_INVALID_VALUE" in {diagnostic.code for diagnostic in outcome.diagnostics}

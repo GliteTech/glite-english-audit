@@ -256,7 +256,9 @@ def test_step_c_refuses_two_answers_for_one_line() -> None:
         [AuthoredLine(i=1, text="first"), AuthoredLine(i=1, text="first")],
         item_ref="session-0001.jsonl",
     )
-    assert [d.code for d in diagnostics] == ["CARDINALITY_MISMATCH"]
+    # The code carries over from when the agent named utterances directly: this
+    # is still more than one decision covering one utterance.
+    assert [d.code for d in diagnostics] == ["AUTHORSHIP_DUPLICATE_DECISION"]
 
 
 def test_an_index_past_the_end_of_the_session_is_refused() -> None:
@@ -268,7 +270,8 @@ def test_an_index_past_the_end_of_the_session_is_refused() -> None:
         [AuthoredLine(i=1, text="only one"), AuthoredLine(i=2, text="invented")],
         item_ref="session-0001.jsonl",
     )
-    assert any("item 2 of a session holding 1" in d.message for d in diagnostics)
+    assert [d.code for d in diagnostics] == ["AUTHORSHIP_UNKNOWN_UTTERANCE"]
+    assert "item 2 of a session holding 1" in diagnostics[0].message
 
 
 def test_step_d_may_answer_some_utterances_and_not_others() -> None:
@@ -353,7 +356,8 @@ def test_step_e_refuses_to_name_one_record_twice() -> None:
     source = [_utterance(1, "I wanted to built a shelf")]
     produced = [_record(source[0], 0, 6), _record(source[0], 14, 22)]
     _, diagnostics = expand_verified(produced, DropList(drop=[1, 1]), item_ref="session-0001.jsonl")
-    assert any("twice" in d.message for d in diagnostics)
+    assert [d.code for d in diagnostics] == ["CARDINALITY_MISMATCH"]
+    assert "more than once" in diagnostics[0].message
 
 
 def test_step_e_may_drop_everything() -> None:
@@ -363,3 +367,25 @@ def test_step_e_may_drop_everything() -> None:
         produced, DropList(drop=[1]), item_ref="session-0001.jsonl"
     )
     assert (expanded, diagnostics) == ([], [])
+
+
+def test_step_d_reports_an_out_of_range_index_as_a_missing_input() -> None:
+    # Step d's own verifier already says LINEAGE_MISSING_INPUT when a record
+    # cites an utterance the session does not contain; an index past the end is
+    # the same claim, so it gets the same code.
+    source = [_utterance(1, "only one utterance")]
+    _, diagnostics = expand_mistakes(
+        source,
+        [
+            MistakeDraft(
+                i=4,
+                span=(0, 4),
+                mistake="m",
+                rule="r",
+                example="an invented sentence",
+                example_type=ExampleType.SYNTHETIC,
+            )
+        ],
+        item_ref="session-0001.jsonl",
+    )
+    assert [d.code for d in diagnostics] == ["LINEAGE_MISSING_INPUT"]

@@ -8,33 +8,44 @@ it changes nothing. Step d is required to emit records that are already clean,
 so a run with step e removed should still be right; this step exists to catch
 the rare record that reads badly to fresh eyes.
 
-What this driver enforces is the one thing that would make removing step e
-unsafe: that it never becomes a second author. An e file may drop a record. It
-may not add one and it may not alter one — an altered record is a claim nothing
-checked, since the step-d checks ran against the text step d wrote. So a
-difference that is not a deletion fails the step instead of being promoted.
+The one thing that would make removing step e unsafe is it becoming a second
+author. That used to be checked: the driver compared each e file against its d
+file and reported a record added, altered, repeated or moved. It is now
+unrepresentable. The agent returns the indices to drop and the driver rebuilds
+the file from step d's own records, so there is no path by which a step-e file
+carries a record step d did not write. Four checks were deleted because their
+failures cannot occur, not because they stopped mattering.
+
+That also closes a gap the old shape left. The skill demanded byte-identical
+copies while the driver only compared parsed models, so a re-serialized record
+passed a check the instructions said it should fail.
 
 Deletions are recorded per file. An e file is no longer a faithful copy of its d
 file, and the difference is exactly this run's withheld-for-privacy count.
 
 There is no ``--prepare``: step e has nothing to decide before it starts, and
-promoting step d creates its directory and names its files.
+promoting step d creates its directory, writes the projection its agents read,
+and names the file each of them writes.
 """
 
 import argparse
 import json
 import sys
-from collections.abc import Sequence
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.hashing import new_artifact_id
-from glite_english_audit.artifacts.models import MistakeRecord
+from glite_english_audit.artifacts.io import write_jsonl_models
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.paths import step_dir
+from glite_english_audit.pipeline.agent_io import (
+    DropList,
+    expand_verified,
+    verdict_path,
+)
 from glite_english_audit.pipeline.mistakes import (
     read_records,
     step_digest,
@@ -65,6 +76,33 @@ class VerificationOutcome(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+def read_drop_list(path: Path, *, item_ref: str) -> tuple[DropList, list[Diagnostic]]:
+    """Parse one agent-written step-e verdict: the indices it will not share.
+
+    One object for the whole session rather than one line per record. A file
+    that cannot be read at all is an empty verdict plus a diagnostic, so the
+    step fails rather than quietly sharing everything.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return DropList(), [
+            Diagnostic.from_code(
+                "SCHEMA_INVALID_JSON", "a step-e verdict is not valid JSON", item_ref=item_ref
+            )
+        ]
+    try:
+        return DropList.model_validate(payload), []
+    except ValidationError:
+        return DropList(), [
+            Diagnostic.from_code(
+                "SCHEMA_INVALID_VALUE",
+                "a step-e verdict does not validate as a list of indices to drop",
+                item_ref=item_ref,
+            )
+        ]
+
+
 def _require_promoted_source(run_id: str, *, runs_root: Path | None = None) -> None:
     """Refuse to confirm records nothing has validated yet."""
     manifest = load_manifest(run_id, root=runs_root)
@@ -74,46 +112,6 @@ def _require_promoted_source(run_id: str, *, runs_root: Path | None = None) -> N
             "text they cite; run pipeline.mistakes --apply until it exits zero first"
         )
         raise ValueError(msg)
-
-
-def subset_diagnostics(
-    confirmed: Sequence[MistakeRecord], produced: Sequence[MistakeRecord]
-) -> list[Diagnostic]:
-    """Report every way ``confirmed`` is not ``produced`` with lines removed.
-
-    Order is part of the contract, not decoration: keeping it is what lets an e
-    file be diffed against its d file line by line, which is how a person sees
-    what step e did.
-    """
-    diagnostics: list[Diagnostic] = []
-    cursor = 0
-    for record in confirmed:
-        position = next(
-            (offset for offset in range(cursor, len(produced)) if produced[offset] == record),
-            None,
-        )
-        if position is not None:
-            cursor = position + 1
-            continue
-        if record in produced:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "CARDINALITY_MISMATCH",
-                    "step e repeats a record or moves it, so its file no longer tracks "
-                    "step d line for line",
-                    item_ref=record.record_id,
-                )
-            )
-        else:
-            diagnostics.append(
-                Diagnostic.from_code(
-                    "SCHEMA_INVALID_VALUE",
-                    "step e carries a record step d did not write, so it altered or invented "
-                    "one instead of dropping it",
-                    item_ref=record.record_id,
-                )
-            )
-    return diagnostics
 
 
 def apply_verification(run_id: str, *, runs_root: Path | None = None) -> VerificationOutcome:
@@ -137,8 +135,8 @@ def apply_verification(run_id: str, *, runs_root: Path | None = None) -> Verific
         diagnostics.extend(produced_diagnostics)
         records_in += len(produced)
 
-        written = target / path.name
-        if not written.is_file():
+        answers = verdict_path(target, path.name)
+        if not answers.is_file():
             diagnostics.append(
                 Diagnostic.from_code(
                     "LINEAGE_MISSING_INPUT",
@@ -148,9 +146,17 @@ def apply_verification(run_id: str, *, runs_root: Path | None = None) -> Verific
                 )
             )
             continue
-        confirmed, confirmed_diagnostics = read_records(written)
-        diagnostics.extend(confirmed_diagnostics)
-        diagnostics.extend(subset_diagnostics(confirmed, produced))
+        verdict, verdict_diagnostics = read_drop_list(answers, item_ref=path.name)
+        confirmed, expansion = expand_verified(produced, verdict, item_ref=path.name)
+        session_diagnostics = [*verdict_diagnostics, *expansion]
+        diagnostics.extend(session_diagnostics)
+        if session_diagnostics:
+            # A rejected verdict withheld nothing, because nothing was decided.
+            # Counting its whole session as dropped would put a number in front
+            # of an operator that says the run withheld everything, when what
+            # happened is that one file could not be read.
+            continue
+        write_jsonl_models(target / path.name, confirmed)
         records_kept += len(confirmed)
 
         kept_ids = {record.record_id for record in confirmed}

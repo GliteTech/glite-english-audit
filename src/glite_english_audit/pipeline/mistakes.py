@@ -44,12 +44,22 @@ from glite_english_audit import CLIENT_VERSION
 from glite_english_audit.artifacts.enums import StepId, StepStatus
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
-from glite_english_audit.artifacts.io import ensure_private_dir, write_model
+from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
 from glite_english_audit.artifacts.models import MistakeRecord
 from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import repo_root, step_dir
+from glite_english_audit.pipeline.agent_io import (
+    MistakeDraft,
+    agent_dir,
+    decision_path,
+    expand_mistakes,
+    project_records,
+    project_utterances,
+    projection_path,
+    verdict_path,
+)
 from glite_english_audit.pipeline.record_step import advance_to, mark_failed, output_is_current
 from glite_english_audit.sessions import read_index, read_session, session_files, write_index
 from glite_english_audit.state.run_store import load_manifest
@@ -62,6 +72,7 @@ SOURCE_STEP = StepId.C_AUTHORED
 REPORT_NAME = "verification-report.json"
 PRODUCER_NAME = "pipeline.mistakes"
 SKILL_NAME = "find-english-mistakes"
+QUARANTINE_DIR_NAME = "quarantined"
 
 
 class SessionAssignment(BaseModel):
@@ -77,7 +88,11 @@ class SessionAssignment(BaseModel):
 
     name: str
     read: str
+    """The projection to read. Not the step-c or step-d file: those carry
+    identity and provenance the judgment does not use."""
     write: str
+    """Where to write the decisions. The driver expands them into the artifact,
+    so an agent never writes a step file itself."""
     items: int = Field(ge=0)
     already_written: bool = False
     """True when an output file of this name exists and may be reused.
@@ -121,13 +136,15 @@ def _validation_diagnostic(error: ValidationError, reference: str) -> Diagnostic
     )
 
 
-def read_records(path: Path) -> tuple[list[MistakeRecord], list[Diagnostic]]:
-    """Parse one mistake file, reporting each bad line rather than raising.
+def read_lines[Line: BaseModel](
+    path: Path, model: type[Line]
+) -> tuple[list[Line], list[Diagnostic]]:
+    """Parse one JSONL file into ``model``, reporting each bad line.
 
     A single malformed line must not hide the rest of the file: the agent
     repairing it needs every problem at once, not the first one.
     """
-    records: list[MistakeRecord] = []
+    items: list[Line] = []
     diagnostics: list[Diagnostic] = []
     for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not raw.strip():
@@ -143,10 +160,20 @@ def read_records(path: Path) -> tuple[list[MistakeRecord], list[Diagnostic]]:
             )
             continue
         try:
-            records.append(MistakeRecord.model_validate(payload))
+            items.append(model.model_validate(payload))
         except ValidationError as error:
             diagnostics.append(_validation_diagnostic(error, reference))
-    return records, diagnostics
+    return items, diagnostics
+
+
+def read_records(path: Path) -> tuple[list[MistakeRecord], list[Diagnostic]]:
+    """Parse one step-d or step-e artifact file."""
+    return read_lines(path, MistakeRecord)
+
+
+def read_drafts(path: Path) -> tuple[list[MistakeDraft], list[Diagnostic]]:
+    """Parse one agent-written step-d decision file."""
+    return read_lines(path, MistakeDraft)
 
 
 def _overlap_diagnostics(records: Sequence[MistakeRecord]) -> list[Diagnostic]:
@@ -320,18 +347,26 @@ def prepare_mistakes(run_id: str, *, runs_root: Path | None = None) -> list[Sess
 
     # Step d could not resume at file granularity: an interrupted run re-asked
     # the agents for every session, including the ones already answered.
+    ensure_private_dir(agent_dir(target))
     reusable = output_is_current(run_id, STEP, runs_root=runs_root)
     assignments: list[SessionAssignment] = []
     for path in inputs:
-        authored = [u for u in read_session(path) if u.text.strip()]
+        utterances = read_session(path)
+        # The projection numbers every utterance, including the ones step c
+        # emptied: the agent's index has to address the same line the driver
+        # will resolve its span against.
+        projection = projection_path(target, path.name)
+        write_jsonl_models(projection, project_utterances(utterances))
+        decisions = decision_path(target, path.name)
+        authored = [u for u in utterances if u.text.strip()]
         assignments.append(
             SessionAssignment(
                 name=path.name,
-                read=str(path),
-                write=str(target / path.name),
+                read=str(projection),
+                write=str(decisions),
                 items=len(authored),
                 words=sum(count_words(u.text) for u in authored),
-                already_written=reusable and (target / path.name).is_file(),
+                already_written=reusable and decisions.is_file(),
             )
         )
     advance_to(run_id, STEP, StepStatus.IN_PROGRESS, runs_root=runs_root)
@@ -353,17 +388,39 @@ def _prepare_verification(
     """
     source = step_dir(run_id, STEP, root=runs_root)
     target = ensure_private_dir(step_dir(run_id, StepId.E_VERIFIED, root=runs_root))
+    ensure_private_dir(agent_dir(target))
     write_index(target, read_index(source))
-    return [
-        SessionAssignment(
-            name=name,
-            read=str(source / name),
-            write=str(target / name),
-            items=len(members),
-            words=words.get(name, 0),
+    assignments: list[SessionAssignment] = []
+    for name, members in sorted(records.items()):
+        # The published face and nothing else. The skill already told the agent
+        # not to judge the utterance ID or the span because they are local
+        # addresses; now it cannot see them, which is the same rule enforced
+        # rather than asked for.
+        projection = projection_path(target, name)
+        write_jsonl_models(projection, project_records(members))
+        assignments.append(
+            SessionAssignment(
+                name=name,
+                read=str(projection),
+                write=str(verdict_path(target, name)),
+                items=len(members),
+                words=words.get(name, 0),
+            )
         )
-        for name, members in sorted(records.items())
-    ]
+    return assignments
+
+
+def _quarantine(path: Path, step_directory: Path) -> None:
+    """Move a rejected answer out of the way, keeping it readable.
+
+    Kept rather than deleted for the same reason step c keeps one: a person
+    asking why a session failed needs the answer that failed, and the diagnostic
+    names a code rather than the text behind it.
+    """
+    if not path.is_file():
+        return
+    holding = ensure_private_dir(agent_dir(step_directory) / QUARANTINE_DIR_NAME)
+    path.replace(holding / path.name)
 
 
 def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOutcome:
@@ -378,11 +435,12 @@ def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOut
     diagnostics: list[Diagnostic] = []
     produced: dict[str, list[MistakeRecord]] = {}
     words: dict[str, int] = {}
+    rejected: list[str] = []
     for path in inputs:
         utterances = read_session(path)
         words[path.name] = sum(count_words(u.text) for u in utterances)
-        written = target / path.name
-        if not written.is_file():
+        answers = decision_path(target, path.name)
+        if not answers.is_file():
             diagnostics.append(
                 Diagnostic.from_code(
                     "LINEAGE_MISSING_INPUT",
@@ -392,9 +450,26 @@ def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOut
                 )
             )
             continue
-        records, parse_diagnostics = read_records(written)
-        diagnostics.extend(parse_diagnostics)
-        diagnostics.extend(verify_records(records, {u.utterance_id: u.text for u in utterances}))
+        drafts, parse_diagnostics = read_drafts(answers)
+        records, expansion = expand_mistakes(utterances, drafts, item_ref=path.name)
+        session_diagnostics = [
+            *parse_diagnostics,
+            *expansion,
+            *verify_records(records, {u.utterance_id: u.text for u in utterances}),
+        ]
+        diagnostics.extend(session_diagnostics)
+        if session_diagnostics:
+            # The answer was rejected, so it must not be reported as already
+            # answered when the step is prepared again: `prepare` decides that
+            # by looking for the decision file, and a rejected answer left in
+            # place makes the repair a pass that asks for nothing and reads the
+            # same bad drafts back. The artifact is still written — the step
+            # fails as a whole, so nothing downstream can read it, and a person
+            # asking what went wrong needs the record beside the diagnostic.
+            rejected.append(path.name)
+        # The driver writes the artifact, so a record on disk is one that was
+        # built from a verified draft rather than one the run has to trust.
+        write_jsonl_models(target / path.name, records)
         produced[path.name] = records
 
     expected = {path.name for path in inputs}
@@ -425,6 +500,8 @@ def apply_mistakes(run_id: str, *, runs_root: Path | None = None) -> MistakesOut
     if not report.passed:
         # Quarantined rather than failed: the files exist and are the agents' to
         # repair, and the state machine lets a quarantined step re-enter work.
+        for name in rejected:
+            _quarantine(decision_path(target, name), target)
         mark_failed(run_id, STEP, quarantined=True, runs_root=runs_root)
         return MistakesOutcome(
             passed=False,
