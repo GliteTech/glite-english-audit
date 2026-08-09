@@ -335,6 +335,25 @@ def test_latin_lookalike_characters_do_not_defeat_the_patterns(
     assert expected_code in _codes(scan_text(text))
 
 
+@pytest.mark.parametrize(
+    "blob",
+    [
+        # base64 and base32 of "https://acme-internal.example/team/roadmap".
+        "aHR0cHM6Ly9hY21lLWludGVybmFsLmV4YW1wbGUvdGVhbS9yb2FkbWFw",
+        "aHR0cHM6Ly9hY21lLWludGVybmFsLmV4YW1wbGUvdGVhbS9yb2FkbWFw=",
+        "NB2HI4DTHIXS443JNZTXI3TBNZUWK3TDPFZXIZLSOMXGC3LFOJUW4ZY",
+    ],
+)
+def test_an_encoded_blob_is_an_identifier(blob: str) -> None:
+    # Encoding a URL or a path defeats every shape-based pattern; the blob
+    # itself is the giveaway.
+    assert "PRIVACY_IDENTIFIER_PRESENT" in _codes(scan_text(f"The learner wrote {blob} once."))
+
+
+def test_ordinary_english_is_never_an_encoded_blob() -> None:
+    assert scan_text("The learner wrote a very long uncountable noun incorrectly.") == []
+
+
 def test_lookalike_characters_leave_the_record_untouched() -> None:
     example = "The team moved to аcme.io last week."
     record = _record(example=example)

@@ -103,7 +103,11 @@ _IDENTIFIER = re.compile(
     r"|\b[0-9a-f]{16,}\b"
     # Short commit hashes: eight or more hex characters mixing digits and
     # letters, which no ordinary English word does.
-    r"|\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b",
+    r"|\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b"
+    # Encoded blobs. Base64 and base32 of a URL, a path, or a key match none of
+    # the patterns above, and an example is at most fifteen words of English, so
+    # a 24-character unbroken run of base64 alphabet is not a word.
+    r"|\b[A-Za-z0-9+/]{24,}={0,2}",
     re.IGNORECASE,
 )
 _CODE = re.compile(
