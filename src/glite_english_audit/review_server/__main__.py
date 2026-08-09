@@ -2,7 +2,7 @@
 
 Run: ``uv run python -m glite_english_audit.review_server --run-id <run-id>``.
 
-Loads the stage-8 reviewed submission artifact, detects submission capability
+Loads the reviewed submission artifact built from step e, detects submission capability
 from the operator configuration directory (download-only when absent), starts
 the loopback server, prints the tokenized local URL, and serves until the
 review completes, the user shuts it down, or the inactivity timeout fires.
