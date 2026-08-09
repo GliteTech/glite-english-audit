@@ -540,6 +540,15 @@ def _expire_unreadable(child: Path, moment: datetime) -> None:
         for path in subtree.rglob("*"):
             if path.is_file() and not path.is_symlink():
                 newest = max(newest, path.stat().st_mtime)
+    # The root-level files are private too, and a run can hold them with every
+    # private subtree already gone. Dating the run from the subtrees alone made
+    # `newest` zero for exactly that run and returned before deleting anything,
+    # so `source-inventory.json` — path hashes and labels — outlived retention
+    # in the branch added to stop things outliving retention.
+    for name in _CLEANUP_ONLY_FILES:
+        candidate = child / name
+        if candidate.is_file() and not candidate.is_symlink():
+            newest = max(newest, candidate.stat().st_mtime)
     if newest == 0.0:
         return
     if moment - datetime.fromtimestamp(newest, tz=UTC) <= timedelta(days=RETENTION_DAYS):

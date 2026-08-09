@@ -667,3 +667,32 @@ def test_an_unreadable_run_inside_its_retention_window_is_left_alone(tmp_path: P
     expire_stale_runs(root=tmp_path, now=datetime.now(UTC))
 
     assert text.exists()
+
+
+def test_an_unreadable_run_whose_private_files_sit_at_its_root_still_expires(
+    tmp_path: Path,
+) -> None:
+    """Retention dated the run from its private subtrees only.
+
+    A run can hold `source-inventory.json` -- path hashes and the labels shown
+    to the user -- with every private subtree already gone. Scanning only the
+    subtrees left `newest` at zero for exactly that run and returned before
+    deleting anything, so private data outlived the thirty days inside the
+    branch added to stop private data outliving the thirty days.
+    """
+    run = tmp_path / ("run-" + "d" * 32)
+    run.mkdir(parents=True)
+    (run / "run-manifest.json").write_text('{"schema_version": 1}', encoding="utf-8")
+    inventory = run / "source-inventory.json"
+    inventory.write_text('{"records": []}', encoding="utf-8")
+
+    long_ago = time.time() - (RETENTION_DAYS + 30) * 86400
+    for path in (run / "run-manifest.json", inventory):
+        os.utime(path, (long_ago, long_ago))
+
+    expire_stale_runs(tmp_path, now=datetime.now(UTC) + timedelta(days=RETENTION_DAYS + 30))
+
+    assert not inventory.exists()
+    # The manifest is kept, as every other expiry keeps it: it is the record
+    # that the run existed and was swept.
+    assert (run / "run-manifest.json").is_file()

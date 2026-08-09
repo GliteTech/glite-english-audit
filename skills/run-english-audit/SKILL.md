@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 15
+**Version**: 16
 
 ## Goal
 
@@ -282,9 +282,9 @@ runtime; naming both is confusing and wrong.
    `allowance.utilization`, `allowance.tightest_window`, `allowance.resets_at`,
    `allowance.age_phrase`, `allowance.stale`, `allowance.overage_enabled`. Do not
    read it any other way. There was no command for months, so the agent wrote its
-   own one-liner, got a raw dataclass back and dropped the age: it told a user
-   "a weekly allowance that is 1% used" from a reading six hours old, which is
-   exactly the sentence the age exists to prevent.
+   own one-liner, got a raw dataclass back and dropped the age — quoting a bare
+   percentage from a cache hours stale, which is exactly the sentence the age
+   exists to prevent.
 
    The allowance figure carries its age and is never presented as a live reading:
    it comes from a cache some other process refreshed, and a percentage without an

@@ -281,10 +281,10 @@ class PresetRow(BaseModel):
     """Selected apps contributing nothing to this window.
 
     Sources are chosen before the period, so a period can silently empty one:
-    a user who picks Cursor and then "last 7 days" has selected an app whose
-    data stopped in June. Reporting the selection back as "Codex and Cursor"
-    is then untrue in the only sense the user cares about, and this field is
-    what lets the preflight say which of their choices does nothing.
+    picking an app whose history ended months ago and then a seven-day window
+    selects something that contributes nothing. Reading the selection back as
+    both apps is then untrue in the only sense the user cares about, and this
+    field is what lets the preflight say which of their choices does nothing.
     """
 
 

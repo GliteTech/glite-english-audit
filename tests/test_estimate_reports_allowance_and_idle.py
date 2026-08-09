@@ -1,21 +1,20 @@
 """The preflight's two missing facts, now carried by the command that prints them.
 
-Both defects here were found in a real session rather than by the suite.
-
 ``subscription.read_allowance`` existed, was tested, was described in the skill,
-and nothing called it. So the agent wrote its own one-liner, received a raw
-dataclass and reported "a weekly allowance that is 1% used" from a reading six
-hours old -- dropping the one field the module computes specifically so that a
-cache is never mistaken for a live check.
+and nothing called it. With no command behind it an agent must improvise one,
+and an improvised read returns a raw dataclass: the percentage gets quoted and
+``age_seconds`` gets dropped, which is the one field the module computes so that
+a cache is never mistaken for a live check.
 
 Separately, sources are chosen before the period, so the period can empty a
-source the user picked. A run of Codex and Cursor over the last 7 days is a
-Codex run: Cursor's data stopped in June. The selection was read back as "Codex
-and Cursor", which is true of the boxes ticked and false about the run being
-approved.
+source that was picked. An app whose history ended months ago contributes
+nothing to a seven-day window, and reading the selection back as both apps is
+true of the boxes ticked and false about the run being approved.
 
 Neither is fixable in prose. A fact the agent has to fetch for itself is a fact
 it will fetch differently every time, so both now travel with the estimate.
+
+Every value below is invented. Nothing here records what any real run found.
 """
 
 import json
