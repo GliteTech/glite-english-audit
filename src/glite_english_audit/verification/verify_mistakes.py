@@ -36,11 +36,11 @@ import json
 import sys
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.io import read_jsonl_models
 from glite_english_audit.artifacts.models import NormalizedUtterance, PrivateMistake
 from glite_english_audit.diagnostics.codes import Diagnostic
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 
 CORPUS_NAME = "corpus.jsonl"
 MISTAKES_NAME = "mistakes.jsonl"
@@ -121,12 +121,12 @@ def verify_mistakes(mistakes: list[PrivateMistake], corpus: dict[str, str]) -> l
 
 def verify_run(run_id: str, *, runs_root: Path | None = None) -> list[Diagnostic]:
     """Load one run's stage-3 corpus and stage-5 records, then check them."""
-    corpus_path = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / CORPUS_NAME
+    corpus_path = step_dir(run_id, StepId.C_AUTHORED, root=runs_root) / CORPUS_NAME
     corpus = {
         utterance.utterance_id: utterance.text
         for utterance in read_jsonl_models(corpus_path, NormalizedUtterance)
     }
-    mistakes_path = stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root) / MISTAKES_NAME
+    mistakes_path = step_dir(run_id, StepId.D_MISTAKES, root=runs_root) / MISTAKES_NAME
     mistakes = list(read_jsonl_models(mistakes_path, PrivateMistake))
     return verify_mistakes(mistakes, corpus)
 

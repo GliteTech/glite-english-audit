@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
@@ -41,7 +41,7 @@ from glite_english_audit.normalization.authorship import strip_non_authored
 from glite_english_audit.normalization.dedup import dedupe
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 
 CANDIDATES_NAME = "candidates.jsonl"
 CORPUS_NAME = "corpus.jsonl"
@@ -51,10 +51,8 @@ PRODUCER_NAME = "filter_corpus"
 
 def filter_corpus(run_id: str, *, runs_root: Path | None = None) -> EligibleCorpusManifest:
     """Run the stage-3 filter for one run and persist its artifacts."""
-    candidates_path = stage_dir(run_id, StageId.CANDIDATE_UTTERANCES, root=runs_root) / (
-        CANDIDATES_NAME
-    )
-    out_dir = ensure_private_dir(stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root))
+    candidates_path = step_dir(run_id, StepId.A_COLLECTED, root=runs_root) / (CANDIDATES_NAME)
+    out_dir = ensure_private_dir(step_dir(run_id, StepId.C_AUTHORED, root=runs_root))
 
     eligible: list[NormalizedUtterance] = []
     quarantined = 0
@@ -80,7 +78,7 @@ def filter_corpus(run_id: str, *, runs_root: Path | None = None) -> EligibleCorp
             schema_version=1,
             artifact_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StageId.ELIGIBLE_ENGLISH,
+            stage_id=StepId.C_AUTHORED,
             producer_name=PRODUCER_NAME,
             producer_version=CLIENT_VERSION,
             created_at=utc_now(),

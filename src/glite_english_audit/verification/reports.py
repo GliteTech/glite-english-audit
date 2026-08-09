@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 
 
@@ -21,7 +21,7 @@ class VerificationReport(BaseModel):
 
     report_id: str
     run_id: str
-    stage_id: StageId
+    stage_id: StepId
     artifact_id: str
     artifact_hash: str
     verifier_name: str

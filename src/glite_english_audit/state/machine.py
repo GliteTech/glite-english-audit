@@ -6,7 +6,7 @@ raises :class:`InvalidTransitionError` carrying the stable
 new transition is a reviewed contract change, not an accident.
 """
 
-from glite_english_audit.artifacts.enums import RunStatus, StageId, StageStatus
+from glite_english_audit.artifacts.enums import RunStatus, StageStatus, StepId
 from glite_english_audit.diagnostics.codes import Diagnostic
 
 _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
@@ -61,12 +61,12 @@ _STAGE_TRANSITIONS: dict[StageStatus, frozenset[StageStatus]] = {
     StageStatus.INVALIDATED: frozenset({StageStatus.IN_PROGRESS}),
 }
 
-SEMANTIC_STAGES: frozenset[StageId] = frozenset(
+SEMANTIC_STAGES: frozenset[StepId] = frozenset(
     {
-        StageId.PLAIN_FINDINGS,
-        StageId.PRIVATE_MISTAKES,
-        StageId.SAFE_RECORDS,
-        StageId.PRIVACY_APPROVED,
+        StepId.D_MISTAKES,
+        StepId.D_MISTAKES,
+        StepId.D_MISTAKES,
+        StepId.E_VERIFIED,
     }
 )
 """Stages whose artifacts carry model judgment (specification, 5.1, 6.1).
@@ -103,7 +103,7 @@ def advance_run(current: RunStatus, target: RunStatus) -> RunStatus:
     return target
 
 
-def allowed_stage_targets(current: StageStatus, *, stage: StageId) -> frozenset[StageStatus]:
+def allowed_stage_targets(current: StageStatus, *, stage: StepId) -> frozenset[StageStatus]:
     """Statuses ``stage`` may move to from ``current``.
 
     The table is stage-agnostic except for one rule: a semantic stage may not
@@ -115,12 +115,12 @@ def allowed_stage_targets(current: StageStatus, *, stage: StageId) -> frozenset[
     return targets
 
 
-def can_advance_stage(current: StageStatus, target: StageStatus, *, stage: StageId) -> bool:
+def can_advance_stage(current: StageStatus, target: StageStatus, *, stage: StepId) -> bool:
     """True when ``stage`` may move from ``current`` to ``target``."""
     return target in allowed_stage_targets(current, stage=stage)
 
 
-def advance_stage(current: StageStatus, target: StageStatus, *, stage: StageId) -> StageStatus:
+def advance_stage(current: StageStatus, target: StageStatus, *, stage: StepId) -> StageStatus:
     """Validate and perform a stage transition."""
     if not can_advance_stage(current, target, stage=stage):
         raise InvalidTransitionError(

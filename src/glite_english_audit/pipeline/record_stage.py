@@ -25,7 +25,7 @@ that a driver did not skip verification.
 from datetime import datetime
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import RunStatus, StageId, StageStatus
+from glite_english_audit.artifacts.enums import RunStatus, StageStatus, StepId
 from glite_english_audit.artifacts.manifest import RunManifest
 from glite_english_audit.state.machine import SEMANTIC_STAGES, advance_run, advance_stage
 from glite_english_audit.state.run_store import load_manifest, write_checkpoint
@@ -48,7 +48,7 @@ _SEMANTIC_PATH: tuple[StageStatus, ...] = (
 )
 
 
-def _path_for(stage: StageId) -> tuple[StageStatus, ...]:
+def _path_for(stage: StepId) -> tuple[StageStatus, ...]:
     return _SEMANTIC_PATH if stage in SEMANTIC_STAGES else _DETERMINISTIC_PATH
 
 
@@ -65,7 +65,7 @@ def _begin_processing(manifest: RunManifest) -> None:
 
 def advance_to(
     run_id: str,
-    stage: StageId,
+    stage: StepId,
     target: StageStatus,
     *,
     artifact_id: str | None = None,
@@ -116,7 +116,7 @@ def advance_to(
 
 def require_promoted_through(
     run_id: str,
-    last: StageId,
+    last: StepId,
     *,
     runs_root: Path | None = None,
 ) -> None:
@@ -133,7 +133,7 @@ def require_promoted_through(
     manifest = load_manifest(run_id, root=runs_root)
     unfinished = [
         stage
-        for stage in StageId
+        for stage in StepId
         if int(stage) <= int(last) and manifest.stages[stage].status is not StageStatus.PROMOTED
     ]
     if unfinished:
@@ -169,7 +169,7 @@ def enter_review(
 
 def mark_failed(
     run_id: str,
-    stage: StageId,
+    stage: StepId,
     *,
     quarantined: bool = False,
     runs_root: Path | None = None,

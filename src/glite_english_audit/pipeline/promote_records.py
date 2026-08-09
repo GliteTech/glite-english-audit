@@ -20,7 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId, StageStatus
+from glite_english_audit.artifacts.enums import StageStatus, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
@@ -30,7 +30,7 @@ from glite_english_audit.artifacts.io import (
     write_model,
 )
 from glite_english_audit.artifacts.models import SafeRecordCandidate
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline.record_stage import advance_to
 from glite_english_audit.verification.confidentiality_report import (
     MissingConfidentialityReportError,
@@ -72,7 +72,7 @@ def _envelope(run_id: str, schema_name: str) -> ArtifactEnvelope:
         schema_version=1,
         artifact_id=new_artifact_id(),
         run_id=run_id,
-        stage_id=StageId.PRIVACY_APPROVED,
+        stage_id=StepId.E_VERIFIED,
         producer_name=PRODUCER_NAME,
         producer_version=CLIENT_VERSION,
         created_at=utc_now(),
@@ -81,8 +81,8 @@ def _envelope(run_id: str, schema_name: str) -> ArtifactEnvelope:
 
 def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
     """Scan every candidate and split approved from withheld."""
-    source_dir = stage_dir(run_id, StageId.SAFE_RECORDS, root=runs_root)
-    target_dir = ensure_private_dir(stage_dir(run_id, StageId.PRIVACY_APPROVED, root=runs_root))
+    source_dir = step_dir(run_id, StepId.D_MISTAKES, root=runs_root)
+    target_dir = ensure_private_dir(step_dir(run_id, StepId.E_VERIFIED, root=runs_root))
     candidates = list(read_jsonl_models(source_dir / CANDIDATES_NAME, SafeRecordCandidate))
 
     # The other half of the double protection (specification, 6.6). Loading it
@@ -124,7 +124,7 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
         VerificationReport(
             report_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StageId.PRIVACY_APPROVED,
+            stage_id=StepId.E_VERIFIED,
             artifact_id=new_artifact_id(),
             artifact_hash=digest,
             verifier_name="privacy_scanner",
@@ -148,7 +148,7 @@ def promote(run_id: str, *, runs_root: Path | None = None) -> dict[str, object]:
     # so both are durable; stage 7 is promoted on its own scanner report. All
     # three are semantic stages, and the confidentiality skill that runs before
     # this command is their second reader (specification, 6.6).
-    for stage in (StageId.PRIVATE_MISTAKES, StageId.SAFE_RECORDS, StageId.PRIVACY_APPROVED):
+    for stage in (StepId.D_MISTAKES, StepId.D_MISTAKES, StepId.E_VERIFIED):
         advance_to(
             run_id,
             stage,

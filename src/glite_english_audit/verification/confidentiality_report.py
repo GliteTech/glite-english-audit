@@ -29,9 +29,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.io import read_model
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 
 REPORT_NAME = "confidentiality-report.json"
 
@@ -143,7 +143,7 @@ class ConfidentialityReport(BaseModel):
 
 def report_path(run_id: str, *, runs_root: Path | None = None) -> Path:
     """Where the confidentiality report for this run is expected."""
-    return stage_dir(run_id, StageId.PRIVACY_APPROVED, root=runs_root) / REPORT_NAME
+    return step_dir(run_id, StepId.E_VERIFIED, root=runs_root) / REPORT_NAME
 
 
 class MissingConfidentialityReportError(Exception):

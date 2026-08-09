@@ -7,18 +7,30 @@ strings; raw strings appear only at serialization boundaries.
 from enum import IntEnum, StrEnum
 
 
-class StageId(IntEnum):
-    """The nine waterfall stages from the project specification, Section 5.1."""
+class StepId(IntEnum):
+    """The five pipeline steps.
 
-    SOURCE_INVENTORY = 0
-    SOURCE_SNAPSHOTS = 1
-    CANDIDATE_UTTERANCES = 2
-    ELIGIBLE_ENGLISH = 3
-    PLAIN_FINDINGS = 4
-    PRIVATE_MISTAKES = 5
-    SAFE_RECORDS = 6
-    PRIVACY_APPROVED = 7
-    REVIEWED_SUBMISSION = 8
+    One session is one file, and that file survives every step: after step a,
+    each step reads the previous step's files and writes the same names back,
+    so any step's output can be diffed against its input file by file. That
+    property is the reason for the shape, and it is worth more than the nine
+    finer-grained stages it replaced, which pooled every session into one
+    JSONL and made "what did this step do to session X" unanswerable.
+
+    Steps c, d and e are one agent per file, run in parallel. Steps a and b are
+    deterministic code.
+
+    Numbered for ordering — promotion checks compare ``int(step)`` — while the
+    directory names lead with the letter the owner uses when talking about
+    them. The review is not a step: it produces no per-session file and lives
+    in the run's ``submission/`` directory, reflected in ``RunStatus.REVIEW``.
+    """
+
+    A_COLLECTED = 0
+    B_DEDUPLICATED = 1
+    C_AUTHORED = 2
+    D_MISTAKES = 3
+    E_VERIFIED = 4
 
 
 class AgentRuntime(StrEnum):

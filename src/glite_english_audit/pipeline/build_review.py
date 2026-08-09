@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import Modality, StageId, StageStatus
+from glite_english_audit.artifacts.enums import Modality, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import (
@@ -41,9 +41,8 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.english import plural
 from glite_english_audit.normalization.tokenizer import count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir, submission_dir
 from glite_english_audit.pipeline.record_stage import (
-    advance_to,
     enter_review,
     require_promoted_through,
 )
@@ -81,13 +80,13 @@ def build_review(
     processed. Anything eligible but unprocessed is reported as reduced
     coverage rather than silently treated as error-free text.
     """
-    require_promoted_through(run_id, StageId.PRIVACY_APPROVED, runs_root=runs_root)
-    corpus_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
+    require_promoted_through(run_id, StepId.E_VERIFIED, runs_root=runs_root)
+    corpus_dir = step_dir(run_id, StepId.C_AUTHORED, root=runs_root)
     corpus = list(read_jsonl_models(corpus_dir / CORPUS_NAME, NormalizedUtterance))
     corpus_manifest = read_model(corpus_dir / CORPUS_MANIFEST_NAME, EligibleCorpusManifest)
     processed = analyzed_ids if analyzed_ids is not None else {u.utterance_id for u in corpus}
 
-    mistakes_path = stage_dir(run_id, StageId.PRIVATE_MISTAKES, root=runs_root) / MISTAKES_NAME
+    mistakes_path = step_dir(run_id, StepId.D_MISTAKES, root=runs_root) / MISTAKES_NAME
     mistakes = list(read_jsonl_models(mistakes_path, PrivateMistake))
 
     # verified_total_mistakes is len(mistakes), so a stage-5 record that counts
@@ -114,7 +113,7 @@ def build_review(
     confidentiality = load_report(run_id, runs_root=runs_root)
     verifier_version = confidentiality.verifier_version or CLIENT_VERSION
 
-    approved_dir = stage_dir(run_id, StageId.PRIVACY_APPROVED, root=runs_root)
+    approved_dir = step_dir(run_id, StepId.E_VERIFIED, root=runs_root)
     approved = list(read_jsonl_models(approved_dir / APPROVED_NAME, SafeRecordCandidate))
     withheld_path = approved_dir / WITHHELD_NAME
     withheld: dict[str, list[str]] = (
@@ -155,7 +154,7 @@ def build_review(
             schema_version=1,
             artifact_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StageId.REVIEWED_SUBMISSION,
+            stage_id=StepId.E_VERIFIED,
             producer_name=PRODUCER_NAME,
             producer_version=CLIENT_VERSION,
             created_at=utc_now(),
@@ -172,18 +171,10 @@ def build_review(
         ],
         counts=counts,
     )
-    target = ensure_private_dir(stage_dir(run_id, StageId.REVIEWED_SUBMISSION, root=runs_root))
+    target = ensure_private_dir(submission_dir(run_id, root=runs_root))
     write_model(target / REVIEWED_NAME, artifact)
     # The run is now waiting on a person rather than on a stage. Recording that
     # is what lets a resumed run reopen the review instead of rebuilding it.
-    advance_to(
-        run_id,
-        StageId.REVIEWED_SUBMISSION,
-        StageStatus.PROMOTED,
-        artifact_id=artifact.envelope.artifact_id,
-        producer_version=CLIENT_VERSION,
-        runs_root=runs_root,
-    )
     enter_review(run_id, runs_root=runs_root)
     return artifact
 
@@ -197,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     artifact = build_review(arguments.run_id, runs_root=arguments.runs_root)
     counts = artifact.counts
     corpus_manifest = read_model(
-        stage_dir(arguments.run_id, StageId.ELIGIBLE_ENGLISH, root=arguments.runs_root)
+        step_dir(arguments.run_id, StepId.C_AUTHORED, root=arguments.runs_root)
         / CORPUS_MANIFEST_NAME,
         EligibleCorpusManifest,
     )

@@ -24,8 +24,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_run_id
@@ -44,10 +44,10 @@ RUN_MANIFEST_FILENAME = "run-manifest.json"
 RETENTION_DAYS = 30
 """Unfinished-run retention after the last checkpoint (specification, 3.6)."""
 
-EARLIEST_SEMANTIC_STAGE = StageId.PLAIN_FINDINGS
+EARLIEST_SEMANTIC_STAGE = StepId.D_MISTAKES
 """First stage whose output depends on skills, prompts, or model choice."""
 
-EARLIEST_CLIENT_CODE_STAGE = StageId.SAFE_RECORDS
+EARLIEST_CLIENT_CODE_STAGE = StepId.D_MISTAKES
 """First stage a pure-Python change invalidates.
 
 Stages 6 and 7 depend on the deterministic privacy scanner and the packaging
@@ -96,7 +96,7 @@ class ResumeAssessment(BaseModel):
 
     decision: ResumeDecision
     detail: str
-    earliest_affected_stage: StageId | None = None
+    earliest_affected_stage: StepId | None = None
     diagnostic: Diagnostic | None = None
     """The stable code for this refusal, when there is one.
 
@@ -114,7 +114,7 @@ class RunSummary(BaseModel):
     run_id: str
     started_at: datetime
     status: RunStatus
-    last_promoted_stage: StageId | None
+    last_promoted_stage: StepId | None
     last_checkpoint_at: datetime | None
     checkpoint_age: timedelta
 
@@ -222,7 +222,7 @@ def load_manifest(run_id: str, *, root: Path | None = None) -> RunManifest:
     return _load_manifest_in(_run_directory(run_id, root))
 
 
-def _last_promoted_stage(manifest: RunManifest) -> StageId | None:
+def _last_promoted_stage(manifest: RunManifest) -> StepId | None:
     promoted = [
         stage for stage, state in manifest.stages.items() if state.status is StageStatus.PROMOTED
     ]
@@ -384,7 +384,7 @@ def describe_resume(
     )
 
 
-def next_incomplete_stage(manifest: RunManifest) -> StageId | None:
+def next_incomplete_stage(manifest: RunManifest) -> StepId | None:
     """The earliest stage that is not promoted, or ``None`` when all are.
 
     Where a continued run resumes (specification, 9.4). A stage below a
@@ -399,10 +399,10 @@ def next_incomplete_stage(manifest: RunManifest) -> StageId | None:
 
 def invalidate_from(
     manifest: RunManifest,
-    earliest: StageId,
+    earliest: StepId,
     *,
     now: datetime | None = None,
-) -> list[StageId]:
+) -> list[StepId]:
     """Invalidate ``earliest`` and every promoted stage after it.
 
     The invalidate-downstream branch of the resume policy (specification, 9.4,
@@ -414,7 +414,7 @@ def invalidate_from(
     Callers save the manifest; this function only edits it.
     """
     moment = now if now is not None else utc_now()
-    invalidated: list[StageId] = []
+    invalidated: list[StepId] = []
     for stage in sorted(manifest.stages):
         state = manifest.stages[stage]
         if stage < earliest or state.status is not StageStatus.PROMOTED:

@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId, StageStatus
+from glite_english_audit.artifacts.enums import StageStatus, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, as_utc, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import (
@@ -40,7 +40,7 @@ from glite_english_audit.diagnostics.codes import Severity
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.discovery.registry import create_adapter
 from glite_english_audit.discovery.snapshot_safety import cleanup_snapshot, ensure_safe_snapshot_dir
-from glite_english_audit.paths import run_dir, stage_dir
+from glite_english_audit.paths import inventory_path, run_dir, snapshot_manifest_dir, step_dir
 from glite_english_audit.pipeline.record_stage import advance_to
 
 INVENTORY_NAME = "source-inventory.json"
@@ -87,15 +87,13 @@ def collect(
 
     adapters.register_all()
 
-    inventory_dir = stage_dir(run_id, StageId.SOURCE_INVENTORY, root=runs_root)
-    inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
+    inventory_file = inventory_path(run_id, root=runs_root)
+    inventory = read_model(inventory_file, PrivateInventory)
     by_key: dict[str, SourceInstanceRecord] = {r.instance_key: r for r in inventory.records}
 
     snapshot_root = ensure_safe_snapshot_dir(run_id, repo=repo)
-    snapshot_stage = ensure_private_dir(stage_dir(run_id, StageId.SOURCE_SNAPSHOTS, root=runs_root))
-    candidates_stage = ensure_private_dir(
-        stage_dir(run_id, StageId.CANDIDATE_UTTERANCES, root=runs_root)
-    )
+    snapshot_stage = ensure_private_dir(snapshot_manifest_dir(run_id, root=runs_root))
+    candidates_stage = ensure_private_dir(step_dir(run_id, StepId.A_COLLECTED, root=runs_root))
 
     utterances: list[NormalizedUtterance] = []
     per_source: dict[str, int] = {}
@@ -120,7 +118,7 @@ def collect(
                     schema_version=1,
                     artifact_id=new_artifact_id(),
                     run_id=run_id,
-                    stage_id=StageId.SOURCE_SNAPSHOTS,
+                    stage_id=StepId.A_COLLECTED,
                     producer_name=PRODUCER_NAME,
                     producer_version=CLIENT_VERSION,
                     created_at=utc_now(),
@@ -200,7 +198,7 @@ def collect(
                 schema_version=1,
                 artifact_id=new_artifact_id(),
                 run_id=run_id,
-                stage_id=StageId.CANDIDATE_UTTERANCES,
+                stage_id=StepId.A_COLLECTED,
                 producer_name=PRODUCER_NAME,
                 producer_version=CLIENT_VERSION,
                 created_at=utc_now(),
@@ -213,11 +211,7 @@ def collect(
     # Both artifacts are on disk, so the manifest may now point at them
     # (specification, 9.3). Stage 0 is promoted here too: reading its inventory
     # successfully is the only proof this run has that discovery finished.
-    for stage in (
-        StageId.SOURCE_INVENTORY,
-        StageId.SOURCE_SNAPSHOTS,
-        StageId.CANDIDATE_UTTERANCES,
-    ):
+    for stage in (StepId.A_COLLECTED,):
         advance_to(
             run_id,
             stage,

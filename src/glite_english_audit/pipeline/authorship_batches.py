@@ -23,7 +23,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from glite_english_audit.artifacts.enums import Modality, StageId
+from glite_english_audit.artifacts.enums import Modality, StepId
 from glite_english_audit.artifacts.io import (
     atomic_write_text,
     ensure_private_dir,
@@ -35,7 +35,7 @@ from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.normalization.authorship import PRODUCER_VERSION as PREFILTER_VERSION
 from glite_english_audit.normalization.authorship import strip_non_authored
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 
 CANDIDATES_NAME = "candidates.jsonl"
 BATCH_DIR_NAME = "candidate-batches"
@@ -121,20 +121,18 @@ def read_candidate_utterances(
     run_id: str, *, runs_root: Path | None = None
 ) -> list[NormalizedUtterance]:
     """Read one run's stage-2 candidate utterances, unfiltered."""
-    candidates_path = (
-        stage_dir(run_id, StageId.CANDIDATE_UTTERANCES, root=runs_root) / CANDIDATES_NAME
-    )
+    candidates_path = step_dir(run_id, StepId.A_COLLECTED, root=runs_root) / CANDIDATES_NAME
     return list(read_jsonl_models(candidates_path, NormalizedUtterance))
 
 
 def batch_dir(run_id: str, *, runs_root: Path | None = None) -> Path:
     """Directory holding this run's candidate batches and their index."""
-    return stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / BATCH_DIR_NAME
+    return step_dir(run_id, StepId.C_AUTHORED, root=runs_root) / BATCH_DIR_NAME
 
 
 def decisions_dir(run_id: str, *, runs_root: Path | None = None) -> Path:
     """Directory the skill writes one decisions file per batch into."""
-    return stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root) / DECISIONS_DIR_NAME
+    return step_dir(run_id, StepId.C_AUTHORED, root=runs_root) / DECISIONS_DIR_NAME
 
 
 def read_repair_list(run_id: str, *, runs_root: Path | None = None) -> list[str]:

@@ -20,7 +20,6 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     RunStatus,
     Stability,
-    StageId,
 )
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.hashing import new_run_id
@@ -42,7 +41,7 @@ from glite_english_audit.discovery.pending_expiry import (
 )
 from glite_english_audit.estimation.profile import load_token_usage_profile, resolve_models
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
-from glite_english_audit.paths import pending_inventory_dir, run_dir, stage_dir
+from glite_english_audit.paths import inventory_path, pending_inventory_dir, run_dir
 from glite_english_audit.pipeline.save_choice import load_choice
 
 INVENTORY_NAME = "source-inventory.json"
@@ -265,7 +264,7 @@ def start_run(
     for name in ("stages", "logs", "submission"):
         ensure_private_dir(base / name)
     # Carry the inventory into the run so later stages resolve labels locally.
-    inventory_target = stage_dir(run_id, StageId.SOURCE_INVENTORY, root=runs_root)
+    inventory_target = inventory_path(run_id, root=runs_root)
     ensure_private_dir(inventory_target)
     write_model(inventory_target / INVENTORY_NAME, inventory)
     write_model(base / MANIFEST_NAME, manifest)

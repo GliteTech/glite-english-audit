@@ -12,10 +12,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import StageId
 from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.artifacts.models import ReviewedSubmissionArtifact
-from glite_english_audit.paths import endpoint_config_dir, stage_dir
+from glite_english_audit.paths import endpoint_config_dir, submission_dir
 from glite_english_audit.review_server.server import start_review_server
 from glite_english_audit.submission.capability import detect_capability
 
@@ -31,8 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     artifact_path = (
-        stage_dir(arguments.run_id, StageId.REVIEWED_SUBMISSION, root=arguments.runs_root)
-        / REVIEWED_ARTIFACT_NAME
+        submission_dir(arguments.run_id, root=arguments.runs_root) / REVIEWED_ARTIFACT_NAME
     )
     if not artifact_path.is_file():
         sys.stderr.write("This run has nothing to review yet. Finish the earlier steps first.\n")

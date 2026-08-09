@@ -18,7 +18,7 @@ Layout::
     <repository>/runtime/
     ├── runs/<run-id>/
     │   ├── run-manifest.json
-    │   ├── stages/<n>-<name>/
+    │   ├── steps/<letter>-<name>/
     │   ├── logs/
     │   ├── snapshots/        # copies of source data, removed after extraction
     │   └── submission/
@@ -36,7 +36,7 @@ import platform
 import re
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import OsEnvironment, StageId
+from glite_english_audit.artifacts.enums import OsEnvironment, StepId
 
 RUNTIME_DIR_NAME = "runtime"
 """Top-level directory holding every private runtime artifact."""
@@ -105,46 +105,62 @@ def run_dir(run_id: str, *, repo: Path | None = None) -> Path:
     return runs_root(repo=repo) / validate_run_id(run_id)
 
 
-def stage_dir(
+def inventory_path(run_id: str, *, root: Path | None = None, repo: Path | None = None) -> Path:
+    """The run's own copy of the source inventory.
+
+    Not a step: it describes the machine, not one session, so it has no
+    per-session file and sits at the run root beside the manifest.
+    """
+    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
+    return base / "source-inventory.json"
+
+
+def snapshot_manifest_dir(
+    run_id: str, *, root: Path | None = None, repo: Path | None = None
+) -> Path:
+    """Where the per-instance snapshot manifests live.
+
+    Not a step either: one manifest per source instance, not per session, and
+    they exist to tell cleanup exactly which copied files to delete.
+    """
+    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
+    return base / "snapshot-manifests"
+
+
+def submission_dir(run_id: str, *, root: Path | None = None, repo: Path | None = None) -> Path:
+    """The reviewed submission artifact and any exported package.
+
+    The review is what happens after the pipeline, not a sixth step: it
+    produces one artifact for the whole run and waits on a person.
+    """
+    base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
+    return base / "submission"
+
+
+def step_dir(
     run_id: str,
-    stage: StageId,
+    step: StepId,
     *,
     root: Path | None = None,
     repo: Path | None = None,
 ) -> Path:
-    """Directory holding one stage's current artifacts inside a run.
+    """Directory holding one step's per-session files inside a run.
 
     ``root`` overrides the runs root for tests.
     """
     base = root / validate_run_id(run_id) if root is not None else run_dir(run_id, repo=repo)
-    stages = base / "stages"
-    # Runs written before stages carried names keep the numeric layout, so a
-    # rename does not strand a resumable run. One numeric directory anywhere
-    # settles it for the whole run: a run half in each naming would be worse
-    # than either.
-    if (stages / str(int(stage))).exists() or _has_numeric_stages(stages):
-        return stages / str(int(stage))
-    return stages / stage_dir_name(stage)
+    return base / "steps" / step_dir_name(step)
 
 
-def stage_dir_name(stage: StageId) -> str:
-    """The on-disk directory name for one stage: ``4-plain-findings``.
+def step_dir_name(step: StepId) -> str:
+    """The on-disk directory name for one step: ``d-mistakes``.
 
-    The number leads because it is what the specification, the skills, and the
-    manifest all call this stage, and because it sorts. The name follows
-    because a person looking inside a run should not have to hold a table of
-    nine numbers in their head to know what they are reading — and this project
-    is built around that folder being the one place to inspect.
+    The letter leads because it is what the owner calls the step, and because
+    it sorts in pipeline order. The name follows because a person looking
+    inside a run should not need a table to know what they are reading, and
+    this folder is the one place the design asks people to inspect.
     """
-    return f"{int(stage)}-{stage.name.lower().replace('_', '-')}"
-
-
-def _has_numeric_stages(stages: Path) -> bool:
-    """Whether this run was written under the older numeric layout."""
-    try:
-        return any(child.name.isdigit() for child in stages.iterdir() if child.is_dir())
-    except OSError:
-        return False
+    return step.name.lower().replace("_", "-")
 
 
 def snapshot_dir(run_id: str, *, repo: Path | None = None) -> Path:

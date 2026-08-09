@@ -12,12 +12,12 @@ import argparse
 import sys
 from pathlib import Path
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 from glite_english_audit.artifacts.io import read_jsonl_models, read_model
 from glite_english_audit.artifacts.models import EligibleCorpusManifest, NormalizedUtterance
 from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.verification.deterministic import verify_file_hash
 
 MANIFEST_NAME = "eligible-corpus-manifest.json"
@@ -25,7 +25,7 @@ MANIFEST_NAME = "eligible-corpus-manifest.json"
 
 def verify_corpus(run_id: str, *, runs_root: Path | None = None) -> list[Diagnostic]:
     """Deterministic checks for one run's stage-3 output."""
-    out_dir = stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root)
+    out_dir = step_dir(run_id, StepId.C_AUTHORED, root=runs_root)
     manifest_path = out_dir / MANIFEST_NAME
     if not manifest_path.is_file():
         return [

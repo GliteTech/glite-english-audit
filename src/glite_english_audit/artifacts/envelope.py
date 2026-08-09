@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from glite_english_audit.artifacts.enums import StageId
+from glite_english_audit.artifacts.enums import StepId
 
 ENVELOPE_SCHEMA_VERSION = 1
 
@@ -46,7 +46,7 @@ class ArtifactEnvelope(BaseModel):
     schema_version: int = Field(ge=1)
     artifact_id: str
     run_id: str
-    stage_id: StageId
+    stage_id: StepId
     producer_name: str
     producer_version: str
     model_id: str | None = None

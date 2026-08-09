@@ -36,7 +36,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glite_english_audit import CLIENT_VERSION
-from glite_english_audit.artifacts.enums import StageId, StageStatus
+from glite_english_audit.artifacts.enums import StageStatus, StepId
 from glite_english_audit.artifacts.envelope import ArtifactEnvelope, utc_now
 from glite_english_audit.artifacts.hashing import new_artifact_id, sha256_hex
 from glite_english_audit.artifacts.io import ensure_private_dir, write_jsonl_models, write_model
@@ -45,7 +45,7 @@ from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.dedup import dedupe
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
-from glite_english_audit.paths import stage_dir
+from glite_english_audit.paths import step_dir
 from glite_english_audit.pipeline.authorship_batches import (
     REPAIR_NAME,
     build_candidates,
@@ -316,7 +316,7 @@ def apply_authorship(
     )
 
     outcome = dedupe(eligible)
-    out_dir = ensure_private_dir(stage_dir(run_id, StageId.ELIGIBLE_ENGLISH, root=runs_root))
+    out_dir = ensure_private_dir(step_dir(run_id, StepId.C_AUTHORED, root=runs_root))
     corpus_path = out_dir / CORPUS_NAME
     written = write_jsonl_models(corpus_path, outcome.canonical)
     words_after = sum(count_words(u.text) for u in outcome.canonical)
@@ -327,7 +327,7 @@ def apply_authorship(
             schema_version=1,
             artifact_id=new_artifact_id(),
             run_id=run_id,
-            stage_id=StageId.ELIGIBLE_ENGLISH,
+            stage_id=StepId.C_AUTHORED,
             producer_name=PRODUCER_NAME,
             producer_version=CLIENT_VERSION,
             created_at=utc_now(),
@@ -348,7 +348,7 @@ def apply_authorship(
     # than corrected, so there is no second opinion left to wait for.
     advance_to(
         run_id,
-        StageId.ELIGIBLE_ENGLISH,
+        StepId.C_AUTHORED,
         StageStatus.PROMOTED,
         artifact_id=manifest.envelope.artifact_id,
         artifact_hash=manifest.jsonl_sha256,

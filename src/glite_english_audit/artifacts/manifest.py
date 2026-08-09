@@ -14,8 +14,8 @@ from glite_english_audit.artifacts.enums import (
     AgentRuntime,
     OsEnvironment,
     RunStatus,
-    StageId,
     StageStatus,
+    StepId,
 )
 from glite_english_audit.paths import validate_run_id
 
@@ -101,7 +101,7 @@ class StageState(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    stage: StageId
+    stage: StepId
     status: StageStatus = StageStatus.PENDING
     current_artifact_id: str | None = None
     current_artifact_hash: str | None = None
@@ -122,7 +122,7 @@ class RunManifest(BaseModel):
     status: RunStatus
     consent: ConsentState
     selection: SelectionState | None = None
-    stages: dict[StageId, StageState]
+    stages: dict[StepId, StageState]
     fingerprint: CompatibilityFingerprint
     last_checkpoint_at: datetime | None = None
 
@@ -135,8 +135,8 @@ class RunManifest(BaseModel):
 
     @field_validator("stages")
     @classmethod
-    def _complete_stage_map(cls, value: dict[StageId, StageState]) -> dict[StageId, StageState]:
-        missing = [stage for stage in StageId if stage not in value]
+    def _complete_stage_map(cls, value: dict[StepId, StageState]) -> dict[StepId, StageState]:
+        missing = [stage for stage in StepId if stage not in value]
         if missing:
             msg = f"manifest must track every stage; missing: {missing}"
             raise ValueError(msg)
@@ -147,6 +147,6 @@ class RunManifest(BaseModel):
         return value
 
 
-def empty_stage_map() -> dict[StageId, StageState]:
+def empty_stage_map() -> dict[StepId, StageState]:
     """A fresh all-pending stage map for a new run."""
-    return {stage: StageState(stage=stage) for stage in StageId}
+    return {stage: StageState(stage=stage) for stage in StepId}
