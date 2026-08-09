@@ -249,15 +249,24 @@ def test_security_headers_present_on_every_response() -> None:
             assert headers.get("Referrer-Policy") == "no-referrer"
 
 
-def test_page_over_http_contains_records_and_unchecked_confirmations() -> None:
+def test_download_only_page_over_http_contains_examples_without_confirmations() -> None:
     with _running() as handle:
         status, body, headers = _request(handle.url)
         assert status == 200
         content_type = headers.get("Content-Type")
         assert content_type is not None and content_type.startswith("text/html")
         page = body.decode("utf-8")
-        assert "Wrote &#x27;more easy&#x27; instead of &#x27;easier&#x27;." in page
-        assert "Wrote &#x27;informations&#x27; instead of &#x27;information&#x27;." in page
+        assert "This route is easier than the old one." in page
+        assert "She gave me useful information about the city." in page
+        assert 'id="adult-confirmed"' not in page
+        assert 'id="storage-confirmed"' not in page
+
+
+def test_direct_page_over_http_contains_unchecked_confirmations() -> None:
+    with _running(capability=_direct()) as handle:
+        status, body, _ = _request(handle.url)
+        assert status == 200
+        page = body.decode("utf-8")
         adult = re.search(r'<input[^>]*id="adult-confirmed"[^>]*>', page)
         storage = re.search(r'<input[^>]*id="storage-confirmed"[^>]*>', page)
         assert adult is not None and " checked" not in adult.group(0)
