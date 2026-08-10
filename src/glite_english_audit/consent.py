@@ -16,13 +16,16 @@ from pathlib import Path
 
 from glite_english_audit.state.run_store import load_manifest
 
-CONSENT_POLICY_VERSION = "2"
-"""Bumped when the review page's consent wording changed.
+CONSENT_POLICY_VERSION = "3"
+"""Bumped whenever the review page's consent wording changes.
 
 This module's own rule: any change to consent wording or privacy behavior bumps
-it. Version 2 rewrote both confirmations -- the adult line dropped "I confirm
-that", and the storage agreement became one sentence pointing at the Terms,
-losing a "flashcards" use that nothing in this repository builds.
+it. Version 2 rewrote both confirmations -- the adult line dropped "I confirm that",
+and the storage agreement became one sentence, losing a "flashcards" use that
+nothing in this repository builds. Version 3 made the Terms the thing accepted
+rather than restating them, and removed a claim that was simply wrong: the list
+is not kept "permanently and cannot be deleted later", it is kept under the
+privacy notice.
 
 The cost is deliberate. A remembered local-scan consent given against version 1
 no longer covers version 2, so it is asked again, and runs checkpointed under the
