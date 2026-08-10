@@ -32,14 +32,20 @@ CALIBRATED_BATCH_SIZE: int = 25
 # per call that run would have made 6 calls; it makes 20, so estimating it the
 # old way understated the fixed overhead by more than a third.
 #
-# This is an assumption and a poor one for any single run — sessions vary from
-# one message to fifty-four in that same sample. It is here because the source
-# inventory reports messages and words but not sessions, so nothing better is
-# available before step a has run. Replacing it with a real per-source session
-# count is the fix; until then :func:`estimate_step` is systematically wrong for
-# anyone whose sessions are shorter than average, which is the direction that
-# understates cost.
-ASSUMED_MESSAGES_PER_SESSION: int = 7
+# Re-measured on a second, much larger run: 1,614 messages in 160 sessions,
+# 10.09 each. Pooling both samples — 1,755 messages in 180 sessions — gives 9.75,
+# and this constant is the rounded pool rather than either run alone. At 7 the
+# larger run was predicted to need 250 calls where it made 160, inflating every
+# per-call fixed cost by 56%; the fixed cost is most of the confidentiality step,
+# so that error reached the headline token figure directly.
+#
+# This is still an assumption, and a poor one for any single run — sessions vary
+# from one message to fifty-four. It is here because the source inventory reports
+# messages and words but not sessions, so nothing better is available before step
+# a has run. Replacing it with a real per-source session count is the fix; until
+# then :func:`estimate_step` is wrong in whichever direction a given user's
+# sessions differ from the pooled mean.
+ASSUMED_MESSAGES_PER_SESSION: int = 10
 
 # Placeholder throughput pending real calibration: end-to-end audit throughput
 # observed in early development runs falls roughly in this band. Both bounds

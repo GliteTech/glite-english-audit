@@ -25,13 +25,14 @@ and e inherit the session's model.
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from glite_english_audit.artifacts.envelope import utc_now
 from glite_english_audit.artifacts.io import ensure_private_dir, read_model, write_model
+from glite_english_audit.discovery.pending_expiry import PENDING_INVENTORY_MAX_AGE_DAYS
 from glite_english_audit.paths import pending_inventory_dir
 
 CHOICE_NAME = "pending-choice.json"
@@ -86,18 +87,35 @@ def save_choice(
     return choice
 
 
-def load_choice(*, inventory_dir: Path | None = None) -> PendingChoice | None:
-    """The remembered choice, or None when the user has not made one."""
+def load_choice(
+    *, inventory_dir: Path | None = None, now: datetime | None = None
+) -> PendingChoice | None:
+    """The remembered choice, or None when there is no usable one.
+
+    Absent, unreadable and too old are all the same answer, for the same
+    reason: asking one question again costs a question, while acting on a stale
+    answer costs an audit of the wrong sources.
+
+    The age rule is the seven days the discovery skill already promised and
+    nothing implemented. It matters more than it looks. ``start_run`` adopts
+    this choice field by field whenever the caller passed nothing for that
+    field, and the caller passes nothing for exclusions in the commonest case
+    of all -- the user kept every default app. A choice left by some earlier
+    setup conversation therefore re-applied its exclusions silently, and
+    ``estimate`` never reads this file, so the preflight could price five apps
+    while the run audited four.
+    """
     target = choice_path(inventory_dir=inventory_dir)
     if not target.is_file():
         return None
     try:
-        return read_model(target, PendingChoice)
+        choice = read_model(target, PendingChoice)
     except ValueError:
-        # A choice that no longer validates is treated as absent: asking again
-        # costs one question, while guessing at a stale answer costs the user
-        # an audit of the wrong sources.
         return None
+    moment = now if now is not None else utc_now()
+    if moment - choice.chosen_at > timedelta(days=PENDING_INVENTORY_MAX_AGE_DAYS):
+        return None
+    return choice
 
 
 def clear_choice(*, inventory_dir: Path | None = None) -> bool:

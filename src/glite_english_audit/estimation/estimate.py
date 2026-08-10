@@ -133,8 +133,29 @@ PRESET_LABELS: dict[str, str] = {
 ESTIMATE_NOTE: str = (
     "Estimates, not measurements: the shorter periods are worked out from each app's date "
     "range, and only Everything is exact. The word counts include text you pasted, which the "
-    "audit reads but does not correct."
+    "audit reads but does not correct, and a short recent period is the case they overstate "
+    "most — one measured run collected about a third of the words predicted for it."
 )
+"""Why the word figure gets its own warning, and why it is only a warning.
+
+A window's words are interpolated by elapsed time: the share of an app's span
+that the window covers is applied to its whole-store word count. That assumes
+words are spread evenly through time, and messages very nearly are -- on the one
+large run measured end to end, the predicted message count was within 8% of what
+step a collected. Words were not: 363,995 predicted against 108,021 collected,
+3.37x over, because a big old store's average message is far longer than a
+recent one and the interpolation inherits the whole-store average.
+
+The arithmetic is left alone deliberately. Correcting it needs word counts
+bucketed by time from every adapter, which the inventory does not carry; the
+alternative -- a global words-per-message constant -- would replace a biased
+model with one user's number, and there is exactly one run this size to fit it
+to. On Claude Code the figure does not reach the token estimate at all
+(``input_tokens_per_word`` is 0.0 in every measured cell), so what it costs
+today is a reader's judgment about volume, not a wrong quota. Telling them is
+the honest fix available now; ``specifications/token_estimation_profile.md``
+records the measurement for whoever does the real one.
+"""
 
 # The direction the numbers are wrong in, which is the direction that costs the
 # user something. Calibration is thin, sessions are assumed to be average length

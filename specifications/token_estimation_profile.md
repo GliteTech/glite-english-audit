@@ -195,3 +195,46 @@ This is one run, on one machine, under one runtime and one model. `messages_meas
 31 sessions, which the section 4 rule converts to a single sample — far under the 10 needed for
 high confidence — so the cell is reported low-confidence and its upper bound is widened. It is a
 measurement, not a calibration.
+
+## 8. What a full run measured against its own preflight
+
+One run has been measured end to end against the numbers its preflight quoted.
+It is the only sample of this size, so it is recorded rather than fitted to.
+
+| | predicted | collected | ratio |
+|---|---:|---:|---:|
+| messages | 1,747 | 1,614 | 1.08x |
+| words | 363,995 | 108,021 | **3.37x** |
+| sessions | 250 | 160 | 1.56x |
+
+**Messages interpolate; words do not.** A window's counts are scaled by the
+share of an app's span that the window covers, which assumes both are spread
+evenly through time. Messages nearly are. Words are not: a large old store's
+average message is far longer than a recent one, and the interpolation inherits
+the whole-store average. The overshoot concentrates in the largest instance.
+
+**The session count was the fixable half.** `ASSUMED_MESSAGES_PER_SESSION` was
+7, measured on a 20-session run. This run gives 10.09 across 160 sessions;
+pooling both samples (1,755 messages, 180 sessions) gives 9.75, and the constant
+is now 10. The call count drives every per-call fixed cost, and the
+confidentiality step is mostly fixed cost, so the error reached the headline
+figure: on this selection the p50 estimate falls from 152.1M tokens to 130.2M.
+
+**The word figure does not reach the token estimate on Claude Code.**
+`input_tokens_per_word` and `input_tokens_per_message` are 0.0 in all three
+measured claude-code cells; those cells price per message from
+`p50_total_tokens_per_message`. The Codex cells are `uncalibrated-default` and
+do use per-word rates, so the same 3.37x would reach a Codex quota estimate
+directly. That is the strongest argument for fixing the interpolation rather
+than continuing to describe it.
+
+**The real fix** is per-time-bucket word counts from each adapter probe, so a
+window interpolates a volume instead of a duration. Until then the estimate says
+so in its notes. A global words-per-message constant was considered and
+rejected: it would replace a biased model with one user's number.
+
+Not measurable yet: no run on disk has completed step d, so there is no observed
+mistakes-per-word rate, and the retention constants (`AUTHORED_WORD_RETENTION`,
+`AUTHORED_UTTERANCE_RETENTION`) have only a partial step-c sample — 24 of 160
+sessions, 21% of utterances but 6.9% of words, which skews short. They are left
+at their previous values.

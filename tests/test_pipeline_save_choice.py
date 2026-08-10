@@ -6,7 +6,7 @@ conversation and vanished with it — which is also what tempted the agent to
 report it as "recorded" when nothing had been written.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from glite_english_audit.artifacts.enums import (
@@ -157,3 +157,46 @@ def test_clearing_forgets_it(tmp_path: Path) -> None:
     assert clear_choice(inventory_dir=inventory_dir) is True
     assert load_choice(inventory_dir=inventory_dir) is None
     assert clear_choice(inventory_dir=inventory_dir) is False
+
+
+def test_a_choice_older_than_the_promised_week_is_absent(tmp_path: Path) -> None:
+    """The discovery skill promises seven days; nothing implemented it.
+
+    It matters because `start_run` adopts this file field by field whenever the
+    caller passed nothing for that field, and the commonest answer of all -- the
+    user keeps every default app -- makes the caller pass no exclusions. A
+    choice left by some earlier conversation therefore re-applied its exclusions
+    silently, while `estimate` never reads this file at all, so the preflight
+    could price five apps while the run audited four.
+    """
+    moment = datetime(2026, 8, 10, tzinfo=UTC)
+    save_choice(
+        period_preset="last-7-days",
+        exclude_sources=["Cursor"],
+        inventory_dir=tmp_path,
+        now=moment,
+    )
+
+    fresh = load_choice(inventory_dir=tmp_path, now=moment + timedelta(days=6))
+    assert fresh is not None
+    assert fresh.exclude_sources == ["Cursor"]
+
+    stale = load_choice(inventory_dir=tmp_path, now=moment + timedelta(days=8))
+    assert stale is None, "a week-old answer must be asked again, not assumed"
+
+
+def test_a_caller_holding_the_answers_can_refuse_the_remembered_one(tmp_path: Path) -> None:
+    """ "The user excluded nothing" and "the caller said nothing" were the same call.
+
+    argparse leaves the list None either way, so there was no way to express a
+    selection that deliberately excludes no app. `use_remembered=False` is that
+    expression, and the run skill passes it on every start.
+    """
+    moment = datetime(2026, 8, 10, tzinfo=UTC)
+    save_choice(
+        period_preset="last-7-days",
+        exclude_sources=["Cursor"],
+        inventory_dir=tmp_path,
+        now=moment,
+    )
+    assert load_choice(inventory_dir=tmp_path, now=moment) is not None

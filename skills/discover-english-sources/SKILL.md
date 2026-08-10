@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 14
+**Version**: 15
 
 ## Goal
 
@@ -168,25 +168,35 @@ agent sees only the derived `InstanceInventorySummary`.
    characters. Each period option's description carries that preset's words and
    estimated time from step 5; the apps question carries their candidate words.
 
-   Ask the apps question as an EXCLUSION: "Which apps should I skip?" Its options
-   are the apps the default rule would include, and checking one drops it.
+   Ask the apps question as an INCLUSION: "Which apps should I audit?" Its options
+   are the apps that hold English, and checking one audits it. What they check is
+   the selection — there is no default underneath it to contradict.
 
-   This is not a style preference. The picker cannot pre-check anything — an
-   option carries a label and a description and nothing else — so a question
-   phrased as "which apps should I read from", above boxes that are all empty,
-   says the opposite of what an accompanying "all are on by default" claims, and
-   the most likely action in the world is to glance at it and submit. Asked as an
-   exclusion, empty boxes mean exactly what they look like: skip nothing, keep
-   the default. The sentence and the checkboxes agree, and the safe reading and
-   the fast reading are the same reading.
+   The picker cannot pre-check anything: an option carries a label and a
+   description and nothing else. That used to be the argument for asking which
+   apps to skip, and the argument was half right — five empty boxes under "all
+   five are on by default" is a sentence and a control saying opposite things.
+   But the exclusion phrasing failed worse in a real session, and failed silently.
+   Its commonest answer, audit everything, is expressed by checking nothing, which
+   is exactly what a user who never engaged with the question also submits. The
+   run stalled on an empty selection it could not read either way, asked again,
+   and ended up hand-typing a numbered list in prose.
 
-   Then pass each checked app to `save_choice` and `start_run` as
-   `--exclude-source`, in the words the option used.
+   Asking what to keep costs the user a few clicks in the common case and removes
+   the ambiguity entirely: checked means audited, so empty means empty, and empty
+   is answerable — a run needs at least one app, so say that and ask once more.
+   Never claim a default that the boxes do not show.
 
-   Do: "Which apps should I skip? Leave everything unchecked to audit all five."
-   Don't: "Which apps should I read English from? All five are on by default."
-   above five empty boxes. Either the sentence or the boxes is lying, and the
-   user cannot tell which.
+   Translate the answer into flags rather than assuming the default matches it.
+   `start_run` selects stable, found, non-empty instances on its own, so pass
+   `--exclude-source` for every app that is on by default and was not checked, and
+   `--include-source` for every checked app that is off by default. Use the words
+   the option used, to both `save_choice` and `start_run`.
+
+   Do: "Which apps should I audit?" above one option per app that holds English.
+   Don't: "Which apps should I skip? Leave everything unchecked to audit all
+   five." — the answer that means "everything" and the answer that means "I did
+   not read this" are the same submission.
 
    In Codex, ask in plain text, using the pattern in the section below. Codex
    does have a picker (`request_user_input`), but it is single-select and works

@@ -1,10 +1,12 @@
 """Tests for the pure token/time estimators and the preset table renderer."""
 
+import math
 from datetime import UTC, datetime
 
 import pytest
 
 from glite_english_audit.estimation.estimator import (
+    ASSUMED_MESSAGES_PER_SESSION,
     HIGH_CONFIDENCE_MIN_RECORDS,
     EstimateConfidence,
     PresetEstimate,
@@ -68,17 +70,34 @@ def _record(total_tokens: int, **overrides: object) -> CalibrationRecord:
     return CalibrationRecord.model_validate(fields)
 
 
+def _calls(messages: int) -> int:
+    """Calls the estimator will make for this many messages.
+
+    Derived from the constant rather than written out, so recalibrating the
+    pooled sessions-per-message figure moves these tests with it instead of
+    breaking them. What they assert is the relationship; the constant is
+    evidence and is expected to change as more runs are measured.
+    """
+    return math.ceil(messages / ASSUMED_MESSAGES_PER_SESSION)
+
+
 def test_estimate_stage_known_inputs() -> None:
     # 50 messages at the calibrated 40 words each: no word adjustment.
-    # ceil(50 / 7) = 8 calls add 8 * 1000 fixed tokens.
+    # Each call adds 1000 fixed tokens on top of 200 per message.
     estimate = estimate_step(2000, 50, _entry())
-    assert estimate == TokenEstimate(p50_tokens=13000, p90_tokens=15500)
+    assert estimate == TokenEstimate(
+        p50_tokens=5000 + _calls(50) * 1000,
+        p90_tokens=7500 + _calls(50) * 1000,
+    )
 
 
 def test_estimate_stage_word_adjustment_scales_input() -> None:
     # 100 words above the calibrated average add 100 * 2.0 input tokens.
     estimate = estimate_step(2100, 50, _entry())
-    assert estimate == TokenEstimate(p50_tokens=13200, p90_tokens=15700)
+    assert estimate == TokenEstimate(
+        p50_tokens=5200 + _calls(50) * 1000,
+        p90_tokens=7700 + _calls(50) * 1000,
+    )
 
 
 def test_estimate_stage_zero_utterances_is_zero() -> None:
@@ -89,7 +108,7 @@ def test_estimate_stage_never_drops_below_fixed_overhead() -> None:
     # An extreme negative word delta cannot push the estimate below the fixed
     # prompt overhead, which is paid once per call whatever the text is.
     estimate = estimate_step(0, 50, _entry(input_tokens_per_word=4.0))
-    assert estimate.p50_tokens == 8000
+    assert estimate.p50_tokens == _calls(50) * 1000
     assert estimate.p90_tokens >= estimate.p50_tokens
 
 
@@ -103,7 +122,7 @@ def test_a_call_is_a_session_file_not_a_batch_of_25() -> None:
     """
     entry = _entry(input_tokens_per_word=0.0)
     per_message = 141 * 100  # p50_total_tokens_per_message
-    assert estimate_step(141 * 40, 141, entry).p50_tokens == per_message + 21 * 1000
+    assert estimate_step(141 * 40, 141, entry).p50_tokens == per_message + _calls(141) * 1000
     assert (
         estimate_step(141 * 40, 141, entry, messages_per_call=25).p50_tokens
         == per_message + 6 * 1000

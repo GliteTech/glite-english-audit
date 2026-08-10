@@ -10,6 +10,7 @@ uncalibrated cell as measured, and output that carries no label or path.
 """
 
 import json
+import math
 import re
 import subprocess
 import sys
@@ -41,7 +42,10 @@ from glite_english_audit.estimation.estimate import (
     window_counts,
     window_fraction,
 )
-from glite_english_audit.estimation.estimator import EstimateConfidence
+from glite_english_audit.estimation.estimator import (
+    ASSUMED_MESSAGES_PER_SESSION,
+    EstimateConfidence,
+)
 from glite_english_audit.estimation.profile import load_token_usage_profile
 from glite_english_audit.pipeline.start_run import PERIOD_PRESETS
 
@@ -156,8 +160,10 @@ def test_step_units_cover_the_three_steps_that_exist() -> None:
     assert units.judge_authorship == 1000
     assert units.find_mistakes == 970
     # One agent per session file, so the unit here is a session, not a record.
-    assert units.confirm_confidentiality == 143
-    assert units.total == 2113
+    # Derived from the constant: recalibrating the pooled sessions-per-message
+    # figure should move this with it, not break it.
+    assert units.confirm_confidentiality == math.ceil(1000 / ASSUMED_MESSAGES_PER_SESSION)
+    assert units.total == 1000 + 970 + math.ceil(1000 / ASSUMED_MESSAGES_PER_SESSION)
 
 
 def test_every_preset_gets_a_row_in_preset_order(tmp_path: Path) -> None:

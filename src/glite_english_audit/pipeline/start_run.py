@@ -46,7 +46,7 @@ from glite_english_audit.discovery.pending_expiry import (
 )
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import inventory_path, pending_inventory_dir, repo_root, run_dir
-from glite_english_audit.pipeline.save_choice import load_choice
+from glite_english_audit.pipeline.save_choice import clear_choice, load_choice
 from glite_english_audit.runtime_session import (
     SESSION_EFFORT_KEY,
     SESSION_MODEL_KEY,
@@ -159,6 +159,7 @@ def start_run(
     exclude_labels: list[str] | None = None,
     local_scan_consent: bool = False,
     provider_transfer_consent: bool = False,
+    use_remembered: bool = True,
     now: datetime | None = None,
 ) -> RunManifest:
     """Create the run directory, manifest, and frozen selection.
@@ -187,16 +188,30 @@ def start_run(
 
     # A choice the user already made during setup is used unless this call
     # overrides it, so an answer given once does not have to be repeated.
-    remembered = load_choice(inventory_dir=inventory_dir)
+    #
+    # Adoption is per-field and the caller cannot say "the user excluded
+    # nothing" -- argparse leaves the list None either way. That is the same
+    # empty-versus-absent ambiguity that broke the source picker, one layer
+    # down, and it is reachable in the commonest case of all: a user who keeps
+    # every default app makes the agent pass no exclusion flags. So the fields
+    # actually taken are recorded and printed, and the choice is cleared once a
+    # run has consumed it, because its whole purpose is to carry one answer
+    # from setup to the start of one run.
+    remembered = load_choice(inventory_dir=inventory_dir) if use_remembered else None
+    adopted: list[str] = []
     if remembered is not None:
         if preset is None:
             preset = remembered.period_preset
-        if include_sources is None:
+            adopted.append("period")
+        if include_sources is None and remembered.include_sources:
             include_sources = remembered.include_sources
-        if exclude_sources is None:
+            adopted.append("include_sources")
+        if exclude_sources is None and remembered.exclude_sources:
             exclude_sources = remembered.exclude_sources
-        if exclude_labels is None:
+            adopted.append("exclude_sources")
+        if exclude_labels is None and remembered.exclude_labels:
             exclude_labels = remembered.exclude_labels
+            adopted.append("exclude_labels")
     if preset is None:
         preset = DEFAULT_PERIOD
     selected = (
@@ -279,6 +294,12 @@ def start_run(
     ensure_private_dir(inventory_target.parent)
     write_model(inventory_target, inventory)
     write_model(base / MANIFEST_NAME, manifest)
+    # The remembered choice carries one answer from setup to the start of one
+    # run. Once a run has it, leaving the file there lets it reach a later run
+    # whose caller said nothing about exclusions, which is a silent selection
+    # change nobody asked for.
+    if adopted:
+        clear_choice(inventory_dir=inventory_dir)
     return manifest
 
 
@@ -290,6 +311,16 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="defaults to the inventory that discovery left pending",
+    )
+    parser.add_argument(
+        "--ignore-remembered-choice",
+        action="store_true",
+        help=(
+            "take the selection from these flags alone. Pass it whenever the caller "
+            "already holds the user's answers: without it, a caller that names no "
+            "exclusions is indistinguishable from a caller whose user excluded nothing, "
+            "and a remembered choice fills the gap silently."
+        ),
     )
     parser.add_argument("--runtime", default="claude_code", choices=[r.value for r in AgentRuntime])
     parser.add_argument("--os-environment", default="macos")
@@ -351,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         exclude_labels=arguments.exclude_label,
         local_scan_consent=arguments.local_scan_consent,
         provider_transfer_consent=arguments.provider_transfer_consent,
+        use_remembered=not arguments.ignore_remembered_choice,
         runs_root=arguments.runs_root,
         inventory_dir=(
             arguments.inventory_dir
