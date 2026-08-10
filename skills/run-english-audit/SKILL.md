@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 20
+**Version**: 21
 
 ## Goal
 
@@ -191,7 +191,7 @@ runtime; naming both is confusing and wrong.
       it. Re-asking spends a round trip to be told the only answer the rule allows.
 
       Before asking, run
-      `uv run python -m glite_english_audit.estimation.estimate`
+      `uv run python -m glite_english_audit.estimation.estimate --runtime <claude_code|codex>`
       (`src/glite_english_audit/estimation/estimate.py`; profile format in
       `specifications/token_estimation_profile.md`), passing the apps the user just
       chose with the same `--include-source`, `--exclude-source`, and
@@ -272,8 +272,15 @@ runtime; naming both is confusing and wrong.
    ask about the cost separately.
    Don't: combine sources, period, budget, and consent into one question.
 7. Preflight. Take the numbers from the same command, re-run with the final
-   selection: `uv run python -m glite_english_audit.estimation.estimate` with the
-   chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
+   selection: `uv run python -m glite_english_audit.estimation.estimate
+   --runtime <claude_code|codex>` with the chosen `--include-source`,
+   `--exclude-source`, and `--exclude-label` arguments.
+
+   Pass `--runtime` every time. It defaults to `claude_code`, so omitting it in a
+   Codex session prices the run against Claude Code's calibration and hands the
+   preflight a Claude Code subscription figure — a number belonging to neither
+   the provider doing the work nor the session. The flag is what makes the
+   allowance say nothing on a runtime that has no such file.
    Read the row whose `preset` is the chosen period and quote its `words`,
    `utterances`, `tokens.p50_tokens`, `tokens.p90_tokens`, and `minutes` range
    unchanged, with its `confidence`. Quoting the command both times is what makes
@@ -453,7 +460,7 @@ runtime; naming both is confusing and wrong.
    driver already had — but it is the smaller half.
 
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
-     --runtime <claude_code|codex> --period <preset>
+     --runtime <claude_code|codex> --period <preset> --ignore-remembered-choice
      --local-scan-consent --provider-transfer-consent`. It adopts the inventory
      discovery left pending, prints the `<run-id>`, and freezes the record cutoff.
      Pass the user's choice in the words they used, since instance keys are private
@@ -462,6 +469,15 @@ runtime; naming both is confusing and wrong.
      `--exclude-label "Claude Code 4"` drops a single project by the label shown to
      the user. Each is repeatable, and the command resolves labels to real paths
      locally.
+
+     Pass `--ignore-remembered-choice` every time. You have just taken the user's
+     answers in this conversation, so the selection is the flags on this line and
+     nothing else. Without it the command falls back to a saved answer for any
+     field you did not name — and the field you most often do not name is
+     exclusions, because a user who keeps every app gives you nothing to exclude.
+     A choice saved by an earlier setup would then quietly drop an app from a run
+     whose preflight had just priced it, and the preflight cannot catch that: it
+     reads its selection from flags only and never opens that file.
 
      `--runtime` names the runtime you are actually running in; it defaults to
      `claude_code`, so a Codex run that omits it records the wrong runtime in the
