@@ -23,7 +23,13 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
 )
-from glite_english_audit.review_server.page import EXAMPLE_ORIGIN_LABELS, render_page
+from glite_english_audit.review_server.page import (
+    EXAMPLE_ORIGIN_LABELS,
+    EXCLUSION_EXPLANATION_TEXT,
+    SKIP_LINK_TEXT,
+    STORAGE_CONFIRMATION_TEXT,
+    render_page,
+)
 from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
 from glite_english_audit.review_server.session import ReviewSessionState
 from glite_english_audit.submission.capability import SubmissionCapability
@@ -327,8 +333,12 @@ def test_confirmations_are_present_and_unchecked() -> None:
     assert " checked" not in adult
     assert " checked" not in storage
     assert "at least 18 years old" in page
-    assert "permanent, irrevocable storage" in page
-    assert "external AI processing" in page
+    # Assert the constants render, not their wording. The storage agreement is
+    # four commitments and was one 44-word clause; it will be reworded again,
+    # and what must not change is that all four reach the page.
+    assert html.escape(STORAGE_CONFIRMATION_TEXT, quote=True) in page
+    for commitment in ("permanently", "cannot delete", "train models", "outside AI model"):
+        assert commitment in STORAGE_CONFIRMATION_TEXT
 
 
 def test_report_handoff_page_includes_unchecked_confirmations() -> None:
@@ -352,8 +362,11 @@ def test_counts_summary_lines() -> None:
 
 def test_exclusion_semantics_are_explained() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "anonymous withheld count will increase by one" in page
-    assert "complete record will be removed" in page
+    assert EXCLUSION_EXPLANATION_TEXT in page
+    # What the sentence must establish, however it is worded: nothing of an
+    # excluded record is sent, and the count that replaces it carries no words.
+    assert "no part" in EXCLUSION_EXPLANATION_TEXT
+    assert "no words" in EXCLUSION_EXPLANATION_TEXT
 
 
 def test_will_send_line_shows_included_count() -> None:
@@ -827,7 +840,7 @@ def test_no_positive_tabindex_overrides_the_document_order() -> None:
 
 def test_skip_link_targets_the_send_section_and_shows_itself_on_focus() -> None:
     page = _page_direct()
-    assert '<a class="skip-link" href="#send-section">Skip to send or save</a>' in page
+    assert f'<a class="skip-link" href="#send-section">{SKIP_LINK_TEXT}</a>' in page
     section = _tag(page, "section", "send-section")
     assert 'tabindex="-1"' in section
     focused = _declarations(_style(page), ".skip-link:focus")

@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 25
+**Version**: 26
 
 ## Goal
 
@@ -66,8 +66,8 @@ runtime; naming both is confusing and wrong.
    do the resume check. Everything this skill does afterwards is announced before
    it happens, never discovered by the user from a spinner.
 
-   Do: "I'll run an English audit on the writing and dictation on this computer.
-   First, let me check whether you have an unfinished audit to continue."
+   Do: "I'll run an English audit on what you wrote in Claude Code on this
+   computer. First, let me check whether you have an unfinished audit to continue."
    Don't: opening with a directory listing, a git command, or reading
    specifications, so the user's first sight of the product is machinery.
 
@@ -415,13 +415,12 @@ runtime; naming both is confusing and wrong.
 
     Do:
     ```text
-    Cursor has nothing in the last 7 days, so this audit covers Codex only.
-    Collected 280 messages from 14 sessions.
+    Collected 280 messages from 14 sessions in your Claude Code history.
     ```
     Don't: 280 messages in three consecutive lines; a step announcing that it
     found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
-    names step 1; "Dispatching one agent per session"; and the Cursor sentence —
-    the only line the user can act on — parenthesized in the middle of another.
+    names step 1; "Dispatching one agent per session". Machinery the user
+    cannot act on costs the attention of the one number they can.
 9. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
     any session interrupted before promotion — `--prepare` marks a session
@@ -475,8 +474,8 @@ Resume policy (deterministic, applied in step 2 and after interruptions):
 
 Mid-run behavior examples:
 
-Do: "Spend ceiling reached. I saved a checkpoint after message 1,204 of 1,890.
-Run 'Run an English audit' again to resume with a new preflight." Then stop.
+Do: "I stopped at the spending limit you set, after message 1,204 of 1,890. Your
+place is saved. Run 'Run an English audit' again to pick up from there." Then stop.
 Don't: "We are about to exceed the budget. Continue anyway?" — a mid-run question
 breaks the confirmed autonomous policy.
 
