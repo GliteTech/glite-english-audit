@@ -579,7 +579,7 @@ def test_document_has_one_main_landmark_and_a_language() -> None:
     assert '<html lang="en">' in page
     assert page.count("<main>") == 1
     assert page.count("</main>") == 1
-    assert "<title>Choose what to send \u2014 Glite</title>" in page
+    assert "<title>Create your English report \u2014 Glite</title>" in page
 
 
 def test_heading_levels_start_at_one_and_never_skip() -> None:
@@ -1074,3 +1074,19 @@ def test_static_or_disconnected_page_becomes_read_only() -> None:
     assert "setDecisionControlsDisabled(true)" in script
     assert "This saved copy is read-only" in script
     assert "The local review server is no longer available" in script
+
+
+def test_the_page_is_named_for_the_report_not_the_chore() -> None:
+    """The reader came for a report, not to sort a list.
+
+    Title and heading both said "choose", which is the step we need from them,
+    while the thing they want was the last heading on the page, under everything
+    else. A page named for its chore reads as work with no stated payoff -- and
+    every other sentence here describes a cost.
+    """
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    assert "<h1>Create your English report</h1>" in page
+    assert "Create your English report — Glite" in page
+    # The h1 owns the goal, so the final section says which step it is.
+    assert "Confirm and create" in page
+    assert "Choose which mistakes to share" not in page
