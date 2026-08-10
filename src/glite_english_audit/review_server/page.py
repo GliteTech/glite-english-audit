@@ -27,18 +27,31 @@ __all__ = ["CONSENT_POLICY_VERSION", "mistake_noun", "render_page"]
 
 ADULT_CONFIRMATION_TEXT = "I confirm that I am at least 18 years old."
 STORAGE_CONFIRMATION_TEXT = (
-    "I understand and accept permanent, irrevocable storage of my submitted "
-    "records; the disclosed product, knowledge-graph, model-training, and "
-    "aggregate-research uses; and external AI processing of privacy-safe "
-    "submitted records for report and flashcard generation. Glite cannot "
-    "delete these records later."
+    "I understand and accept all of the following. Glite keeps the records I "
+    "send permanently and cannot delete them later. Glite uses them to run and "
+    "improve the product, to train models, and in research that combines many "
+    "people's records. Glite sends them to an outside AI model to write my "
+    "report and flashcards."
 )
+"""One agreement, said as four short sentences instead of one long clause.
+
+It was a single 44-word sentence joining four separate commitments with
+semicolons, every one of them a noun rather than a verb -- "permanent,
+irrevocable storage", "the disclosed product, knowledge-graph, model-training,
+and aggregate-research uses", "external AI processing". "Disclosed" pointed at a
+disclosure the reader could not see from here.
+
+The specification forbids exactly this: consent items are not bundled, and
+consent text stays literal. This is the sentence someone reads at the moment
+they click, and it is the last one that should need a second pass.
+"""
 DOWNLOAD_FALLBACK_TEXT = (
-    "If you do not want to create the report now, download the same package and upload it later."
+    "You do not have to create the report now. Download the same package and upload it later."
 )
 EXCLUSION_EXPLANATION_TEXT = (
-    "Uncheck any example you do not want to share. Its complete record will be "
-    "removed, and the anonymous withheld count will increase by one."
+    "Uncheck any example you do not want to share. Glite then receives no part "
+    "of that record. The count next to it goes up by one, and that count holds "
+    "no words from what you excluded."
 )
 EXAMPLE_ORIGIN_LABELS: dict[ExampleType, str] = {
     ExampleType.VERBATIM: "your words",
@@ -63,7 +76,7 @@ SEND_REQUIREMENTS_TEXT = "Check both confirmations to send. At least one record 
 REPORT_REQUIREMENTS_TEXT = (
     "Check both confirmations to create your report. At least one record must stay included."
 )
-SKIP_LINK_TEXT = "Skip to send or save"
+SKIP_LINK_TEXT = "Skip to the send and download buttons"
 
 _SKIP_TARGET_ID = "send-section"
 
@@ -625,7 +638,7 @@ _SCRIPT = """
   if (sendButton) {
     sendButton.addEventListener("click", function () {
       if (sent) {
-        setStatus("status-ok", "Sent. This package was already sent. Nothing was sent again.");
+        setStatus("status-ok", "Already sent. Nothing was sent again.");
         return;
       }
       if (blocked(sendButton)) {

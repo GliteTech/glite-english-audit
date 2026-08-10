@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 16
+**Version**: 17
 
 ## Goal
 
@@ -69,7 +69,7 @@ agent sees only the derived `InstanceInventorySummary`.
    an audit reads, so there is no roll call and no table: say how much writing is
    there and over what span.
 
-   Do: "Found about 135,000 words you wrote in Claude Code, going back to 4 July."
+   Do: "Found about 135,000 words you wrote in Claude Code, going back to July 4."
 
    Never write "adapter", "instance", "stability", "beta", "candidate count", or a
    diagnostic code at the user. Those are this project's internal words. An
@@ -273,10 +273,8 @@ selected nor mentioned: an app with nothing on this machine is not a finding.
 Reported to the user, with the two projects on one line and broken out only if asked:
 
 ```text
-Found English you wrote in one app.
-
-Ready to analyze — 71,700 words, March 3 to August 1:
-- Claude Code — 71,700 words across 2 projects
+Found about 71,700 words you wrote in Claude Code, across 2 projects, from
+March 3 to August 1.
 ```
 
 Then `uv run python -m glite_english_audit.estimation.estimate`, whose `table`

@@ -3,16 +3,17 @@
 Find the English mistakes you actually make, from your Claude Code history.
 
 You already write English in Claude Code every day. This reads that history back,
-finds the mistakes, and shows you the list. Nothing is copied anywhere; you see
-every line before any of it leaves your machine.
+finds the mistakes, and shows you the list. Your messages never go to Glite. Only
+the list does, and you see every line first.
 
 ## How it works
 
-1. **Run `/audit` in Claude Code.**
-2. **It reads your history and finds your mistakes.** It picks the period —
-   usually a week or two — and asks once before it starts.
-3. **You check the list, then send it** for a full report. The list of mistakes,
-   not your messages.
+1. Clone this repo.
+2. Run `/audit` in Claude Code.
+3. It reads your Claude Code history.
+4. It finds the mistakes in your English.
+5. You check the list.
+6. Send it for a report — the list, not your messages.
 
 ## Questions people ask first
 
@@ -30,8 +31,8 @@ thing explainable in three sentences. If it turns out you have too little there,
 the audit offers to read Codex, Cursor or your dictation history as well.
 
 **What is a good report?** About 200-300 mistakes, which is enough to show a
-habit rather than an accident. That is roughly two weeks of ordinary use, and
-the audit works out the period for you.
+habit rather than an accident. That is roughly two weeks of ordinary use. The
+audit works the period out for you and asks once before it starts.
 
 ## Current status
 
@@ -44,12 +45,16 @@ been tested.
 
 ## Under the hood
 
-The audit favors precision over recall: it flags only constructions that strongly
-suggest non-native English, and omits anything uncertain. Findings are built as
-privacy-safe records from the start — the example is your own sentence, your
-sentence with an identifying detail replaced, or an invented one, whichever keeps
-the most of your words while staying safe to send — and a separate confidentiality
-pass checks every record before you see it.
+The audit favors precision over recall. It flags only constructions that strongly
+suggest non-native English, and omits anything uncertain.
+
+Findings are privacy-safe records from the start. Each record carries one example.
+When your own sentence is safe to send, that sentence is the example. When one
+detail in it identifies someone, that detail is replaced. When replacing the
+detail is not enough, the example is invented instead. The rule is to keep as many
+of your own words as safety allows.
+
+A separate confidentiality pass then checks every record before you see it.
 
 ## The five steps
 
@@ -73,11 +78,14 @@ The same rule applies inside the files. Each agent is shown only what its judgme
 text, what it was numbered, and whether it was typed or dictated — and hands back what it decided.
 The files themselves are written by local scripts.
 
-Those agents run on whatever model your session is running. Nothing here pins a model or offers a
-choice of one: this repository makes no inference call. The preflight tells you which model it
-observes before you agree to anything, says so plainly when it cannot read one, and says when the
-time and token estimates were measured on a different model — which they usually were, since
-`calibration/token-usage-profile.json` records what was measured, not what your session will run.
+Those agents run on whatever model your session is running. Nothing here pins a
+model or offers a choice of one: this repository makes no inference call.
+
+Before the run starts you see a short summary of what the audit observed. It names
+the model it read from your session. When it cannot read one, it says so plainly.
+It also says when the time and token estimates were measured on a different model.
+They usually were: `calibration/token-usage-profile.json` records what was
+measured, not what your session will run.
 
 ## Supported sources
 
@@ -99,8 +107,9 @@ run against a real install.
 
 Cursor was the fifth until its provenance was measured: on a real store, 81.2% of composer bubbles
 are verbatim-equivalent to what the user typed, and the rest are marked as reconciled rather than
-guessed. Storage generations other than the one known to keep the prompt exactly as typed are
-still inventoried rather than analyzed.
+guessed. Cursor has stored chats in several formats over the years. Only one of them is
+known to keep your prompt exactly as you typed it. The audit notes that the others
+are there and takes no text from them.
 
 | Source | Adapter ID | Stability | Notes |
 |---|---|---|---|
@@ -111,7 +120,7 @@ still inventoried rather than analyzed.
 | OpenCode | `opencode` | stable | SQLite store plus the older JSON storage generations |
 | Cline | `cline` | beta | Per-task API history |
 | Roo Code | `roo_code` | beta | Per-task API history |
-| Wispr Flow | `wispr_flow` | stable | Dictation. Only the raw ASR text is read; formatted, edited, clipboard, and context columns are never ingested. Native Windows is required; WSL fails closed. |
+| Wispr Flow | `wispr_flow` | stable | Dictation. Only the raw transcript is read — what the speech recognizer wrote down, before Wispr Flow reformatted it. The formatted, edited, clipboard, and context columns are never read. Native Windows is required; WSL fails closed. |
 | Cursor | `cursor` | stable | Each stored prompt is reconciled against the editor state before it counts as yours; file-mention tokens are stripped. |
 
 Platform status, tested application versions, storage fingerprints, and raw-field provenance are in
@@ -162,11 +171,17 @@ find, and changing it is one sentence.
 **Resuming.** Everything a run writes stays inside the checkout, under the Git-ignored
 `runtime/` directory: one place to inspect and one place to delete, identical on every
 platform. Deleting the checkout removes every trace of your audits with it. Say
-"Run an English audit" again and the agent offers any unfinished run. The resume decision is
-deterministic: matching versions continue from the next session file; changed skills, prompts, or
-models recompute findings and every later step; changed adapter, artifact-schema, tokenizer, or
-consent versions require a new run. Unfinished runs keep their private artifacts for 30 days after
-the last checkpoint.
+"Run an English audit" again and the agent offers any unfinished run. The resume
+decision is deterministic. It turns on what changed since the last checkpoint.
+
+- Versions match: the run continues from the next session file.
+- Skills, prompts, or models changed: findings are computed again, and every step
+  after them.
+- Adapter, artifact-schema, tokenizer, or consent versions changed: you start a
+  new run.
+
+Unfinished runs keep their private artifacts for 30 days after the last
+checkpoint.
 
 **Review and submission.** After step e, a loopback review page starts and prints its address. The
 page gives each record one compact row showing its privacy-safe submitted example and whether that

@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 24
+**Version**: 26
 
 ## Goal
 
@@ -66,8 +66,8 @@ runtime; naming both is confusing and wrong.
    do the resume check. Everything this skill does afterwards is announced before
    it happens, never discovered by the user from a spinner.
 
-   Do: "I'll run an English audit on the writing and dictation on this computer.
-   First, let me check whether you have an unfinished audit to continue."
+   Do: "I'll run an English audit on what you wrote in Claude Code on this
+   computer. First, let me check whether you have an unfinished audit to continue."
    Don't: opening with a directory listing, a git command, or reading
    specifications, so the user's first sight of the product is machinery.
 
@@ -108,9 +108,9 @@ runtime; naming both is confusing and wrong.
 3. Say what it reads, and ask once. One message, then one question, then the scan.
 
    ```text
-   I'll read your Claude Code history on this computer and find the English
-   mistakes in what you wrote. Nothing is copied anywhere, and only the mistakes
-   ever leave this machine — you see the list before that.
+   I'll read your Claude Code history and find the English mistakes in what you
+   wrote. Nothing goes to Glite except the list of mistakes, and you see it
+   first.
    ```
    Then ask, plainly: may I read your Claude Code history?
 
@@ -126,6 +126,13 @@ runtime; naming both is confusing and wrong.
    Don't: naming other applications, promising anonymity, mentioning permanent
    storage or the disclosed uses. Those belong to the review page, where the
    learner decides what to send with the list in front of them.
+
+   Don't: "nothing is copied anywhere". It is false and this file refutes it
+   twice — the selected text is read by the provider behind this session, which
+   is the whole reason the Claude Code-only argument works. The true claim is
+   narrower and stronger: Glite gets the list, nobody new gets the messages.
+   Privacy text stays literal, and an absolute that the next paragraph
+   contradicts costs more trust than the caveat would have.
 
    Record it once they agree, with `--local-scan-consent --provider-transfer-consent`
    on `start_run` in step 6 — one answer, honestly covering both, because reading
@@ -408,13 +415,12 @@ runtime; naming both is confusing and wrong.
 
     Do:
     ```text
-    Cursor has nothing in the last 7 days, so this audit covers Codex only.
-    Collected 280 messages from 14 sessions.
+    Collected 280 messages from 14 sessions in your Claude Code history.
     ```
     Don't: 280 messages in three consecutive lines; a step announcing that it
     found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
-    names step 1; "Dispatching one agent per session"; and the Cursor sentence —
-    the only line the user can act on — parenthesized in the middle of another.
+    names step 1; "Dispatching one agent per session". Machinery the user
+    cannot act on costs the attention of the one number they can.
 9. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
     any session interrupted before promotion — `--prepare` marks a session
@@ -468,8 +474,8 @@ Resume policy (deterministic, applied in step 2 and after interruptions):
 
 Mid-run behavior examples:
 
-Do: "Spend ceiling reached. I saved a checkpoint after message 1,204 of 1,890.
-Run 'Run an English audit' again to resume with a new preflight." Then stop.
+Do: "I stopped at the spending limit you set, after message 1,204 of 1,890. Your
+place is saved. Run 'Run an English audit' again to pick up from there." Then stop.
 Don't: "We are about to exceed the budget. Continue anyway?" — a mid-run question
 breaks the confirmed autonomous policy.
 

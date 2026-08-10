@@ -10,6 +10,8 @@ What must not drift: the sentence names Claude Code, it does not name the other
 applications, and it still says the limit that makes it safe to agree to.
 """
 
+import re
+
 from glite_english_audit.paths import repo_root
 from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTER
 
@@ -48,5 +50,21 @@ def test_the_sentence_still_says_what_leaves_the_machine() -> None:
     """Naming the source must not crowd out the limit on where it goes."""
     # The skill wraps its prose, so compare on collapsed whitespace.
     body = " ".join(_body().lower().split())
-    assert "nothing is copied anywhere" in body
-    assert "only the mistakes ever leave this machine" in body
+    assert "nothing goes to glite except the list of mistakes" in body
+    assert "you see it first" in body
+
+
+def test_the_consent_line_does_not_overstate_the_privacy() -> None:
+    """ "Nothing is copied anywhere" was false, and the file refuted it twice.
+
+    The selected text is read by the provider behind this session -- which is
+    precisely what makes the Claude Code-only argument work, since that provider
+    already received these messages when they were typed. The honest claim is
+    narrower and stronger, and privacy text is the one category the styleguide
+    says must stay literal.
+    """
+    # Only what the agent says aloud. The rationale beside it has to name the
+    # banned phrase in order to forbid it, which is not the same as claiming it.
+    spoken = " ".join(re.findall(r"```text\n(.*?)```", _body(), re.S)).lower()
+    assert spoken, "the skill has no spoken blocks to check"
+    assert "nothing is copied anywhere" not in spoken
