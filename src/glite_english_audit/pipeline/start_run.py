@@ -61,11 +61,39 @@ DEFAULT_PERIOD = "last-30-days"
 
 PERIOD_PRESETS: dict[str, int | None] = {
     "last-7-days": 7,
+    "last-14-days": 14,
     "last-30-days": 30,
     "last-3-months": 91,
     "last-year": 365,
     "everything": None,
 }
+"""Windows the run offers, shortest first.
+
+Two weeks is here because it is the answer for a working developer and there
+was no way to say it. A useful report is 200-300 findings; the measured rate is
+10.5 findings per 1,000 words the learner actually wrote, and about 39% of the
+words in a message survive authorship judgment. That puts a good report at
+roughly 50,000-70,000 collected words, which on a normal Claude Code week lands
+between the seven-day and thirty-day options -- so the product kept offering a
+period that was too small beside one that was four times too big.
+"""
+
+PRIMARY_ADAPTER = "claude_code"
+"""The one source an audit reads unless the learner asks for more.
+
+The product used to open by discovering nine applications and asking which to
+audit. That question cost the user a decision they had no basis to make, and
+every app after the first adds setup, privacy surface and explanation while
+adding nothing a report needs -- the history of the tool they are already
+sitting in is the same English, already enough. Reading only Claude Code also
+makes the privacy answer trivially true rather than carefully argued: the
+messages were typed into Claude Code, so Claude Code reading them back
+discloses them to nobody new.
+
+The other adapters stay implemented and stay one flag away. They are offered
+when this one does not hold enough writing to be worth a report, which is the
+only moment their cost buys anything.
+"""
 
 
 def resolve_period(preset: str, now: datetime) -> PeriodSelection:
@@ -131,19 +159,39 @@ def resolve_selection(
     return sorted(selected)
 
 
-def default_selection(inventory: PrivateInventory) -> list[str]:
-    """Stable, found instances with a supported schema, per specification 2.4.
+def eligible_instances(inventory: PrivateInventory) -> list[object]:
+    """Every instance an audit could read: stable, found, and not empty.
 
     Beta, experimental, inaccessible, and unsupported-schema instances are
-    never selected automatically.
+    never selected automatically (specification 2.4).
     """
     return [
-        record.instance_key
+        record
         for record in inventory.records
         if record.stability is Stability.STABLE
         and record.accessibility is Accessibility.FOUND
         and record.candidate_messages > 0
     ]
+
+
+def default_selection(inventory: PrivateInventory) -> list[str]:
+    """Claude Code, and nothing else, whenever Claude Code has anything.
+
+    An audit reads one source by default. The learner is told which one in a
+    single sentence and asked nothing about it, because the question that used
+    to be here -- which of these nine applications should I read? -- asked them
+    to weigh privacy against volume with no way to judge either.
+
+    Falls back to every eligible instance when Claude Code holds nothing, so a
+    machine without it still audits rather than refusing. Anything else the
+    learner wants is reachable with ``--include-source``.
+    """
+    eligible = eligible_instances(inventory)
+    primary = [
+        record for record in eligible if getattr(record, "adapter_id", "") == PRIMARY_ADAPTER
+    ]
+    chosen = primary or eligible
+    return [record.instance_key for record in chosen]  # type: ignore[attr-defined]
 
 
 def start_run(

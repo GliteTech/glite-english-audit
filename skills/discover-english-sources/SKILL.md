@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 15
+**Version**: 16
 
 ## Goal
 
@@ -65,143 +65,43 @@ agent sees only the derived `InstanceInventorySummary`.
    `start_run` adopts it. It is fast — a few seconds even on millions of words, because
    the scan runs across every core.
 3. Read the summary JSON. Do not open the private artifact or any source path.
-4. Report what was found as a list, then judge it in prose. A list is faster to
-   scan than a sentence containing the same facts; prose is better for the
-   recommendation, which is an argument rather than data. Lead with the point,
-   keep sentences short, and give each source one line.
+4. Report what was found in one or two sentences. Claude Code is the only source
+   an audit reads, so there is no roll call and no table: say how much writing is
+   there and over what span.
 
-   Never write "adapter", "instance", "stability", "beta", "candidate count", or
-   a diagnostic code at the user. Those are this project's internal words. Say
-   what they mean instead: an adapter is an app, an instance is a project, and a
-   beta source is one this project has not yet tested against a real
-   installation of that app — which is why it is off unless they ask.
+   Do: "Found about 135,000 words you wrote in Claude Code, going back to 4 July."
 
-   Say nothing is held back only after checking that nothing is. When an untested
-   app did find English, name it and say it is off unless they ask; that is
-   actionable, because there is writing here the audit will skip. When every
-   untested app found nothing, there is nothing to hold back and nothing to
-   mention. The claim is cheap to verify and expensive to get wrong: a user told
-   nothing was skipped, whose largest source was skipped, has been misinformed
-   about the one thing this step exists to tell them.
+   Never write "adapter", "instance", "stability", "beta", "candidate count", or a
+   diagnostic code at the user. Those are this project's internal words. An
+   adapter is an app and an instance is a project; say that instead.
 
-   One more app earns a line: one found but unreadable. Say so plainly and with
-   no diagnostic code — English exists on this machine that the audit cannot see.
-   Do not list the apps that were not found. Naming four apps the user never
-   installed offers an absence as a finding, and no value in that line changes
-   which apps they keep or which period they run. If they ask about one, or named
-   one when they started, answer for that app then.
+   Do not list the other applications, found or not. They are not part of this
+   audit unless Claude Code turns out to hold too little, and naming them earlier
+   offers a decision that buys the learner nothing.
 
-   End on the judgment, and open the judgment with the judgment. It is the most
-   useful thing in the message, because it names the choice that actually changes
-   the run. Measure it with step 5's command before you write it, under the
-   subtraction rule there. Two or three sentences carrying those numbers, in
-   prose: an argument set as bullets reads as data.
+   Say so plainly if Claude Code is found but unreadable — English exists here
+   that the audit cannot see, and that is worth a sentence with no error code in
+   it.
 
-   Do:
-   ```text
-   Found English you wrote in five apps.
+5. Estimate the periods. Run
+   `uv run python -m glite_english_audit.estimation.estimate --runtime <claude_code|codex>`.
 
-   Ready to analyze — about 2.8 million words, from late September to yesterday:
-   - Codex — 2.7M words
-   - Claude Code — 121,000 words, past five weeks
-   - OpenCode — 110 words
+   Read `recommended`: the window whose expected findings land nearest a report
+   worth reading, from measured rates rather than a guess. Read that row's
+   `words` and `minutes` too, and turn its words into an expected number of
+   findings the way `expected_findings` does — that is the number the learner
+   actually cares about.
 
-   Off unless you want them:
-   - Cursor — 1.8M words. Reading it is new and only tested on this Mac.
-   - Wispr Flow — 158 words, your only dictation. Not yet tested on Windows.
+   Do not show the table unless they ask for a different period. One
+   recommendation answers the question they have; a five-row table asks them a
+   question they cannot answer.
 
-   Codex is most of this: without it, the last 30 days falls from 604,000 words
-   to 97,000. Cursor stopped in June, so switching it on changes nothing before
-   the three-month mark.
-   ```
-   Don't: the same facts run together in a paragraph, or the words "adapter",
-   "beta", and "candidate" left undefined for the reader to decode.
-   Don't: "Two things about your data are worth knowing before you choose." — a
-   sentence whose whole content is that two sentences follow.
-   Don't: "Not found on this machine: Aider, Cline, Gemini CLI, Roo Code."
+   Repeat the notes' caveats when you quote a number: these are estimates worked
+   out from date ranges, the run can exceed them, and no price is available.
 
-5. Estimate every period before you offer any period. Run
-   `uv run python -m glite_english_audit.estimation.estimate`
-   (`src/glite_english_audit/estimation/estimate.py`). With no arguments it
-   estimates the apps that are on by default, which is what the first table
-   should show. When the user then drops or adds an app, run it again with their
-   words — `--exclude-source "Cursor"`, `--include-source "Wispr Flow"`,
-   `--exclude-label "Claude Code 4"` — before you ask about the period, so the
-   numbers describe the run they are about to start and not some other one.
-
-   It prints one object per preset (words, utterances, token range, minutes
-   range, confidence) plus a rendered table with its notes. The table carries
-   the two numbers a period is chosen on, words and time; the token range stays
-   in the JSON for the preflight. Show that table, or put its numbers in the
-   options; do not summarize it as "a few hours".
-
-   Repeat what the notes say rather than dropping them. They state that the
-   numbers are estimates worked out from each app's date range, that the run can
-   exceed them, and that no price is available. A range stays a range when you
-   repeat it, and a subscription percentage the tool did not compute is not
-   invented.
-
-   Do: "Last 30 days — 355,000 words, 3–13 hours. That is an estimate and the
-   run can go over it, and I cannot tell you what it costs in money."
-   Don't: "Last 30 days will take about 6 hours" — a single number the tool
-   never produced, with the uncertainty removed.
-
-   Relay every note the command returns, not the ones that seem important.
-   There are three, four when a source reports no dates, and each one exists
-   because a number above it is read wrongly without it. Count them and check
-   you have that many. A real run silently dropped one, and a dropped note is
-   invisible to the reader by definition.
-
-   If you comment on which app or period to drop, do the subtraction first. Rerun
-   the command with `--exclude-source` for the app you are about to name, and
-   compare against the presets. On real data the claim "dropping either app
-   changes the run more than any period choice" was false: dropping the largest
-   app cut 57.8%, while three of the five periods cut more than that, one of them
-   by 76%. Advice like this steers the whole setup, so it is worth the two seconds
-   the command takes. If you have not measured it, do not say it.
-
-6. Ask so the user can answer in one gesture. Ask about apps and period as
-   separate questions; never bundle sources, period, and cost into one.
-
-   In Claude Code, use `AskUserQuestion`: one multi-select for apps and one
-   single-select for the period. Keep option labels under about a dozen
-   characters. Each period option's description carries that preset's words and
-   estimated time from step 5; the apps question carries their candidate words.
-
-   Ask the apps question as an INCLUSION: "Which apps should I audit?" Its options
-   are the apps that hold English, and checking one audits it. What they check is
-   the selection — there is no default underneath it to contradict.
-
-   The picker cannot pre-check anything: an option carries a label and a
-   description and nothing else. That used to be the argument for asking which
-   apps to skip, and the argument was half right — five empty boxes under "all
-   five are on by default" is a sentence and a control saying opposite things.
-   But the exclusion phrasing failed worse in a real session, and failed silently.
-   Its commonest answer, audit everything, is expressed by checking nothing, which
-   is exactly what a user who never engaged with the question also submits. The
-   run stalled on an empty selection it could not read either way, asked again,
-   and ended up hand-typing a numbered list in prose.
-
-   Asking what to keep costs the user a few clicks in the common case and removes
-   the ambiguity entirely: checked means audited, so empty means empty, and empty
-   is answerable — a run needs at least one app, so say that and ask once more.
-   Never claim a default that the boxes do not show.
-
-   Translate the answer into flags rather than assuming the default matches it.
-   `start_run` selects stable, found, non-empty instances on its own, so pass
-   `--exclude-source` for every app that is on by default and was not checked, and
-   `--include-source` for every checked app that is off by default. Use the words
-   the option used, to both `save_choice` and `start_run`.
-
-   Do: "Which apps should I audit?" above one option per app that holds English.
-   Don't: "Which apps should I skip? Leave everything unchecked to audit all
-   five." — the answer that means "everything" and the answer that means "I did
-   not read this" are the same submission.
-
-   In Codex, ask in plain text, using the pattern in the section below. Codex
-   does have a picker (`request_user_input`), but it is single-select and works
-   only in Plan mode, which forbids writing files — and this run writes files
-   continuously. Do not call it, and do not ask the user to switch modes.
+6. Hand the recommendation back to the orchestration, which asks the one period
+   question. Do not ask about applications: an audit reads Claude Code, and the
+   other sources are offered only when this one holds too little for a report.
 
 7. Write the choice down, then say what you wrote.
 

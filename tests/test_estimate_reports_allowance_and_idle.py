@@ -240,10 +240,24 @@ def test_a_source_whose_share_rounds_to_zero_is_idle() -> None:
     assert idle_sources([spread_thin], start=start, end=end) == ("aider",)
 
 
-def test_every_allowance_field_the_preflight_quotes_exists() -> None:
-    """The same guard `session.*` already has, for the six names beside it."""
+def test_any_allowance_field_a_skill_quotes_exists() -> None:
+    """Quoting is now optional; quoting something that does not exist is not.
+
+    The preflight used to narrate the allowance in three lines. It no longer
+    does: the run is twenty to forty minutes, so a weekly percentage the learner
+    cannot convert into that was a caveat with no decision attached. The reading
+    still travels on the estimate, because the throttle-and-checkpoint policy is
+    what actually acts on headroom -- so the names must stay truthful wherever a
+    skill does use them.
+    """
     skill = (repo_root() / "skills" / "run-english-audit" / "SKILL.md").read_text(encoding="utf-8")
     quoted = set(re.findall(r"`allowance\.([a-z_]+)`", skill))
-    assert quoted, "the preflight must say where the allowance it states comes from"
     unknown = sorted(quoted - set(AllowanceReport.model_fields))
     assert not unknown, f"skill quotes allowance fields that do not exist: {unknown}"
+
+
+def test_the_estimate_still_carries_the_allowance() -> None:
+    """Dropping it from the prose must not drop it from the report."""
+    from glite_english_audit.estimation.estimate import EstimateReport
+
+    assert "allowance" in EstimateReport.model_fields

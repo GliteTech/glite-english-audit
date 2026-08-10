@@ -210,6 +210,11 @@ def _started_run(tmp_path: Path, runs_root: Path) -> str:
         inventory_dir / "source-inventory.json",
         PrivateInventory(records=records, instance_paths=instance_paths, created_at=_NOW),
     )
+    # An audit defaults to Claude Code alone. These end-to-end cases exercise
+    # what happens *across* applications -- a dictation pasted into an editor,
+    # counted once -- so they ask for every discovered source by name, which is
+    # the same one flag a learner uses when Claude Code is not enough.
+    every_app = sorted({record.adapter_id for record in records})
     manifest = start_run.start_run(
         runtime=AgentRuntime.CLAUDE_CODE,
         os_environment_value="macos",
@@ -217,6 +222,7 @@ def _started_run(tmp_path: Path, runs_root: Path) -> str:
         instance_keys=None,
         runs_root=runs_root,
         inventory_dir=inventory_dir,
+        include_sources=every_app,
         local_scan_consent=True,
         provider_transfer_consent=True,
         now=_NOW,

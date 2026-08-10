@@ -1,34 +1,57 @@
 # Glite English Audit
 
-Find high-confidence non-native English mistakes in the English you naturally wrote or dictated on
-your computer. The audit runs through Codex or Claude Code, on text from your coding-agent and
-dictation history. It favors precision over recall: it flags only constructions that strongly
-suggest non-native English, and it omits anything uncertain.
+Find the English mistakes you actually make, from your Claude Code history.
+
+You already write English in Claude Code every day. This reads that history back,
+finds the mistakes, and shows you the list. Nothing is copied anywhere; you see
+every line before any of it leaves your machine.
+
+## How it works
+
+1. **You run it in Claude Code.** One command: `/audit`.
+2. **It reads your Claude Code history** and finds the English mistakes in what
+   you wrote. It picks a period that gives a report worth reading — usually a
+   week or two — and asks you once before it starts.
+3. **You look at the list** on a local page, drop anything you would rather not
+   share, and send the rest to Glite for a full report. What goes is the list of
+   mistakes, with personal details already removed. Not your messages.
+
+## Questions people ask first
+
+**Does Glite see my messages?** No. It receives a list of mistakes — the wrong
+construction, the rule, and a short example. You can read every line before you
+send it, and exclude any of them.
+
+**Is there a privacy risk in letting Claude Code read this?** No new one. These
+are messages you typed into Claude Code; it received them when you wrote them.
+Reading them back discloses them to nobody who did not already have them.
+
+**Why only Claude Code?** Because it is enough. Your Claude Code history holds
+more natural English than any test would, and reading one source keeps the whole
+thing explainable in three sentences. If it turns out you have too little there,
+the audit offers to read Codex, Cursor or your dictation history as well.
+
+**What is a good report?** About 200-300 mistakes, which is enough to show a
+habit rather than an accident. That is roughly two weeks of ordinary use, and
+the audit works out the period for you.
 
 ## Current status
 
-Pre-release. There is no tagged release, and interfaces and contracts may still change. macOS is the
-only platform with real-installation smoke tests; every other platform is covered by synthetic
-fixtures alone. Direct submission is off because no Glite submission endpoint exists yet, so the
-review page is download-only. `specifications/compatibility_matrix.md` records what has actually
-been tested, per adapter and per platform.
+Pre-release. There is no tagged release, and interfaces and contracts may still
+change. macOS is the only platform with real-installation smoke tests; every
+other platform is covered by synthetic fixtures alone. Direct submission is off
+because no Glite submission endpoint exists yet, so the review page is
+download-only. `specifications/compatibility_matrix.md` records what has actually
+been tested.
 
-## What it does
+## Under the hood
 
-1. Trusted local scripts scan supported applications and build an aggregate inventory: how many
-   messages, words, and sessions exist, and when. No message text leaves your machine and none is
-   shown to the model during this scan.
-2. You choose sources and a time period, see token, time, and cost estimates, and confirm.
-3. Only then is the selected text sent — through your own active agent runtime — to your current
-   AI provider for analysis. Glite never receives your raw text.
-4. Findings are produced as privacy-safe records in the first place — each example is your own
-   sentence, your sentence with an identifying detail replaced, or an invented one, whichever is
-   the most of your own words that is safe to send — and a separate confidentiality pass confirms
-   that before anything can be reviewed.
-5. A local review page (loopback only) lists the privacy-safe example from every record. Each info
-   button shows the full record, and a closed disclosure holds the exact submission JSON. You can
-   exclude any record and download the resulting package. When a compatible Glite endpoint is
-   configured, the page can also submit anonymously.
+The audit favors precision over recall: it flags only constructions that strongly
+suggest non-native English, and omits anything uncertain. Findings are built as
+privacy-safe records from the start — the example is your own sentence, your
+sentence with an identifying detail replaced, or an invented one, whichever keeps
+the most of your words while staying safe to send — and a separate confidentiality
+pass checks every record before you see it.
 
 ## The five steps
 
@@ -60,8 +83,16 @@ time and token estimates were measured on a different model — which they usual
 
 ## Supported sources
 
-Nine adapters ship today. Stability drives default selection: stable sources with a supported
-schema are selected by default, beta sources are not.
+An audit reads **Claude Code** and nothing else. That is the whole default, and it
+is what makes the privacy answer short: those messages were already typed into
+Claude Code.
+
+Eight more adapters ship and stay one flag away. The audit offers them only when
+your Claude Code history holds too little for a useful report — which is the one
+moment reading another application buys you anything.
+
+Stability still governs what may be read at all: stable sources with a supported
+schema are eligible, beta sources are not unless you ask.
 
 Four of the nine are beta: Aider, Gemini CLI, Cline, and Roo Code. An adapter is stable only once
 its user experience has been observed on a real installation, not merely once its tests pass.
@@ -113,16 +144,22 @@ Or in either Claude Code or Codex, just say:
 
 > Run an English audit.
 
-Both start the same procedure. The agent follows `skills/run-english-audit/SKILL.md` from there:
-consent, discovery, selection, preflight, processing, and the final local review.
+Both start the same procedure: it says what it will read, asks once, picks a
+period, and runs. `skills/run-english-audit/SKILL.md` is the whole of it.
 
 ## How a run works
 
-**Source selection.** Discovery shows one row per detected instance with an opaque label such as
-"Claude Code 1", a date range, and candidate counts. Paths, project names, and workspace names stay
-on your machine and are never shown to the model. Stable sources with a supported schema and
-eligible provenance are selected by default; beta, inaccessible, and unsupported-schema sources are
-not. You then pick a period and see an estimate before anything is sent to a provider.
+**Setup.** One statement and one question: it says it will read your Claude Code
+history and that only the mistakes leave the machine, and asks whether it may.
+Paths, project names, and workspace names stay on your machine and are never
+shown to the model — the model sees text and an index, nothing that identifies
+where it came from.
+
+**Period.** The audit picks one, rather than showing you a menu. It aims at
+200-300 findings, which is what shows a habit instead of an accident, using the
+measured rate of 10.5 findings per 1,000 words you wrote. On ordinary use that
+lands around two weeks. You are told which period it chose and what it expects to
+find, and changing it is one sentence.
 
 **Resuming.** Everything a run writes stays inside the checkout, under the Git-ignored
 `runtime/` directory: one place to inspect and one place to delete, identical on every
