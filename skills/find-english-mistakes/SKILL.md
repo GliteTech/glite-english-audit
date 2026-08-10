@@ -5,7 +5,7 @@ description: "Read one session's projected utterances and answer with the mistak
 
 # Find English Mistakes
 
-**Version**: 4
+**Version**: 5
 
 ## Goal
 
@@ -434,6 +434,23 @@ sentences never name a value the example does not carry. And when even an invent
 show the problem without private context, write no record and count it as withheld; a borderline
 record is never salvaged.
 
+The finished safe record must also support one natural correction without the private source text.
+Mentally correct the example using only its `mistake`, `rule`, and `example` fields. The corrected
+sentence must preserve the example's ordinary meaning, and the rule must explain the change. Do not
+write that correction into the record: it is a self-check, not an output field. If the example is
+too short to resolve the grammar, extend it only to the shortest safe clause that does. If two
+materially different meanings would require different corrections, move down a rung and write a
+synthetic example whose intended meaning is unambiguous.
+
+Do — `example`: "Explain why do you want to leave."
+Why: the rule about indirect-question word order yields one clear correction, "Explain why you
+want to leave."
+
+Don't — `example`: "What means?"
+Why: without more context, this could ask what a word means or what a phrase signifies. The record
+does not support one meaning-preserving correction, so it needs a longer safe clause or a synthetic
+example.
+
 Do — rung 1 (these examples are about content, so they show only the fields you write; the address
 and the provenance are the driver's):
 
@@ -561,7 +578,9 @@ removed detail protects nothing.
    `[start, end]`, and check that no two spans on one index overlap.
 6. Write the four content fields for each draft: `mistake`, `rule`, then the `example` and its
    `example_type` by walking the three rungs under Choosing the example, stopping at the first that
-   holds.
+   holds. Mentally produce one natural corrected version using only those three text fields. If you
+   cannot do that without guessing the intended meaning, lengthen the safe example or move it down
+   a rung until you can.
 7. Re-read each finished draft as a hostile stranger who wants to learn who wrote it, where they
    work, or what they are building. Check every Privacy Rule, including combinations of
    individually harmless details. A draft that fails moves down a rung — a quote becomes a
@@ -696,6 +715,8 @@ because there is no other.
 * Every record satisfies every Privacy Rule, including the hostile-stranger re-read for
   combinations of details; every `rule` sentence is self-contained; every `example` is 15 words or
   fewer, reads as ordinary English, and holds no placeholder standing in for removed material.
+* Every record supports one natural, meaning-preserving correction from its `mistake`, `rule`, and
+  `example` fields alone; no private source text is needed to decide that correction.
 * Every `example_type` is one of `verbatim`, `redacted`, and `synthetic`, and names the first rung
   that held: quoted unchanged, quoted with an identifying value replaced by an unrelated one of the
   same kind, or invented.

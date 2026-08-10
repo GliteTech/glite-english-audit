@@ -41,6 +41,12 @@ unrelated one of the same kind, `synthetic` is invented. It is a provenance labe
 verdict — every value is subject to the same rules in `specifications/privacy_model.md` Section 2,
 and Section 2.1 governs which one a record may claim.
 
+The three text fields form the complete evidence available to the report producer. Together,
+`mistake`, `rule`, and `example` must support one natural, meaning-preserving correction without
+access to the private source utterance. This is a producer requirement, not a seventh stored field:
+corrections and learner-specific groupings are derived report artifacts and remain outside the
+version-1 submission package.
+
 ### SubmissionCounts
 
 | Field | Type | Constraint |
