@@ -336,13 +336,23 @@ def test_confirmations_are_present_and_unchecked() -> None:
     assert " checked" not in storage
     assert "at least 18 years old" in page
     # Assert the constants render, not their wording -- this sentence has been
-    # rewritten three times and will be again. What may not be compressed away is
-    # any commitment that changes whether a reasonable person agrees.
+    # rewritten four times and will be again. What may not be compressed away is
+    # any fact a reader would not guess from "I accept the Terms".
     assert html.escape(STORAGE_CONFIRMATION_TEXT, quote=True) in page
-    for commitment in ("anonymous", "permanently", "cannot delete", "train", "outside AI model"):
-        assert commitment in STORAGE_CONFIRMATION_TEXT
-    # And it must point somewhere the detail can actually be read.
-    assert "Terms" in STORAGE_CONFIRMATION_TEXT
+    for fact in ("Terms", "anonymous", "outside AI models", "train"):
+        assert fact in STORAGE_CONFIRMATION_TEXT
+
+
+def test_the_agreement_claims_no_retention_the_policy_does_not_promise() -> None:
+    """An earlier version said the list is kept "permanently and cannot delete it".
+
+    Retention follows the privacy notice, so that was false -- and false in the
+    direction that overstates what a person gives up, which is the worse
+    direction for a sentence someone agrees to. Naming the Terms is what stops
+    this sentence drifting out of step with the policy again.
+    """
+    for overclaim in ("permanent", "cannot delete", "forever", "irrevocab"):
+        assert overclaim not in STORAGE_CONFIRMATION_TEXT.lower()
 
 
 def test_report_handoff_page_includes_unchecked_confirmations() -> None:

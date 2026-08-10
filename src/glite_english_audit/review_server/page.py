@@ -33,35 +33,27 @@ gesture the reader is already making. The same padding opened the storage
 agreement -- "I understand and accept all of the following" -- in front of the
 list it introduced."""
 STORAGE_CONFIRMATION_TEXT = (
-    "I accept that Glite keeps my anonymous list of mistakes permanently and "
-    "cannot delete it later, sends it to an outside AI model to write my report, "
-    "and uses it to train and improve its teaching models. Details in the Terms."
+    "I accept the Terms, including that Glite keeps my anonymous list of "
+    "mistakes, sends it to outside AI models to write my report, and uses it to "
+    "train and improve its teaching models."
 )
-"""What is being agreed to, in one sentence that points at the rest.
+"""The Terms are what is accepted; the parenthesis says what that means here.
 
-Three earlier versions failed in three ways. The first was a 44-word clause
-joining four commitments with semicolons, all of them nouns. The second broke it
-into four sentences, which respected the no-bundling rule and produced a
-paragraph nobody finishes. This one keeps the facts that change the decision and
-sends the reader to the Terms for the rest -- which only became honest once those
-links were on the page.
+Earlier versions tried to be the agreement rather than point at it, and each
+carried a claim the product could not stand behind. The last one said Glite keeps
+the list "permanently and cannot delete it later" -- retention actually follows
+the privacy notice, so that was wrong, and wrong in the direction that overstates
+what a person is giving up.
 
-"Anonymous" is checked, not assumed: the package carries a submission id, a
-recovery secret, hashes, the records and the counts. No account, no email, no
-device. It says nothing about who wrote them.
+Naming the Terms fixes the class of error rather than the instance: this sentence
+cannot drift out of step with a policy it now defers to, and the policy is one
+click away under the checkbox. What stays in the parenthesis is the three things
+a reader would not guess from "I accept the Terms" -- that the list is kept, that
+outside models see it, and that it trains the teaching models.
 
-Three facts survive compression because each changes whether a reasonable person
-agrees. "Permanently" and "cannot delete it later" are not the same claim and
-both are needed: the second is a consequence of the first word in the sentence,
-since a list carrying nothing about who sent it cannot be found again to remove.
-"An outside AI model" means a third party sees it, which "Glite keeps" does not
-imply. And it says "train" as well as "improve": improving a model is done by
-training on the data, and a reader deciding whether to send their own sentences
-is entitled to the word that says those sentences become training data.
-
-"Flashcards" is gone. It appeared in exactly two places in this repository -- this
-string and one line of a skill -- and nothing builds them. Consent for a product
-that does not exist is a promise nobody can keep or check.
+"Anonymous" is checked rather than assumed: the package carries a submission id,
+a recovery secret, hashes, the records and the counts. No account, no email, no
+device.
 """
 DOWNLOAD_FALLBACK_TEXT = "Not now? Download the package and upload it whenever you like."
 
@@ -115,8 +107,17 @@ PACKAGE_NOTE_TEXT = (
     "This JSON is byte for byte what Glite would receive. Long lines scroll sideways."
 )
 DOWNLOAD_LINK_TEXT = "Download package"
-SEND_REQUIREMENTS_TEXT = "Check both boxes above, and keep at least one mistake."
-REPORT_REQUIREMENTS_TEXT = "Check both boxes above, and keep at least one mistake."
+BLOCKED_REASON_TEXT = "Check both boxes above, and keep at least one mistake."
+"""Why an action is blocked, for readers who cannot see that it is.
+
+It used to be a visible paragraph under the buttons, restating two unchecked
+boxes sitting directly above it and a button already drawn with a dashed border.
+For anyone who can see the page that is the third telling of one fact.
+
+It is not deleted, because those two signals are visual. This is the
+``aria-describedby`` target that carries the same fact to a screen reader, and
+specification 12.4 forbids leaving a state to shape alone any more than to color
+alone. Hidden from view, still announced."""
 SKIP_LINK_TEXT = "Skip to the send and download buttons"
 ACTION_BAR_LINK_TEXT = "Create report or download"
 """The way out of a list that can be long enough to hide its own ending.
@@ -997,7 +998,7 @@ def _actions(
     # blocking condition and the fallback, which are the two things not visible
     # from the controls themselves.
     notes = (
-        f'<p id="report-requirements" class="muted">{_escape(REPORT_REQUIREMENTS_TEXT)}</p>'
+        f'<p id="report-requirements" class="visually-hidden">{_escape(BLOCKED_REASON_TEXT)}</p>'
         f'<p id="download-fallback-note" class="muted">{_escape(DOWNLOAD_FALLBACK_TEXT)}</p>'
     )
     if capability.direct_submission_available:
@@ -1012,7 +1013,9 @@ def _actions(
             f'<span id="send-noun">{mistake_noun(state.included_count)}</span> '
             "anonymously</button>"
         )
-        notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
+        notes += (
+            f'<p id="send-requirements" class="visually-hidden">{_escape(BLOCKED_REASON_TEXT)}</p>'
+        )
         heading = "Confirm and create"
     else:
         action = ""
