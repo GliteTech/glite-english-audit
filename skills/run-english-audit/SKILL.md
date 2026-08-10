@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 18
+**Version**: 19
 
 ## Goal
 
@@ -272,7 +272,7 @@ runtime; naming both is confusing and wrong.
    invented.
 
    Show, in this order: the sources and period selected; estimated messages and
-   English words; which model this session is running; expected tokens with a
+   words; which model this session is running; expected tokens with a
    conservative upper bound and the estimated duration; how much of the
    subscription allowance is used and when it resets, whenever the run can read
    them; what stays unknown about money, and whether paid overage is on; and that
@@ -311,7 +311,9 @@ runtime; naming both is confusing and wrong.
    Do:
    ```text
    - Sources: Codex and Cursor. Period: last 7 days.
-   - Estimated volume: 145 messages, 58,205 English words.
+   - Estimated volume: 145 messages, about 58,000 words — everything in them,
+     including anything you pasted. A short recent period is the case this
+     overstates most.
    - Reading your writing: <session.model>, which is the model this session is
      running. The estimates below were measured on <session.measured_models>,
      so they describe a run on a different model.
