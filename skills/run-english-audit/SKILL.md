@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 24
+**Version**: 25
 
 ## Goal
 
@@ -108,9 +108,9 @@ runtime; naming both is confusing and wrong.
 3. Say what it reads, and ask once. One message, then one question, then the scan.
 
    ```text
-   I'll read your Claude Code history on this computer and find the English
-   mistakes in what you wrote. Nothing is copied anywhere, and only the mistakes
-   ever leave this machine — you see the list before that.
+   I'll read your Claude Code history and find the English mistakes in what you
+   wrote. Nothing goes to Glite except the list of mistakes, and you see it
+   first.
    ```
    Then ask, plainly: may I read your Claude Code history?
 
@@ -126,6 +126,13 @@ runtime; naming both is confusing and wrong.
    Don't: naming other applications, promising anonymity, mentioning permanent
    storage or the disclosed uses. Those belong to the review page, where the
    learner decides what to send with the list in front of them.
+
+   Don't: "nothing is copied anywhere". It is false and this file refutes it
+   twice — the selected text is read by the provider behind this session, which
+   is the whole reason the Claude Code-only argument works. The true claim is
+   narrower and stronger: Glite gets the list, nobody new gets the messages.
+   Privacy text stays literal, and an absolute that the next paragraph
+   contradicts costs more trust than the caveat would have.
 
    Record it once they agree, with `--local-scan-consent --provider-transfer-consent`
    on `start_run` in step 6 — one answer, honestly covering both, because reading

@@ -3,16 +3,17 @@
 Find the English mistakes you actually make, from your Claude Code history.
 
 You already write English in Claude Code every day. This reads that history back,
-finds the mistakes, and shows you the list. Nothing is copied anywhere; you see
-every line before any of it leaves your machine.
+finds the mistakes, and shows you the list. Your messages never go to Glite. Only
+the list does, and you see every line first.
 
 ## How it works
 
-1. **Run `/audit` in Claude Code.**
-2. **It reads your history and finds your mistakes.** It picks the period —
-   usually a week or two — and asks once before it starts.
-3. **You check the list, then send it** for a full report. The list of mistakes,
-   not your messages.
+1. Clone this repo.
+2. Run `/audit` in Claude Code.
+3. It reads your Claude Code history.
+4. It finds the mistakes in your English.
+5. You check the list.
+6. Send it for a report — the list, not your messages.
 
 ## Questions people ask first
 
@@ -30,8 +31,8 @@ thing explainable in three sentences. If it turns out you have too little there,
 the audit offers to read Codex, Cursor or your dictation history as well.
 
 **What is a good report?** About 200-300 mistakes, which is enough to show a
-habit rather than an accident. That is roughly two weeks of ordinary use, and
-the audit works out the period for you.
+habit rather than an accident. That is roughly two weeks of ordinary use. The
+audit works the period out for you and asks once before it starts.
 
 ## Current status
 
