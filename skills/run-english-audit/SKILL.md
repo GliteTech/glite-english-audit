@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 19
+**Version**: 20
 
 ## Goal
 
@@ -86,11 +86,21 @@ runtime; naming both is confusing and wrong.
    the product had said anything. Anything you would compute yourself to answer
    this step is either in that JSON or is not part of the answer.
 
-   Offer every run whose `decision` is not `refuse`, newest first, before offering
-   a new audit. Say when it started, how far it got, and what its `detail` says.
+   Offer the runs the report counted in `offerable` — `decision` `continue` or
+   `invalidate_downstream` — newest first, before offering a new audit. Say when
+   it started and how far it got. `restart` and `expired` are not offers: both
+   end with "start a new run", so mention such a run only if the user asks why
+   their earlier audit is gone.
+
    `offerable` is zero on most first runs; then say there is nothing to continue
    and go on. Say it in one clause and move — "No unfinished audit to continue"
    is the whole of it.
+
+   Put `detail` in your own words. It is written for this file, not for the
+   user: "Changed since the checkpoint: artifact schema version. Checkpointed
+   artifacts cannot be reused." is a sentence about the product's internals.
+   What the user needs is what it means for them — the audit they started can be
+   continued, or it cannot and why in one clause.
 
    Don't: "the run store holds only an empty directory from an aborted start,
    with no manifest." Directories, manifests and aborted starts are this

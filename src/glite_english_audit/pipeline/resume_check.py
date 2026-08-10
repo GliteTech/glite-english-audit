@@ -53,6 +53,7 @@ from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import repo_root, runs_root
 from glite_english_audit.runtime_session import observed_model_ids
 from glite_english_audit.state.run_store import (
+    ResumeDecision,
     RunStoreError,
     describe_resume,
     expire_stale_runs,
@@ -60,6 +61,20 @@ from glite_english_audit.state.run_store import (
     load_manifest,
 )
 from glite_english_audit.verification.skills import skill_versions
+
+# The two decisions that mean work already done can still be used. `restart`
+# and `expired` both end with "start a new run", so a launcher that offered them
+# would be offering something the policy has already refused.
+#
+# Built from the enum rather than written as strings. The first version of this
+# filtered on `!= "refuse"` -- a value ResumeDecision has never had -- so it
+# excluded nothing, and a run whose own detail read "Checkpointed artifacts
+# cannot be reused. Start a new run." was counted as continuable. A string
+# compared against an enum fails silently in exactly this direction: it always
+# looks like the permissive answer.
+_CONTINUABLE = frozenset(
+    {ResumeDecision.CONTINUE.value, ResumeDecision.INVALIDATE_DOWNSTREAM.value}
+)
 
 
 def live_adapter_versions(recorded: dict[str, str]) -> dict[str, str]:
@@ -164,7 +179,7 @@ def build_report(*, root: Path | None = None, now: datetime | None = None) -> di
             }
         )
 
-    offerable = [run for run in runs if run["decision"] != "refuse"]
+    offerable = [run for run in runs if run["decision"] in _CONTINUABLE]
     return {
         "unfinished": runs,
         "offerable": len(offerable),

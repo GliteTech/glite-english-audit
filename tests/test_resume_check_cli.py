@@ -20,12 +20,13 @@ from glite_english_audit.artifacts.enums import AgentRuntime, OsEnvironment, Run
 from glite_english_audit.artifacts.manifest import CompatibilityFingerprint, ConsentState
 from glite_english_audit.pipeline.resume_check import (
     build_report,
+    current_fingerprint,
     live_adapter_versions,
     main,
     remove_empty_run_dirs,
 )
 from glite_english_audit.state.machine import advance_run
-from glite_english_audit.state.run_store import create_run, save_manifest
+from glite_english_audit.state.run_store import ResumeDecision, create_run, save_manifest
 
 _NOW = datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)
 
@@ -45,6 +46,13 @@ def _fingerprint() -> CompatibilityFingerprint:
 
 
 def _processing_run(root: Path) -> str:
+    """A run this checkout would genuinely continue.
+
+    Built by asking `current_fingerprint` what today's values are rather than
+    writing them out: a literal fingerprint drifts the moment any schema,
+    tokenizer or skill version moves, and then the run under test is one the
+    policy refuses -- which is a different test wearing this one's name.
+    """
     manifest = create_run(
         AgentRuntime.CLAUDE_CODE,
         OsEnvironment.MACOS,
@@ -52,6 +60,7 @@ def _processing_run(root: Path) -> str:
         _fingerprint(),
         root=root,
     )
+    manifest.fingerprint = current_fingerprint(manifest)
     for target in (RunStatus.SELECTING, RunStatus.AWAITING_PREFLIGHT, RunStatus.PROCESSING):
         manifest.status = advance_run(manifest.status, target)
     save_manifest(manifest, root=root)
@@ -132,3 +141,52 @@ def test_the_cli_prints_parsable_json_on_an_empty_store(
     assert report["unfinished"] == []
     assert report["offerable"] == 0
     assert report["removed_empty"] == []
+
+
+def test_a_run_the_policy_refuses_is_not_counted_as_continuable(tmp_path: Path) -> None:
+    """`offerable` filtered on a value ResumeDecision has never had.
+
+    The first version compared `decision != "refuse"`. The enum is
+    continue / invalidate_downstream / restart / expired, so that excluded
+    nothing, and a run whose own detail read "Checkpointed artifacts cannot be
+    reused. Start a new run." was offered as continuable. A string compared
+    against an enum fails silently toward the permissive answer.
+    """
+    stale = CompatibilityFingerprint.model_validate(
+        {
+            "adapter_versions": {"codex": "1.0.0"},
+            # No release will ever carry this, so the policy must say restart.
+            "artifact_schema_version": 99,
+            "tokenizer_version": "1.0.0",
+            "skill_versions": {"find-english-mistakes": 1},
+            "prompt_versions": {},
+            "model_ids": {},
+            "consent_policy_version": "1",
+        }
+    )
+    manifest = create_run(
+        AgentRuntime.CLAUDE_CODE,
+        OsEnvironment.MACOS,
+        ConsentState(consent_policy_version="1"),
+        stale,
+        root=tmp_path,
+    )
+    for target in (RunStatus.SELECTING, RunStatus.AWAITING_PREFLIGHT, RunStatus.PROCESSING):
+        manifest.status = advance_run(manifest.status, target)
+    save_manifest(manifest, root=tmp_path)
+
+    report = build_report(root=tmp_path, now=_NOW)
+    runs = report["unfinished"]
+
+    assert isinstance(runs, list)
+    assert runs[0]["decision"] == "restart"
+    assert report["offerable"] == 0, "a run the policy refuses must never be offered"
+
+
+def test_every_continuable_decision_is_a_real_enum_member() -> None:
+    """The filter is built from the enum, so it cannot drift from it again."""
+    from glite_english_audit.pipeline.resume_check import _CONTINUABLE
+
+    real = {decision.value for decision in ResumeDecision}
+    assert _CONTINUABLE
+    assert not (_CONTINUABLE - real), f"not a ResumeDecision: {sorted(_CONTINUABLE - real)}"
