@@ -16,7 +16,18 @@ from pathlib import Path
 
 from glite_english_audit.state.run_store import load_manifest
 
-CONSENT_POLICY_VERSION = "1"
+CONSENT_POLICY_VERSION = "2"
+"""Bumped when the review page's consent wording changed.
+
+This module's own rule: any change to consent wording or privacy behavior bumps
+it. Version 2 rewrote both confirmations -- the adult line dropped "I confirm
+that", and the storage agreement became one sentence pointing at the Terms,
+losing a "flashcards" use that nothing in this repository builds.
+
+The cost is deliberate. A remembered local-scan consent given against version 1
+no longer covers version 2, so it is asked again, and runs checkpointed under the
+old version need a new run rather than silently continuing under wording their
+owner never saw."""
 
 
 class MissingConsentError(Exception):

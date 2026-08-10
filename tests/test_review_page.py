@@ -23,6 +23,7 @@ from glite_english_audit.artifacts.models import (
     ReviewedSubmissionArtifact,
     SafeMistakeRecord,
 )
+from glite_english_audit.consent import CONSENT_POLICY_VERSION
 from glite_english_audit.review_server.page import (
     EXAMPLE_ORIGIN_LABELS,
     PRIVACY_POLICY_URL,
@@ -334,12 +335,14 @@ def test_confirmations_are_present_and_unchecked() -> None:
     assert " checked" not in adult
     assert " checked" not in storage
     assert "at least 18 years old" in page
-    # Assert the constants render, not their wording. The storage agreement is
-    # four commitments and was one 44-word clause; it will be reworded again,
-    # and what must not change is that all four reach the page.
+    # Assert the constants render, not their wording -- this sentence has been
+    # rewritten three times and will be again. What may not be compressed away is
+    # any commitment that changes whether a reasonable person agrees.
     assert html.escape(STORAGE_CONFIRMATION_TEXT, quote=True) in page
-    for commitment in ("permanently", "cannot delete", "train models", "outside AI model"):
+    for commitment in ("anonymous", "permanently", "cannot delete", "train", "outside AI model"):
         assert commitment in STORAGE_CONFIRMATION_TEXT
+    # And it must point somewhere the detail can actually be read.
+    assert "Terms" in STORAGE_CONFIRMATION_TEXT
 
 
 def test_report_handoff_page_includes_unchecked_confirmations() -> None:
@@ -458,7 +461,12 @@ def test_report_form_posts_the_exact_package_and_consent_outside_it() -> None:
         "external_ai_processing_accepted",
     ):
         assert re.search(rf'<input[^>]*name="{name}"[^>]*value="true"[^>]*>', page)
-    assert re.search(r'<input[^>]*name="consent_policy_version"[^>]*value="1"[^>]*>', page)
+    # Whatever the version is, the form must carry the one the page was rendered
+    # with, so a package can never claim consent under wording nobody saw.
+    assert re.search(
+        rf'<input[^>]*name="consent_policy_version"[^>]*value="{CONSENT_POLICY_VERSION}"[^>]*>',
+        page,
+    )
     assert 'name="client_confirmation_at" value=""' in page
 
 
