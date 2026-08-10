@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 17
+**Version**: 18
 
 ## Goal
 
@@ -138,8 +138,9 @@ runtime; naming both is confusing and wrong.
 5. Discovery. Run local discovery by following
    `skills/discover-english-sources/SKILL.md`. Present only the aggregate inventory
    it returns.
-6. Selection. Ask several small questions, one at a time — sources, then period, then
-   cost. Skip questions that do not apply.
+6. Selection. Two questions, one at a time: which apps, then which period. That is
+   the whole of it — everything else the run needs is either derived from those two
+   answers or is a disclosure rather than a decision.
    1. Sources: show a short table of detected sources with opaque instance labels
       (such as "Claude Code 1"), candidate counts, date ranges, and stability. Then
       ask which apps to audit, listing one option per app that holds English, and
@@ -168,9 +169,17 @@ runtime; naming both is confusing and wrong.
       `pipeline.start_run --period` accepts. The table prints one row per distinct
       period: when a preset's window reaches further back than the user's history,
       that preset and Everything are the same run, and only Everything is printed —
-      do not offer the folded ones as separate choices. There is no way to record a
-      custom range, so if the user asks for specific dates, say the audit runs in
-      fixed periods and offer the smallest preset that covers the range they want.
+      do not offer the folded ones as separate choices.
+
+      There is no way to record a custom range. When the user names one — "the
+      last two weeks" — do not ask a second question. The rule is deterministic:
+      take the smallest preset that covers what they asked for, say you have done
+      it and why, and carry on. "Two weeks isn't one of the fixed periods, so I've
+      taken the last 30 days — the smallest one that covers it." They can still
+      change it in their next message, and if the substitution is wrong that is
+      one correction instead of one extra question for everybody who is fine with
+      it. Re-asking spends a round trip to be told the only answer the rule allows.
+
       Before asking, run
       `uv run python -m glite_english_audit.estimation.estimate`
       (`src/glite_english_audit/estimation/estimate.py`; profile format in
@@ -202,12 +211,21 @@ runtime; naming both is confusing and wrong.
       candidate, so an app that stopped in June may still hold undated records the
       collector reads in full. The inventory cannot separate those, so the claim
       that is always true is the one about the estimate.
-   3. Cost and quota: ask whether the estimate is acceptable, and offer only choices
-      that exist. When the chosen period is already the shortest preset there is no
-      smaller one, and the real options are dropping an app or stopping.
-      Don't: an option labelled "Pick a smaller period" whose own description then
-      withdraws it. A choice the user has to read a paragraph to discover was never
-      a choice is worse than one you did not offer.
+   There is no separate cost question. There was one — "…is N words and an
+   estimated X–Y hours. Is that acceptable?" — asked immediately before a
+   preflight that states the same volume and the same hours, and before a consent
+   question that is the same go/no-go. Three screens, one decision. The numbers
+   now appear once, in the preflight, and the decision is taken once, at step 8.
+   Volume is not a separate consent; it is the reason for the one that exists.
+
+   When API billing is detected the money question is real and does return, because
+   a spend ceiling is a number only the user can set. That is the exception, not
+   the pattern.
+
+   Whatever you ask, offer only choices that exist. Don't: an option labelled
+   "Pick a smaller period" whose own description then withdraws it because the
+   shortest preset is already selected. A choice the user has to read a paragraph
+   to discover was never a choice is worse than one you did not offer.
 
    There is no model question. There was one — "Recommended" against "Maximum
    assurance" — and both sides of it named models this run cannot select: the
