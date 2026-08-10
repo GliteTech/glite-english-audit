@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 16
+**Version**: 17
 
 ## Goal
 
@@ -71,13 +71,30 @@ runtime; naming both is confusing and wrong.
    Don't: opening with a directory listing, a git command, or reading
    specifications, so the user's first sight of the product is machinery.
 
-2. Resume check. List unfinished runs in the run store. For each compatible one
-   (matching `CompatibilityFingerprint`), offer to continue it before offering a new
-   audit. Report: when it started, what was selected, the last completed step and
-   item, whether inputs changed, and whether skill, schema, or model changes require
-   migration or restart. If a required private input expired under the 30-day rule,
-   say the run cannot resume and offer a new audit. Resume decisions follow the
-   deterministic policy in the resume section below.
+2. Resume check. One command answers it:
+   `uv run python -m glite_english_audit.pipeline.resume_check`
+   (`src/glite_english_audit/pipeline/resume_check.py`). It applies the 30-day
+   retention rule, removes directories left by a start that never wrote a
+   manifest, and returns `unfinished` with a `decision` and a written `detail`
+   for each run, already following the deterministic policy in the resume section
+   below.
+
+   Read it; do not reconstruct it. There was no command here until recently, and a
+   real session opened by running two `python -c` snippets, a `sed` through
+   `save_choice.py`, an `ls` of the adapters package and sixty lines of a test
+   file before it could say "no unfinished audit" — all of it on screen, before
+   the product had said anything. Anything you would compute yourself to answer
+   this step is either in that JSON or is not part of the answer.
+
+   Offer every run whose `decision` is not `refuse`, newest first, before offering
+   a new audit. Say when it started, how far it got, and what its `detail` says.
+   `offerable` is zero on most first runs; then say there is nothing to continue
+   and go on. Say it in one clause and move — "No unfinished audit to continue"
+   is the whole of it.
+
+   Don't: "the run store holds only an empty directory from an aborted start,
+   with no manifest." Directories, manifests and aborted starts are this
+   product's housekeeping. The user asked whether they had an audit waiting.
 3. First-run explanation. Before the first local scan, say in one line what that
    scan does and which apps it reads. The scan reads app data on this machine and
    hands back counts and dates, and that is the whole of what the user agrees to
@@ -106,9 +123,11 @@ runtime; naming both is confusing and wrong.
    different question from a scan of nine named apps, and only the second one is
    answerable. Four names they will recognise plus a count of the rest is
    shorter than the full list and gives away no less. Keep the count honest: it
-   covers every app the scan looks for, installed or not, and
-   `tests/test_first_run_names_the_apps.py` fails when an adapter is added
-   without this line moving with it.
+   covers every app the scan looks for, installed or not, and the suite fails if
+   an adapter is ever added without this line moving with it. Do not go and read
+   that test to check the number — the sentence above is the number, and a run
+   that opens by reading test files has already spent the user's attention on
+   its own machinery.
 
 4. Consent moment 1 — local scan. On first use, ask the user to confirm that local
    scripts may read the supported apps on this computer to count what is there.
@@ -122,11 +141,29 @@ runtime; naming both is confusing and wrong.
 6. Selection. Ask several small questions, one at a time — sources, then period, then
    cost. Skip questions that do not apply.
    1. Sources: show a short table of detected sources with opaque instance labels
-      (such as "Claude Code 1"), candidate counts, date ranges, and stability. Stable
-      sources with a supported schema and eligible provenance are selected by
-      default; the user can uncheck any source or instance. Beta, experimental,
-      inaccessible, unsupported-schema, cleaned-only, and unknown-provenance sources
-      are not selected automatically.
+      (such as "Claude Code 1"), candidate counts, date ranges, and stability. Then
+      ask which apps to audit, listing one option per app that holds English, and
+      take the answer as the whole selection.
+
+      Ask what to keep, never what to skip. "Which apps should I skip? Leave
+      everything unchecked to audit all five" made the common answer — audit
+      everything — indistinguishable from not answering, and a real session
+      returned an empty selection that could not be read either way: the run
+      stalled, the question was asked twice, and the agent ended up hand-typing a
+      numbered list. A question whose default answer is silence has no default.
+      Checked means audited, so an empty answer is genuinely empty, and the reply
+      to it is that a run needs at least one app — asked once more, not worked
+      around.
+
+      Translate the answer into flags rather than assuming the default matches it.
+      `start_run` selects stable, found, non-empty instances on its own, so every
+      app that is on by default and was *not* chosen needs `--exclude-source`, and
+      every chosen app that is off by default — anything beta — needs
+      `--include-source`. The user's words go in the flags verbatim; instance keys
+      are private and you never see them.
+
+      Beta, experimental, inaccessible, unsupported-schema, cleaned-only, and
+      unknown-provenance sources are never audited unless the user picks them.
    2. Period: offer the periods the estimate table lists, which are the presets
       `pipeline.start_run --period` accepts. The table prints one row per distinct
       period: when a preset's window reaches further back than the user's history,
@@ -145,12 +182,20 @@ runtime; naming both is confusing and wrong.
       not guarantees, and a range stays a range when you repeat it.
 
       Once the period is answered, read `idle_sources` on that preset's row and say
-      what it holds. Sources are chosen before the period, so the period can empty
-      one: a user who kept Cursor and then chose the last 7 days has selected an app
-      whose data stopped in June. Name it and offer to drop it — "Cursor adds
-      nothing to the last 7 days, so this is effectively a Codex run" — rather than
-      reading the selection back as "Codex and Cursor", which is true of the list
-      they ticked and false about the run they are approving.
+      what it holds, in one sentence, as a statement. Sources are chosen before the
+      period, so the period can empty one: keeping an app whose writing stopped
+      months ago and then choosing a short window selects something that adds
+      nothing. Say so — "Cursor adds nothing to the last 30 days, so this is
+      effectively a Codex run" — instead of reading the selection back as both
+      apps, which is true of the list they ticked and false about the run they are
+      approving.
+
+      Do not turn it into a question. Dropping a source that contributes nothing
+      changes nothing the user can see, so "drop it?" asks them to decide between
+      two identical outcomes, and answering it costs a round trip that buys them
+      nothing. Leave the selection as they set it. Keeping it is also the safer of
+      the two, because an app can be idle by this estimate's arithmetic and still
+      hold undated records the collector reads.
 
       Say "adds nothing to this estimate", not "has nothing". Discovery dates an
       instance from its timestamped records only, while the counts include every
@@ -198,15 +243,7 @@ runtime; naming both is confusing and wrong.
    Do: ask "Which period should I audit?" with the estimates on each option, then
    ask about the cost separately.
    Don't: combine sources, period, budget, and consent into one question.
-7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
-   user to confirm that the selected text may be sent to the current AI provider.
-   Ask this on every audit. A confirmation stored by a previous run does not count.
-
-   Two facts belong with this question, because this is where they are decided:
-   the selected text goes through <active runtime> to their current AI provider,
-   and that is the step which is not local; and Glite never receives their raw
-   text. Name the active runtime only.
-8. Preflight. Take the numbers from the same command, re-run with the final
+7. Preflight. Take the numbers from the same command, re-run with the final
    selection: `uv run python -m glite_english_audit.estimation.estimate` with the
    chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
    Read the row whose `preset` is the chosen period and quote its `words`,
@@ -323,26 +360,46 @@ runtime; naming both is confusing and wrong.
      status. Do not ask a mid-run question.
    If the preflight already predicts the period will not fit, let the user pick a
    smaller period now or accept that the run may checkpoint for later resumption.
-9. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
-   confirm the preflight. Say it is the last question before processing: that
-   sentence earns its place, because it tells the user the run is about to go
-   quiet and they can walk away.
+8. Consent moment 2 — provider transfer, and the only gate left. Immediately after
+   the preflight message, ask one question: whether the selected text may be sent
+   to the current AI provider. Ask it on every audit; a confirmation stored by a
+   previous run does not count. Answering it starts the run.
+
+   Two facts belong with this question, because this is where they are decided:
+   the selected text goes through <active runtime> to their current AI provider,
+   and that is the step which is not local; and Glite never receives their raw
+   text. Name the active runtime only. Say that processing then runs without
+   further questions and goes quiet for a long stretch, so they can walk away —
+   that sentence earns its place, because it is the one thing about to happen
+   that they cannot see coming.
+
+   This used to be two questions, asked in the wrong order. Provider transfer came
+   before the preflight, so the user agreed to send their writing and only then
+   saw the volume, the model and the time it would take; then a third question
+   asked them to confirm the numbers they had already consented to act on. The
+   disclosure now comes first and the decision once, which is both shorter and the
+   right way round: nobody should agree to a transfer before reading what it
+   covers.
 
    Don't: "After it, the next thing you decide is on the review page." A promise
    about a screen they cannot reach yet is the forward-promise pattern this round
    already deleted once.
 
-   When they confirm, record it:
+   When they confirm, record both moments — the transfer they agreed to and the
+   preflight they agreed after reading:
    `uv run python -m glite_english_audit.pipeline.record_consent
-   --run-id <run-id> --moment preflight`. Asking without recording leaves the
-   manifest saying this consent never happened, and afterwards nobody can tell a
-   consent that was never sought from one that was given and never written down.
-   That distinction is the only reason a consent record exists.
+   --run-id <run-id> --moment provider-transfer` and the same command with
+   `--moment preflight`. One answer given after the preflight establishes both
+   facts truthfully: the numbers were shown, and the user said go. Asking without
+   recording leaves the manifest saying the consent never happened, and afterwards
+   nobody can tell a consent that was never sought from one that was given and
+   never written down. That distinction is the only reason a consent record
+   exists.
 
-   Record it only if they actually confirmed. A timestamp is evidence that a
-   person was asked and agreed at a moment; writing one for a question you
-   skipped is worse than leaving it empty.
-10. Autonomous step execution. The pipeline is five steps, `a` through `e`, and one
+   Record only what they actually confirmed. A timestamp is evidence that a person
+   was asked and agreed at a moment; writing one for a question you skipped is
+   worse than leaving it empty. If they decline, record nothing and stop.
+9. Autonomous step execution. The pipeline is five steps, `a` through `e`, and one
    session is one file the whole way through. Steps a and b are scripts and never
    involve a model. Steps c, d and e are one agent per session file, run in
    parallel. Pass the same `<run-id>` throughout; every command prints aggregate
@@ -493,7 +550,7 @@ runtime; naming both is confusing and wrong.
    File failures: retry once, then quarantine that session and continue. Source-wide
    failures: pause that source, continue others when safe, and explain the exclusion
    at the end.
-11. Progress. During active model or extraction work, post a concise update at least
+10. Progress. During active model or extraction work, post a concise update at least
     once per 60 seconds and at most once per 10 seconds, unless a step changes or a
     material warning occurs. Render updates with the progress module
     (`glite_english_audit.progress`): percent complete, current step, per-source
@@ -527,7 +584,7 @@ runtime; naming both is confusing and wrong.
     found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
     names step 1; "Dispatching one agent per session"; and the Cursor sentence —
     the only line the user can act on — parenthesized in the middle of another.
-12. Checkpoints. The session file is the smallest checkpoint unit, because it is the
+11. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
     any session interrupted before promotion — `--prepare` marks a session
     `already_written` when its decision exists and the step is still current, so a
@@ -538,13 +595,13 @@ runtime; naming both is confusing and wrong.
     a step the manifest invalidated reports nothing as written, whatever sits on disk,
     because a changed skill, prompt or model is why it was invalidated. Do not
     reprocess promoted files unless their inputs or required versions changed.
-13. Review and outcome. After every local step has passed, follow
+12. Review and outcome. After every local step has passed, follow
     `skills/prepare-glite-submission/SKILL.md`: it starts the loopback review page,
     where consent moment 4 lives (the 18+ confirmation and the permanent-storage and
     disclosed-uses confirmation, both unchecked by default). Report the final
     outcome: sent directly, or downloaded for manual upload, with the withheld-count
     explanation; or the no-records outcome.
-14. Retention. When the run completes, immediately delete extracted source text,
+13. Retention. When the run completes, immediately delete extracted source text,
     eligible-utterance corpora, private findings, private structured mistakes,
     sensitive diagnostics, and remaining snapshots. Keep only the privacy-safe final
     package, non-sensitive completion and idempotency metadata, and numerical
