@@ -64,15 +64,20 @@ single-page app with no policy route at all, and every legal path there answers
 """
 
 WHAT_YOU_GET_TEXT = (
-    "Send these and Glite groups them into the mistakes you make most, with a rule "
-    "and an example for each. The report is yours to keep."
+    "Glite turns the mistakes below into a report on the ones you make most, with a "
+    "rule and an example for each. Nothing has been sent yet — uncheck anything you "
+    "would rather keep, then create the report."
 )
-"""The reason to do any of this, which the page never gave.
+"""What the reader came for, said before what it costs them.
 
-Everything here described a cost -- permanent storage, model training, an outside
-model reading it -- and nothing described what the cost buys. A reader arriving
-at this page knew they had thirty-six sentences and two consent boxes, and had to
-infer the point from a button label.
+The page was titled for our step rather than their need. "Choose which mistakes
+to share" is a chore, and nobody opens this page wanting to choose; they want the
+report. The goal was on the page -- as the last heading above the buttons, under
+everything else.
+
+So the report leads and the choosing is a step inside it. That also fixes the
+one-sidedness underneath: every other sentence here describes a cost, and until
+this line existed nothing said what the cost buys.
 """
 EXAMPLE_ORIGIN_LABELS: dict[ExampleType, str] = {
     ExampleType.VERBATIM: "your words",
@@ -852,7 +857,7 @@ def _summary_section(state: ReviewSessionState) -> str:
     )
     return (
         '<section aria-labelledby="summary-heading">'
-        '<h2 id="summary-heading">Audit summary</h2>'
+        '<h2 id="summary-heading">What the audit found</h2>'
         f'<dl class="summary">{rows}</dl>'
         "</section>"
     )
@@ -990,10 +995,10 @@ def _actions(
             "anonymously</button>"
         )
         notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
-        heading = "Create your report"
+        heading = "Confirm and create"
     else:
         action = ""
-        heading = "Create your report"
+        heading = "Confirm and create"
     return (
         f'<section id="{_SKIP_TARGET_ID}" tabindex="-1" aria-labelledby="send-heading">'
         f'<h2 id="send-heading">{heading}</h2>'
@@ -1020,15 +1025,14 @@ def render_page(
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<meta name="color-scheme" content="light dark">\n'
         '<meta name="referrer" content="no-referrer">\n'
-        "<title>Choose what to send \u2014 Glite</title>\n"
+        "<title>Create your English report \u2014 Glite</title>\n"
         f"<style>{_STYLE}</style>\n"
         "</head>\n"
         f'<body data-token="{_escape(token)}">\n'
         f'<a class="skip-link" href="#{_SKIP_TARGET_ID}">{_escape(SKIP_LINK_TEXT)}</a>\n'
         "<main>\n"
-        "<h1>Choose which mistakes to share</h1>\n"
-        f'<p class="intro">{_escape(WHAT_YOU_GET_TEXT)} Nothing has been sent yet — '
-        "uncheck anything you would rather keep.</p>\n"
+        "<h1>Create your English report</h1>\n"
+        f'<p class="intro">{_escape(WHAT_YOU_GET_TEXT)}</p>\n'
         + _summary_section(state)
         + _records_section(state)
         + _actions(state, capability, package_available=package_bytes is not None)
