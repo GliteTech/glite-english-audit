@@ -215,7 +215,6 @@ def _started_run(tmp_path: Path, runs_root: Path) -> str:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=runs_root,
         inventory_dir=inventory_dir,
         local_scan_consent=True,

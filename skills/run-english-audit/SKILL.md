@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 9
+**Version**: 16
 
 ## Goal
 
@@ -78,104 +78,104 @@ runtime; naming both is confusing and wrong.
    migration or restart. If a required private input expired under the 30-day rule,
    say the run cannot resume and offer a new audit. Resume decisions follow the
    deterministic policy in the resume section below.
-3. First-run explanation. Before the first local scan, tell the user how this
-   works. This is the message their consent rests on, so it has to be readable,
-   not merely complete: a lead line, then short bullets in three groups. Eleven
-   facts in one paragraph is a wall nobody reads, and consent to a wall is not
-   consent.
+3. First-run explanation. Before the first local scan, say in one line what that
+   scan does and which apps it reads. The scan reads app data on this machine and
+   hands back counts and dates, and that is the whole of what the user agrees to
+   here.
 
-   Cover every point below. Name the active runtime where marked; never name
-   both. Keep each bullet to one line. Distinguish local deterministic work from
-   model processing, and never claim the audit is entirely local.
+   Do:
+   ```text
+   I'll scan this computer for English you wrote or dictated — Claude Code,
+   Codex, Cursor, Wispr Flow and five other AI coding and dictation apps. I'll
+   see counts and dates, never your messages.
+   ```
+   Don't: the eleven facts this used to open with — provider transfer, anonymity,
+   permanent storage, the disclosed uses. Every one of them belongs to a consent
+   moment the user has not reached, is asked again there with the decision in
+   front of them, and costs attention here that the decision being made now
+   needs. A briefing is not consent, and eleven facts delivered an hour early are
+   a briefing.
 
-   On this machine:
-   - trusted local scripts read your app data to find records and count volume
-   - they send nothing to a model or over the network
-   - what comes back is counts and dates, never your messages
+   Say what the scan hands back rather than that it stays local. The user is
+   talking to a model and is about to point it at their message history, so what
+   this conversation sees is the fact they cannot infer and might object to. "It
+   sends nothing to a model" is also not quite true: the counts reach you.
 
-   Sent for analysis, only after you agree:
-   - the text you select goes through <active runtime> to your current AI
-     provider — this is the step that is not local
-   - Glite never receives your raw text
+   Name the apps. "This computer" is a scope the user cannot picture, and it is
+   the thing they are being asked to agree to — a scan of a machine is a
+   different question from a scan of nine named apps, and only the second one is
+   answerable. Four names they will recognise plus a count of the rest is
+   shorter than the full list and gives away no less. Keep the count honest: it
+   covers every app the scan looks for, installed or not, and
+   `tests/test_first_run_names_the_apps.py` fails when an adapter is added
+   without this line moving with it.
 
-   If you choose to submit at the end:
-   - you see every record first, and nothing is sent until you say so
-   - submission is anonymous: no name, no email, no account
-   - Glite stores the submitted records and counts permanently
-   - Glite may use them to improve the product, build an English-learning
-     knowledge graph, train models, and publish aggregated research
-
-   Do: the grouped bullets above, in your own words.
-   Don't: one paragraph listing all eleven facts in sequence, which reads as
-   something to get past rather than something to agree to.
-
-4. Consent moment 1 — local scan. On first use, ask the user to confirm that trusted
-   local scripts may inspect supported source data to calculate an inventory without
-   sending text to a model or network. This consent may be remembered until the
+4. Consent moment 1 — local scan. On first use, ask the user to confirm that local
+   scripts may read the supported apps on this computer to count what is there.
+   Do not call the scripts trusted: that is a label the user cannot check, and
+   asking them to accept it is asking them to take on trust the one thing the
+   question exists to establish. This consent may be remembered until the
    consent version changes (`ConsentState.consent_policy_version`).
 5. Discovery. Run local discovery by following
    `skills/discover-english-sources/SKILL.md`. Present only the aggregate inventory
    it returns.
 6. Selection. Ask several small questions, one at a time — sources, then period, then
-   profile, then cost. Skip questions that do not apply.
+   cost. Skip questions that do not apply.
    1. Sources: show a short table of detected sources with opaque instance labels
       (such as "Claude Code 1"), candidate counts, date ranges, and stability. Stable
       sources with a supported schema and eligible provenance are selected by
       default; the user can uncheck any source or instance. Beta, experimental,
       inaccessible, unsupported-schema, cleaned-only, and unknown-provenance sources
       are not selected automatically.
-   2. Period: offer exactly the five presets Last 7 days, Last 30 days, Last 3
-      months, Last year, and Everything. The estimate table prints a sixth "Custom
-      dates" row, but that row is not a preset and `pipeline.start_run --period`
-      cannot accept one: there is no way to record a custom range, so do not offer
-      it as a choice. If the user asks for specific dates, say the audit runs in
-      fixed periods, and offer the smallest preset that covers the range they want.
+   2. Period: offer the periods the estimate table lists, which are the presets
+      `pipeline.start_run --period` accepts. The table prints one row per distinct
+      period: when a preset's window reaches further back than the user's history,
+      that preset and Everything are the same run, and only Everything is printed —
+      do not offer the folded ones as separate choices. There is no way to record a
+      custom range, so if the user asks for specific dates, say the audit runs in
+      fixed periods and offer the smallest preset that covers the range they want.
       Before asking, run
       `uv run python -m glite_english_audit.estimation.estimate`
       (`src/glite_english_audit/estimation/estimate.py`; profile format in
       `specifications/token_estimation_profile.md`), passing the apps the user just
       chose with the same `--include-source`, `--exclude-source`, and
       `--exclude-label` arguments the run will use. Show its `table` and repeat its
-      `notes`: which counts are interpolated, which steps are not calibrated, and
-      that quota and price are unavailable. Warn when a preset is unlikely to fit the
-      remaining allowance. These are calibrated estimates, not guarantees, and a
-      range the command marks low confidence stays a range when you repeat it.
-   3. Processing profile. First find out whether there is a choice to offer:
+      `notes` — three of them, four when a source reports no dates. Warn when the
+      tightest allowance window is already close to its limit. These are estimates,
+      not guarantees, and a range stays a range when you repeat it.
 
-      ```
-      uv run python -c "from glite_english_audit.estimation.profile import
-      load_token_usage_profile, profiles_differ, resolve_models;
-      p=load_token_usage_profile(); r='claude-code';
-      print(profiles_differ(p, runtime=r), resolve_models(p, runtime=r,
-      processing_profile='recommended'))"
-      ```
+      Once the period is answered, read `idle_sources` on that preset's row and say
+      what it holds. Sources are chosen before the period, so the period can empty
+      one: a user who kept Cursor and then chose the last 7 days has selected an app
+      whose data stopped in June. Name it and offer to drop it — "Cursor adds
+      nothing to the last 7 days, so this is effectively a Codex run" — rather than
+      reading the selection back as "Codex and Cursor", which is true of the list
+      they ticked and false about the run they are approving.
 
-      Use the runtime you are running in. It prints whether the two profiles
-      resolve to different models, and which models Recommended resolves to.
+      Say "adds nothing to this estimate", not "has nothing". Discovery dates an
+      instance from its timestamped records only, while the counts include every
+      candidate, so an app that stopped in June may still hold undated records the
+      collector reads in full. The inventory cannot separate those, so the claim
+      that is always true is the one about the estimate.
+   3. Cost and quota: ask whether the estimate is acceptable, and offer only choices
+      that exist. When the chosen period is already the shortest preset there is no
+      smaller one, and the real options are dropping an app or stopping.
+      Don't: an option labelled "Pick a smaller period" whose own description then
+      withdraws it. A choice the user has to read a paragraph to discover was never
+      a choice is worse than one you did not offer.
 
-      When they do NOT differ — which is the case today, because only one model
-      per step has been measured — do not ask. A question with one real answer
-      wastes the user's attention and implies a control they do not have. Say
-      which model will run the work and move on:
+   There is no model question. There was one — "Recommended" against "Maximum
+   assurance" — and both sides of it named models this run cannot select: the
+   per-file agents of steps c, d and e inherit the model of the session you are
+   running in, nothing here pins one, and nothing will. A question whose options
+   do not reach the outcome is worse than no question, because the user reads
+   the answer as a decision they made. What the calibration profile still
+   chooses is which measured cells the estimate is priced against, and that is
+   not a choice to put to a person. The preflight reports the model instead.
 
-      Do: "All four model steps run on Claude Fable 5, the only model measured
-      for this runtime, so there is nothing to choose between here."
-      Don't: offering "Recommended" and "Maximum assurance" as alternatives when
-      both resolve to the same model, with option text describing a cost tradeoff
-      that does not exist in this run.
-
-      When they DO differ, offer both and name the actual models in each option,
-      not the policy that picked them. "Recommended" tells the user nothing;
-      "Claude Fable 5 for every step" tells them what will read their writing.
-
-      Either way `start_run` records the resolved models in the manifest, so the
-      preflight can state them and a later model change invalidates the semantic
-      steps instead of passing unnoticed.
-   4. Cost and quota: ask whether the token, quota, or price estimate is acceptable.
    In Claude Code, ask through `AskUserQuestion`: multi-select for which apps to
-   include, pre-selected to the default rule; single-select for the period, with
-   each preset's words and estimated time in its description; and a single-select
-   for the profile only when the profiles actually differ.
+   include, pre-selected to the default rule; and single-select for the period,
+   with each preset's words and estimated time in its description.
 
    In Codex, ask in plain text, following
    `skills/discover-english-sources/SKILL.md` under "Asking a Choice Question in
@@ -196,26 +196,121 @@ runtime; naming both is confusing and wrong.
    instead. List facts; save prose for the recommendation.
 
    Do: ask "Which period should I audit?" with the estimates on each option, then
-   ask about the profile separately.
-   Don't: combine sources, period, profile, budget, and consent into one question.
+   ask about the cost separately.
+   Don't: combine sources, period, budget, and consent into one question.
 7. Consent moment 2 — provider transfer. After sources and period are chosen, ask the
    user to confirm that the selected text may be sent to the current AI provider.
    Ask this on every audit. A confirmation stored by a previous run does not count.
+
+   Two facts belong with this question, because this is where they are decided:
+   the selected text goes through <active runtime> to their current AI provider,
+   and that is the step which is not local; and Glite never receives their raw
+   text. Name the active runtime only.
 8. Preflight. Take the numbers from the same command, re-run with the final
    selection: `uv run python -m glite_english_audit.estimation.estimate` with the
    chosen `--include-source`, `--exclude-source`, and `--exclude-label` arguments.
    Read the row whose `preset` is the chosen period and quote its `words`,
    `utterances`, `tokens.p50_tokens`, `tokens.p90_tokens`, and `minutes` range
-   unchanged, with its `confidence`. Preflight numbers that disagree with the
-   numbers the period question showed mean one of the two was invented.
+   unchanged, with its `confidence`. Quoting the command both times is what makes
+   the two agree: a number that moved because the window slid between the two runs
+   is not worth a sentence, and any larger disagreement means one of the two was
+   invented.
 
-   Show: selected sources and period; estimated messages and English
-   words; processing profile and planned model roles; expected token range with a
-   conservative upper bound; expected API cost range when API billing is detected;
-   current subscription-limit percentages and reset times when available; estimated
-   duration; and whether paid overage might be used. State plainly when the command
-   reports quota and price unavailable rather than leaving those lines blank. Fix
-   the autonomous policies now:
+   Show, in this order: the sources and period selected; estimated messages and
+   English words; which model this session is running; expected tokens with a
+   conservative upper bound and the estimated duration; how much of the
+   subscription allowance is used and when it resets, whenever the run can read
+   them; what stays unknown about money, and whether paid overage is on; and that
+   a throttled provider ends in a checkpoint rather than a hang. When API billing
+   is detected, show the expected cost range and take a spend ceiling instead.
+
+   Send this as its own message, before the question. Don't: folding it into the
+   question prompt, which is how it was last cut to three of these facts — the
+   model line, the reset, the reading's age and the overage state all went, and
+   the user approved a run without being told which model would read everything
+   they had written. A question box is sized for a question. If the preflight has
+   to be shortened to fit inside one, the box is wrong, not the preflight.
+
+   The model line is an observation, and everything you may say in it comes from
+   the same command's `session` object — `session.model`, `session.effort`,
+   `session.measured_models`, `session.measured_elsewhere`
+   (`src/glite_english_audit/estimation/estimate.py`). Three cases, and they are
+   all of them:
+   - `session.model` is set, `session.measured_elsewhere` false: name it, and
+     say the estimates were measured on it.
+   - `session.model` is set, `session.measured_elsewhere` true: name it, and in
+     the same breath say the estimates were measured on a different model, so
+     they describe a different run. This is the usual case today.
+   - `session.model` is null: say the model could not be read and you cannot
+     tell them which one it is. Do not put the measured model there instead.
+
+   Quote the identifier the command printed, unchanged. Never take a model name
+   from the calibration profile, from this file, or from memory. This bullet is
+   the run's most privacy-relevant fact — one screen later the user agrees to
+   let that model read everything they have written — and a name that did not
+   come from `session.model` is a promise the product has no mechanism to keep.
+   It made exactly that promise until this version: the preflight stated the
+   calibration profile's model while every record of a real run was read by the
+   session's own.
+
+   Do:
+   ```text
+   - Sources: Codex and Cursor. Period: last 7 days.
+   - Estimated volume: 145 messages, 58,205 English words.
+   - Reading your writing: <session.model>, which is the model this session is
+     running. The estimates below were measured on <session.measured_models>,
+     so they describe a run on a different model.
+   - Expected use: 14.7M tokens, 27.2M as the conservative upper bound; 0.4–1.8 hours.
+   - Your allowance: 12% of the weekly limit used, resets Friday 15:00 (read 20
+     minutes ago). I cannot say what share of it this run takes — the host
+     reports a percentage, not a budget.
+   - Money: no price is available, so I cannot show what this costs. Paid overage
+     is off and I will not turn it on.
+   - If your provider throttles I wait, and if the wait runs long I save a
+     checkpoint and stop with a run you can resume.
+   ```
+   Don't: "runs on <a model you did not read from `session.model`>", which is
+   what this line said before, and which no part of the product enforces. Don't:
+   naming the measured cells behind the estimate. Don't: "58,232 a
+   minute ago — the window slid", which is the product narrating its own
+   arithmetic at someone deciding whether to spend two hours. Don't: how many
+   sessions run at once — the user does not choose it, and the estimate no longer
+   says. Don't: the retry delay, the cumulative wait limit and the
+   difference between them, which are the policy below and not the user's decision.
+
+   Every allowance word comes from the same command's `allowance` object —
+   `allowance.utilization`, `allowance.tightest_window`, `allowance.resets_at`,
+   `allowance.age_phrase`, `allowance.stale`, `allowance.overage_enabled`. Do not
+   read it any other way. There was no command for months, so the agent wrote its
+   own one-liner, got a raw dataclass back and dropped the age — quoting a bare
+   percentage from a cache hours stale, which is exactly the sentence the age
+   exists to prevent.
+
+   The allowance figure carries its age and is never presented as a live reading:
+   it comes from a cache some other process refreshed, and a percentage without an
+   age implies a check nobody made. Say so plainly when `allowance.stale` is true.
+   When `allowance.known` is true but `allowance.age_phrase` is null the host gave
+   a percentage and no timestamp: say the reading cannot be dated, rather than
+   printing a bare percentage, which is the same sentence the age exists to stop.
+   When it cannot be read at all — `allowance.known` false, which is every Codex
+   run, since the file belongs to Claude Code — say nothing about headroom rather
+   than announcing its absence.
+
+   The window is named by `allowance.tightest_window`, which is `five_hour` or
+   `seven_day` and nothing else. Say "the weekly limit" only for `seven_day`; a
+   five-hour window that resets this afternoon is a different fact and the user
+   plans around it differently.
+
+   Never put the token estimate and the allowance in one comparison. The host
+   reports a percentage used and no denominator, so there is no arithmetic that
+   turns 12.8M tokens into a share of the week, and "12.8M tokens against an
+   allowance 1% used" invites the user to do a sum that cannot be done. They are
+   two facts on two lines. Money is the part that is genuinely
+   unknown, and one sentence covers it; a missing price, a missing percentage, a
+   missing reset time and a missing spend cap are one absence billed four times.
+   Say paid overage is off because it was read as off, and say it is on when it
+   is: an allowance that bills money once it runs out changes what a two-hour run
+   risks. Fix the autonomous policies now:
    - API billing: the user confirms a planned-spend ceiling. Before dispatching the
      next round of per-file agents, compare the conservative projected final cost
      against the ceiling; checkpoint instead of starting work that would exceed it.
@@ -229,7 +324,13 @@ runtime; naming both is confusing and wrong.
    If the preflight already predicts the period will not fit, let the user pick a
    smaller period now or accept that the run may checkpoint for later resumption.
 9. Consent moment 3 — preflight confirmation. Ask one separate, plain question to
-   confirm the preflight. This is the final question before processing.
+   confirm the preflight. Say it is the last question before processing: that
+   sentence earns its place, because it tells the user the run is about to go
+   quiet and they can walk away.
+
+   Don't: "After it, the next thing you decide is on the review page." A promise
+   about a screen they cannot reach yet is the forward-promise pattern this round
+   already deleted once.
 
    When they confirm, record it:
    `uv run python -m glite_english_audit.pipeline.record_consent
@@ -265,12 +366,12 @@ runtime; naming both is confusing and wrong.
    driver already had — but it is the smaller half.
 
    - Selection: `uv run python -m glite_english_audit.pipeline.start_run
-     --runtime <claude_code|codex> --period <preset> --profile <profile>
+     --runtime <claude_code|codex> --period <preset>
      --local-scan-consent --provider-transfer-consent`. It adopts the inventory
      discovery left pending, prints the `<run-id>`, and freezes the record cutoff.
      Pass the user's choice in the words they used, since instance keys are private
      and you never see them: `--exclude-source "Cursor"` drops a whole app,
-     `--include-source "Wispr Flow"` adds one that is off by default, and
+     `--include-source "Roo Code"` adds a beta one that is off by default, and
      `--exclude-label "Claude Code 4"` drops a single project by the label shown to
      the user. Each is repeatable, and the command resolves labels to real paths
      locally.
@@ -278,6 +379,13 @@ runtime; naming both is confusing and wrong.
      `--runtime` names the runtime you are actually running in; it defaults to
      `claude_code`, so a Codex run that omits it records the wrong runtime in the
      manifest.
+
+     It also records the model and effort this session is running, read from the
+     session rather than chosen — the steps below inherit whatever the session
+     is — and prints them back as `session_model` and `session_effort`. That
+     record is what makes a model change invalidate the semantic steps on
+     resume instead of passing unnoticed; where detection fails it records
+     `<unknown>`, which resumes as unknown and never matches a named model.
 
      The two consent flags are what write the timestamps into `ConsentState`. Pass
      each one only if that consent moment actually happened: `--local-scan-consent`
@@ -392,6 +500,33 @@ runtime; naming both is confusing and wrong.
     counts, collected totals, and remaining token and time ranges. If a provider call
     delayed an update, say the run was waiting for a provider response. No raw
     message content appears in progress updates.
+
+    The block already carries the step number, the step title and every count, so
+    a line typed around it is a second copy of something the user just read.
+    Between steps, write a line only when the run learned something they do not
+    already know:
+
+    - A selected source that came back with nothing gets its own sentence, first.
+      The user chose that app and the audit will not cover it — the one line in
+      the run that contradicts what they asked for, and the one they can act on
+      by picking a different period or checking the app.
+    - A count is said once, where it first exists, and again only where it changed
+      by enough to matter.
+    - A step that changed nothing says nothing. "No duplicates found" is the
+      absence of news.
+    - The machinery stays out: how many agents run per session, what runs in
+      parallel, which driver writes what. The user asked for an audit, not a work
+      schedule.
+
+    Do:
+    ```text
+    Cursor has nothing in the last 7 days, so this audit covers Codex only.
+    Collected 280 messages from 14 sessions.
+    ```
+    Don't: 280 messages in three consecutive lines; a step announcing that it
+    found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
+    names step 1; "Dispatching one agent per session"; and the Cursor sentence —
+    the only line the user can act on — parenthesized in the middle of another.
 12. Checkpoints. The session file is the smallest checkpoint unit, because it is the
     unit of work. Write a checkpoint only after files and manifests are durable. Rerun
     any session interrupted before promotion — `--prepare` marks a session
@@ -504,23 +639,23 @@ Intermediate decisions: discovery returns two instances, "Claude Code 1" (stable
 selected by default. The user keeps both, sees the period table:
 
 ```text
-Period          Words  Time        Expected use
-Last 7 days     4,333  16–65 min   6.8M–14.7M tokens, low confidence
-Last 30 days   18,571  1.1–4.7 h   28.5M–61.9M tokens, low confidence
-Last 3 months  51,268  3.2–12.8 h  78.5M–170.6M tokens, low confidence
-Last year      81,800  5–20.5 h    125M–271.8M tokens, low confidence
-Everything     81,800  5–20.5 h    125M–271.8M tokens, low confidence
-Custom dates                       Calculated after dates are entered
+Period          Words  Time
+Last 7 days     4,333  16–65 min
+Last 30 days   18,571  1.1–4.7 h
+Last 3 months  51,268  3.2–12.8 h
+Everything     81,800  5–20.5 h
 ```
 
-The notes under it are repeated in the conversation: the counts are interpolated
-from each source's date range, two model steps have fewer than ten measured
-samples, and quota and price are unavailable, so no percentage of a subscription
-limit is shown.
+Last year is not a row: this history does not reach back a year, so that preset
+and Everything are the same run. The three notes under the table are repeated in the
+conversation — the numbers are estimates worked out from each app's date range,
+the run can exceed them, and no price is available. Token totals stay in the
+command's JSON for the preflight.
 
-The user picks Last 30 days and the Recommended profile, confirms provider transfer
-("Send the selected text to your current AI provider through Claude Code?"), and
-confirms the preflight. Processing runs without further questions.
+The user picks Last 30 days, confirms provider transfer ("Send the selected text to
+your current AI provider through Claude Code?"), and confirms the preflight, which
+named the model this session is running and said the estimates were measured on a
+different one. Processing runs without further questions.
 
 Exact output (one progress update during step d), as `render_progress` emits it:
 

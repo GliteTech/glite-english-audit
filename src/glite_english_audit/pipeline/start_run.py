@@ -6,6 +6,11 @@ Reads the step-0 private inventory, resolves which instances the user chose,
 freezes the record-level source cutoff, and writes the run manifest. The
 cutoff makes later resumption deterministic: records created after it belong
 to the next audit (specification, 13.5).
+
+The manifest also freezes what model and effort this session is running, from
+:func:`glite_english_audit.runtime_session.observed_model_ids` — an
+observation, because the steps that read the learner's writing inherit the
+session's model and nothing here selects one.
 """
 
 import argparse
@@ -39,17 +44,20 @@ from glite_english_audit.discovery.pending_expiry import (
     PENDING_INVENTORY_MAX_AGE_DAYS,
     is_stale,
 )
-from glite_english_audit.estimation.profile import load_token_usage_profile, resolve_models
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION
 from glite_english_audit.paths import inventory_path, pending_inventory_dir, repo_root, run_dir
 from glite_english_audit.pipeline.save_choice import load_choice
+from glite_english_audit.runtime_session import (
+    SESSION_EFFORT_KEY,
+    SESSION_MODEL_KEY,
+    observed_model_ids,
+)
 from glite_english_audit.verification.skills import skill_versions
 
 INVENTORY_NAME = "source-inventory.json"
 MANIFEST_NAME = "run-manifest.json"
 
 DEFAULT_PERIOD = "last-30-days"
-DEFAULT_PROFILE = "recommended"
 
 PERIOD_PRESETS: dict[str, int | None] = {
     "last-7-days": 7,
@@ -144,7 +152,6 @@ def start_run(
     os_environment_value: str,
     preset: str | None,
     instance_keys: list[str] | None,
-    processing_profile: str | None,
     runs_root: Path | None,
     inventory_dir: Path,
     include_sources: list[str] | None = None,
@@ -184,8 +191,6 @@ def start_run(
     if remembered is not None:
         if preset is None:
             preset = remembered.period_preset
-        if processing_profile is None:
-            processing_profile = remembered.processing_profile
         if include_sources is None:
             include_sources = remembered.include_sources
         if exclude_sources is None:
@@ -194,8 +199,6 @@ def start_run(
             exclude_labels = remembered.exclude_labels
     if preset is None:
         preset = DEFAULT_PERIOD
-    if processing_profile is None:
-        processing_profile = DEFAULT_PROFILE
     selected = (
         instance_keys
         if instance_keys
@@ -237,7 +240,6 @@ def start_run(
             selected_instance_keys=sorted(selected),
             excluded_instance_keys=sorted(known - set(selected)),
             period=resolve_period(preset, moment),
-            processing_profile=processing_profile,
             record_cutoff_at=moment,
         ),
         steps=empty_step_map(),
@@ -246,8 +248,7 @@ def start_run(
             artifact_schema_version=MANIFEST_SCHEMA_VERSION,
             tokenizer_version=TOKENIZER_VERSION,
             # The skills that will run this audit, by declared version. This was
-            # an empty dict, with the same consequence the model_ids comment
-            # below describes: resume compares this field to decide whether a
+            # an empty dict: resume compares this field to decide whether a
             # changed skill invalidates the semantic steps, and an empty dict is
             # equal to an empty dict forever, so that check could never fire.
             skill_versions=skill_versions(repo_root()),
@@ -256,16 +257,16 @@ def start_run(
             # second dict tracking the same thing would drift from it and give
             # resume two answers to one question.
             prompt_versions={},
-            # The models this profile resolves to, per specification 10.8. They
-            # were empty, which cost two things: the manifest did not record
-            # what ran, and resume compares this field to decide whether a
-            # model change invalidates the semantic steps — an empty dict is
-            # equal to an empty dict forever, so that check could never fire.
-            model_ids=resolve_models(
-                load_token_usage_profile(),
-                runtime=runtime.value.replace("_", "-"),
-                processing_profile=processing_profile,
-            ),
+            # What this session is running, read from the session itself. It
+            # held the models a calibration profile resolved to, which is the
+            # profile's assumption and not this run: a manifest said
+            # claude-fable-5 for runs every step of which was done by
+            # claude-opus-5, because steps c, d and e inherit the session's
+            # model and nothing pins one. Detection that finds nothing records
+            # <unknown> rather than a substitute — resume compares this map and
+            # invalidates from the first semantic step, so a guess here reuses
+            # another model's judgments in silence.
+            model_ids=observed_model_ids(),
             consent_policy_version=CONSENT_POLICY_VERSION,
         ),
     )
@@ -297,11 +298,6 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         choices=sorted(PERIOD_PRESETS),
         help="defaults to the remembered choice, then to " + DEFAULT_PERIOD,
-    )
-    parser.add_argument(
-        "--profile",
-        default=None,
-        help="defaults to the remembered choice, then to " + DEFAULT_PROFILE,
     )
     parser.add_argument(
         "--instance-key",
@@ -355,7 +351,6 @@ def main(argv: list[str] | None = None) -> int:
         exclude_labels=arguments.exclude_label,
         local_scan_consent=arguments.local_scan_consent,
         provider_transfer_consent=arguments.provider_transfer_consent,
-        processing_profile=arguments.profile,
         runs_root=arguments.runs_root,
         inventory_dir=(
             arguments.inventory_dir
@@ -375,7 +370,12 @@ def main(argv: list[str] | None = None) -> int:
                 "period": selection.period.preset,
                 "period_start": selection.period.start.isoformat(),
                 "period_end": selection.period.end.isoformat(),
-                "processing_profile": selection.processing_profile,
+                # The observation frozen into the fingerprint, printed so a
+                # maintainer can see what the run recorded without opening the
+                # manifest. Never a promise about what will run: it is read
+                # from the session, and "<unknown>" means it could not be.
+                "session_model": manifest.fingerprint.model_ids[SESSION_MODEL_KEY],
+                "session_effort": manifest.fingerprint.model_ids[SESSION_EFFORT_KEY],
                 "local_scan_consent": manifest.consent.local_scan_confirmed_at is not None,
                 "provider_transfer_consent": (
                     manifest.consent.provider_transfer_confirmed_at is not None

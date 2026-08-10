@@ -10,6 +10,7 @@ uncalibrated cell as measured, and output that carries no label or path.
 """
 
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -28,10 +29,13 @@ from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimate import (
-    CUSTOM_ROW_LABEL,
     EstimateReport,
+    RuntimeSteps,
+    SessionModel,
     build_notes,
     build_report,
+    describe_session,
+    distinct_rows,
     select_runtime_steps,
     step_units,
     window_counts,
@@ -139,15 +143,21 @@ def test_an_undated_instance_is_counted_in_full_and_reported() -> None:
     assert counts.undated_instances == 1
 
 
-def test_step_units_shrink_downstream() -> None:
-    # Authorship judgment reads every candidate; the later steps read only
-    # what it kept, which is why the units fall away down the pipeline.
+def test_step_units_cover_the_three_steps_that_exist() -> None:
+    """The estimate priced two steps the pipeline does not run.
+
+    verify-findings was deleted and create-safe-records was merged into
+    find-mistakes, but the estimator still charged 388 and 175 units per 1,000
+    messages for them — 563 of 2,533 units, 22% of a number the user consents
+    to at the preflight, spent on work nobody does. The confidentiality check,
+    which does run, was priced at nothing.
+    """
     units = step_units(1000)
     assert units.judge_authorship == 1000
     assert units.find_mistakes == 970
-    assert units.verify_findings == 388
-    assert units.create_safe_records == 175
-    assert units.total == 2533
+    # One agent per session file, so the unit here is a session, not a record.
+    assert units.confirm_confidentiality == 143
+    assert units.total == 2113
 
 
 def test_every_preset_gets_a_row_in_preset_order(tmp_path: Path) -> None:
@@ -211,29 +221,77 @@ def test_an_empty_selection_is_an_error_not_a_table_of_zeros(tmp_path: Path) -> 
         _report(tmp_path, [_record("claude_code", "Claude Code 1", messages=0)])
 
 
-def test_a_partly_calibrated_runtime_is_low_confidence(tmp_path: Path) -> None:
-    # claude-code has 10 measured find-mistakes samples but only 4 verify and 1
-    # safe-record samples, which is under the 10-sample minimum of 13.7.
+def test_a_partly_calibrated_runtime_says_the_run_can_exceed_the_range(tmp_path: Path) -> None:
+    # claude-code has 10 measured find-mistakes samples but only 7 authorship
+    # and 1 confidentiality sample, under the 10-sample minimum of 13.7. How
+    # many samples back which cell is the maintainer's business; what the user
+    # gets from it is that the ranges can be exceeded.
     report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
     assert all(row.confidence is EstimateConfidence.LOW for row in report.presets)
-    assert any("samples have been measured" in note for note in report.notes)
+    assert any("can take longer and use more" in note for note in report.notes)
 
 
 def test_an_uncalibrated_runtime_says_so_instead_of_showing_a_bare_number(
     tmp_path: Path,
 ) -> None:
+    # codex has no measurement at all. The table must not present its numbers
+    # as if someone had timed them.
     directory = _write_inventory(tmp_path / "inventory", [_record("codex", "Codex 1")])
     report = build_report(inventory_dir=directory, runtime=AgentRuntime.CODEX, now=_NOW)
     assert all(row.confidence is EstimateConfidence.LOW for row in report.presets)
-    assert any("Never measured" in note for note in report.notes)
-    assert "low confidence" in report.table
+    assert "Estimates, not measurements" in report.table
+    assert "can take longer and use more" in report.table
 
 
-def test_the_table_states_that_quota_and_price_are_unavailable(tmp_path: Path) -> None:
+def test_the_table_says_money_is_the_part_it_cannot_tell_you(tmp_path: Path) -> None:
+    """Price is unreadable; the subscription allowance is not.
+
+    The note used to say "quota and price are unavailable", and the quota half
+    was false: ``glite_english_audit.subscription`` reads the host's cached
+    utilization and reset time, and the run skill shows them at the preflight.
+    Announcing a missing percentage here would also contradict that skill,
+    which rules the absence of headroom not worth a sentence.
+    """
     report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
-    assert "Quota and price are unavailable" in report.table
-    assert CUSTOM_ROW_LABEL in report.table
-    assert "Calculated after dates are entered" in report.table
+    assert "No price is available" in report.table
+    assert "quota" not in report.table.lower()
+    assert "subscription" not in report.table.lower()
+
+
+def test_the_notes_stay_few_enough_to_be_read(tmp_path: Path) -> None:
+    """Nine caveats under a table are a wall, and a wall is skimmed.
+
+    Callers are told to relay every note, so each one added spends the
+    attention of the rest. Three survive here, four when a source cannot be
+    placed in time.
+    """
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+    assert len(report.notes) == 3
+
+
+def test_no_note_says_a_word_only_this_repository_uses(tmp_path: Path) -> None:
+    """The notes reach a learner, not a maintainer.
+
+    Step identifiers, model IDs, an effort level, cached input, and batches are
+    this project's vocabulary. Each was in a note, and none of them told the
+    reader anything they could act on.
+    """
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+    internal = (
+        "judge-authorship",
+        "find-mistakes",
+        "confirm-confidentiality",
+        "claude-fable-5",
+        "claude-opus-5",
+        "effort",
+        "cached input",
+        "batch",
+        "p90",
+        "confidence",
+    )
+    for note in report.notes:
+        for word in internal:
+            assert word not in note.lower(), f"{word!r} in {note!r}"
 
 
 def test_duration_tracks_units_not_token_volume(tmp_path: Path) -> None:
@@ -303,44 +361,31 @@ def test_the_command_explains_a_missing_inventory_instead_of_a_traceback(tmp_pat
     assert "discovery.inventory" in result.stderr
 
 
-def test_the_saturation_note_agrees_in_number() -> None:
-    """An English-teaching tool must not misagree in its own interface.
+def test_a_window_that_matches_everything_is_printed_once(tmp_path: Path) -> None:
+    """The duplicate row is dropped rather than explained.
 
-    The note names however many preset rows match Everything. With one row that
-    is "Last year matches Everything ... The row is identical"; with two it is
-    "match" and "rows are". A learner should not find a subject-verb error in
-    the software correcting theirs.
+    A history 100 days long makes Last year and Everything the same run, and
+    the table used to print both and add a caveat saying they were identical on
+    purpose — a note whose only job was to defend the row above it. Everything
+    is the row kept: it is the only one counted rather than interpolated, and
+    the narrower label promises a limit that does not happen.
     """
-    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    one = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=0,
-        concurrent_batches=1,
-        saturated=["Last year"],
-    )
-    assert any("Last year matches Everything" in note and "The row is" in note for note in one)
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+    assert "Last year" not in report.table
+    assert "Everything" in report.table
+    assert "identical on purpose" not in report.table
+    # Every preset still carries its numbers for a caller that was handed one.
+    assert [row.preset for row in report.presets] == list(PERIOD_PRESETS)
 
-    two = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=0,
-        concurrent_batches=1,
-        saturated=["Last 3 months", "Last year"],
-    )
-    assert any("Last year match Everything" in note and "The rows are" in note for note in two)
-    assert any("Last 3 months and Last year match Everything" in note for note in two)
 
-    three = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=0,
-        concurrent_batches=1,
-        saturated=["Last 30 days", "Last 3 months", "Last year"],
-    )
-    assert any(
-        "Last 30 days, Last 3 months, and Last year match Everything" in note for note in three
-    )
+def test_only_windows_that_differ_survive_the_collapse(tmp_path: Path) -> None:
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+    kept = [row.preset for row in distinct_rows(report.presets)]
+    everything = next(row for row in report.presets if row.preset == "everything")
+    assert "everything" in kept
+    for row in report.presets:
+        same = row.words == everything.words and row.utterances == everything.utterances
+        assert (row.preset in kept) is (row.preset == "everything" or not same)
 
 
 def test_lists_inside_a_note_are_joined_as_english_not_as_a_column() -> None:
@@ -351,82 +396,142 @@ def test_lists_inside_a_note_are_joined_as_english_not_as_a_column() -> None:
     assert and_list(["A", "B", "C"]) == "A, B, and C"
 
 
-def test_the_low_confidence_note_is_a_sentence_with_a_verb() -> None:
-    """It read "Fewer than 10 measured batches for X, so ..." — a fragment."""
-    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    notes = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=0,
-        concurrent_batches=1,
-    )
-    low = [note for note in notes if note.startswith("Fewer than")]
-    assert low, f"no low-confidence note among {notes}"
-    assert "samples have been measured for" in low[0]
-    assert ", and " in low[0]
-
-
 def test_the_undated_source_note_agrees_in_number() -> None:
-    """The same trap one line down: the count decides noun, verb, and pronoun."""
+    """The count decides the noun, the verb, and the pronoun after it."""
     steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    one = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=1,
-        concurrent_batches=1,
-    )
+    session = describe_session(steps)
+    one = build_notes(steps=steps, session=session, undated_instances=1)
     assert any("1 source reports no dates" in note and "it counts in full" in note for note in one)
     assert not any("1 sources" in note for note in one)
 
-    several = build_notes(
-        steps=steps,
-        runtime="claude-code",
-        undated_instances=3,
-        concurrent_batches=1,
-    )
+    several = build_notes(steps=steps, session=session, undated_instances=3)
     assert any(
         "3 sources report no dates" in note and "they count in full" in note for note in several
     )
 
 
-def test_the_note_is_silent_when_the_session_matches_what_was_measured(
+def _steps_measured_on(model: str, effort: str) -> RuntimeSteps:
+    """A three-cell selection whose every cell was measured on one model.
+
+    The committed profile no longer has that property — the confidentiality
+    cell was measured on a different model from the other two — so a test about
+    a session that matches everything has to build the case it is about.
+    """
+    measured = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    cell = measured.find_mistakes.model_copy(update={"model": model, "effort": effort})
+    return RuntimeSteps(judge_authorship=cell, find_mistakes=cell, confirm_confidentiality=cell)
+
+
+def test_a_session_that_matches_what_was_measured_is_not_a_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An unknown or matching session is not evidence of a mismatch.
 
-    Warning unconditionally would make the caveat noise, and a caveat that is
-    always there stops being read.
+    The mismatch is one of the two reasons the "can run higher" note prints, so
+    treating every session as mismatched would pin that note on permanently,
+    and a caveat that is always there stops being read.
     """
     from glite_english_audit.estimation import estimate as module
 
     monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "medium")
-    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    assert module._measured_elsewhere_note(steps) is None
+    matching = describe_session(_steps_measured_on("claude-fable-5", "medium"))
+    assert matching.measured_elsewhere is False
+    assert matching.model == "claude-fable-5"
 
     monkeypatch.setattr(module, "detect_model", lambda: None)
     monkeypatch.setattr(module, "detect_effort", lambda: None)
-    assert module._measured_elsewhere_note(steps) is None
+    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
+    unknown = describe_session(steps)
+    assert unknown.measured_elsewhere is False
+    # Unknown is reported as unknown. Filling it in from the cells it is being
+    # compared against is the substitution this whole change removes.
+    assert unknown.model is None
+    assert unknown.effort is None
+    assert unknown.measured_models == ("claude-fable-5", "claude-opus-5")
 
 
-def test_the_note_names_both_what_ran_and_what_was_measured(
+def test_matching_one_cell_out_of_three_is_not_calibration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The confidentiality cell was measured on a different model from the rest.
+
+    A membership test — is the running model anywhere in the profile? — would
+    call an opus session calibrated while two of its three steps were still
+    described by measurements of another model.
+
+    What the user is told is that the numbers can run high, not which model
+    measured which step: they cannot choose a model at the period question, and
+    a model ID is this repository's vocabulary rather than theirs.
+    """
     from glite_english_audit.estimation import estimate as module
 
     monkeypatch.setattr(module, "detect_model", lambda: "claude-opus-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
     steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    note = module._measured_elsewhere_note(steps)
-    assert note is not None
-    # A reader has to be able to tell which is which, so both appear.
-    assert "claude-opus-5" in note and "claude-fable-5" in note
-    assert "xhigh" in note
-    # The numbers still stand; only their standing changes.
-    assert "best available" in note
+    assert "claude-opus-5" in {entry.model for entry in steps.entries()}
+    session = describe_session(steps)
+    assert session.measured_elsewhere is True
+    notes = build_notes(steps=steps, session=session, undated_instances=0)
+    assert any("can take longer and use more" in note for note in notes)
+    assert not any("claude-opus-5" in note for note in notes)
 
 
-def test_a_matching_model_with_a_wrong_effort_still_warns(
+def test_the_report_hands_the_preflight_the_running_model_and_the_measured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The preflight has to state one and disclaim the other, so it gets both.
+
+    It used to be handed neither, and said the calibration profile's model —
+    one screen before the user agreed to let a model read everything they had
+    written, and with nothing in the product able to make it true.
+    """
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: "claude-opus-5")
+    monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+
+    assert report.session.model == "claude-opus-5"
+    assert report.session.effort == "xhigh"
+    assert "claude-fable-5" in report.session.measured_models
+    assert report.session.measured_elsewhere is True
+
+
+def test_a_model_that_cannot_be_read_is_null_rather_than_the_measured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Null is what the preflight turns into "I cannot tell you which model".
+    # Any substitute here becomes a sentence the product cannot keep.
+    from glite_english_audit.estimation import estimate as module
+
+    monkeypatch.setattr(module, "detect_model", lambda: None)
+    monkeypatch.setattr(module, "detect_effort", lambda: None)
+    report = _report(tmp_path, [_record("claude_code", "Claude Code 1")])
+
+    assert report.session.model is None
+    assert report.session.effort is None
+    assert report.session.measured_models
+    payload = json.loads(report.model_dump_json())
+    assert payload["session"]["model"] is None
+
+
+def test_every_session_field_the_preflight_quotes_exists() -> None:
+    """The preflight tells an agent to read `session.model` and its neighbours.
+
+    Prose drifts from code silently, and this project has shipped that defect
+    three times. The model line is the one sentence in a run that may not be
+    improvised, so every name it quotes is checked against the model that
+    produces it — a stale name there sends an agent back to inventing one.
+    """
+    skill = (_REPO / "skills/run-english-audit/SKILL.md").read_text(encoding="utf-8")
+    quoted = set(re.findall(r"`session\.([a-z_]+)`", skill))
+    assert quoted, "the preflight must say where the model it states comes from"
+    assert quoted <= set(SessionModel.model_fields)
+    assert "session" in EstimateReport.model_fields
+
+
+def test_a_matching_model_with_a_wrong_effort_still_counts_as_measured_elsewhere(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Effort is a profile key too, so the right model at an unmeasured effort
@@ -435,8 +540,4 @@ def test_a_matching_model_with_a_wrong_effort_still_warns(
 
     monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
-    steps = select_runtime_steps(load_token_usage_profile(), runtime="claude-code")
-    note = module._measured_elsewhere_note(steps)
-    assert note is not None
-    assert "effort" in note
-    assert "different model" not in note
+    assert describe_session(_steps_measured_on("claude-fable-5", "medium")).measured_elsewhere

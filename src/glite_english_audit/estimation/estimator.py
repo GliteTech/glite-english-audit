@@ -64,31 +64,44 @@ THROUGHPUT_TOKENS_PER_MINUTE_HIGH: int = 9000
 SECONDS_PER_UNIT_LOW: float = 4.2
 SECONDS_PER_UNIT_HIGH: float = 11.4
 
-# Downstream volume per candidate message, from the same calibration run: 250
-# find-mistakes units produced the findings that 100 verify-findings units
-# re-checked, and 45 of those findings reached create-safe-records. Both ratios
-# move with the corpus and with the strict threshold, so they are estimates,
-# not constants of the product.
-VERIFY_UNITS_PER_MESSAGE: float = 0.40
-SAFE_RECORD_UNITS_PER_MESSAGE: float = 0.18
-
-# What survives the step-3 authorship judgment, measured on the 2026-08-09
+# What survives the step-c authorship judgment, measured on the 2026-08-09
 # real-data run: of 198 candidate utterances holding 8,956 words, 192
 # utterances and 4,265 words were judged the learner's own. Nearly every
 # utterance keeps something, but under half its words do, because the bulk of
 # what a learner pastes into a coding agent was written by someone else.
 #
-# Every step after step 3 reads the retained text, so estimating them from the
-# candidate word count overstates them by roughly a factor of two. Both ratios
-# move with the corpus — a learner who pastes less keeps more.
+# Step d reads the text step c retained, so estimating it from the candidate
+# word count overstates it by roughly a factor of two. Both ratios move with the
+# corpus — a learner who pastes less keeps more.
 AUTHORED_WORD_RETENTION: float = 0.48
 AUTHORED_UTTERANCE_RETENTION: float = 0.97
 
-# Profile step identifiers for the four calibrated semantic steps.
+# Step e reads mistake records rather than words, and runs one agent per session
+# file whether or not that file holds a record. Measured on the 2026-08-09
+# real-data run (31 sessions, 191 messages, 84 records): the 15 sessions holding
+# no record cost a mean 106,982 tokens, the 13 holding one or more cost a mean
+# 105,887, and the session holding 25 records cost less than the median empty
+# one. At this volume the record count predicts nothing and the session file
+# predicts everything, so step e is priced per session and needs no record
+# ratio: the 2.7 records a session held on average sit inside the measured
+# per-session number instead of multiplying it.
+#
+# The limit of that: a corpus whose sessions hold far more than 2.7 records will
+# cost more than this cell predicts. Nothing in the sample says where the record
+# count starts to matter, so re-measure before trusting it on a denser corpus.
+#
+# One agent per session file, and the unit is the session file, so one call
+# covers exactly one unit — unlike the other two steps, where a call covers a
+# whole session's worth of them.
+CONFIDENTIALITY_UNITS_PER_CALL: int = 1
+
+# Profile step identifiers for the three calibrated semantic steps. The pipeline
+# has no other model steps: verify-findings was deleted and create-safe-records
+# was merged into find-mistakes, so neither may be priced. Their measurements
+# stay in the profile under ``retired_entries``.
 STEP_JUDGE_AUTHORSHIP: str = "judge-authorship"
 STEP_FIND_MISTAKES: str = "find-mistakes"
-STEP_VERIFY_FINDINGS: str = "verify-findings"
-STEP_CREATE_SAFE_RECORDS: str = "create-safe-records"
+STEP_CONFIRM_CONFIDENTIALITY: str = "confirm-confidentiality"
 
 # A calibration cell is high-confidence only after at least this many
 # compatible completed batches (specification, 13.7).
@@ -156,10 +169,19 @@ class LiveEstimate(BaseModel):
 class PresetEstimate(BaseModel):
     """One row of the period-preset comparison table (specification, 2.4).
 
-    ``words`` and ``time`` are ``None`` for rows that cannot be computed yet,
-    such as custom dates before the user enters them. ``expected_use`` carries
-    the last column verbatim: subscription percentage, price range, or a plain
-    statement that quota or price is unavailable.
+    Two numbers, because two numbers are what the reader decides on: how much
+    of their writing a period covers, and how long the run takes. ``words`` and
+    ``time`` are ``None`` for a row whose numbers cannot be computed.
+
+    There was a fourth column, "Expected use", specified to hold a subscription
+    percentage or a price range. Neither can be computed — the host reports
+    utilization as a bare percentage with no token limit behind it, and no
+    provider price is readable at all — so the column had been filled with a
+    token total instead, and two of the table's caveats existed to explain why
+    that total looked enormous and what it did not mean. The tokens are still
+    in this command's JSON, where the preflight quotes them next to the
+    allowance figure that gives them a denominator. They are not in the table
+    the user skims to pick a period.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -167,7 +189,6 @@ class PresetEstimate(BaseModel):
     period: str
     words: int | None = Field(default=None, ge=0)
     time: TimeRange | None = None
-    expected_use: str
 
 
 def estimate_step(
@@ -179,11 +200,11 @@ def estimate_step(
 ) -> TokenEstimate:
     """Estimate total tokens for one step from per-message coefficients.
 
-    Per-message p50/p90 covers input, cached input, and output at the
-    calibrated average message length; the fixed prompt overhead is added once
-    per model call, and a call now processes one session file of roughly
-    ``messages_per_call`` messages. When the selected text is denser or sparser
-    than the calibrated average, the input side is adjusted by
+    Per-unit p50/p90 covers input, cached input, and output at the calibrated
+    average message length; the fixed prompt overhead is added once per model
+    call, and a call now processes one session file, which is
+    ``messages_per_call`` of this cell's units. When the selected text is denser
+    or sparser than the calibrated average, the input side is adjusted by
     ``input_tokens_per_word`` times the word delta.
     """
     if words < 0 or utterances < 0:
@@ -399,16 +420,14 @@ def format_token_range(estimate: TokenEstimate | None) -> str:
 def render_preset_table(rows: Sequence[PresetEstimate]) -> str:
     """Render the period-preset comparison as aligned plain text.
 
-    Columns: Period (left), Words (right), Time (left), Expected use (left).
-    The layout mirrors the specification 2.4 example table.
+    Columns: Period (left), Words (right), Time (left).
     """
-    header = ("Period", "Words", "Time", "Expected use")
+    header = ("Period", "Words", "Time")
     body = [
         (
             row.period,
             format_word_count(row.words),
             format_time_range(row.time),
-            row.expected_use,
         )
         for row in rows
     ]
@@ -416,18 +435,11 @@ def render_preset_table(rows: Sequence[PresetEstimate]) -> str:
         max(len(header[column]), *(len(line[column]) for line in body), 0)
         if body
         else len(header[column])
-        for column in range(4)
+        for column in range(3)
     ]
     lines: list[str] = []
     for cells in [header, *body]:
-        rendered = "  ".join(
-            (
-                cells[0].ljust(widths[0]),
-                cells[1].rjust(widths[1]),
-                cells[2].ljust(widths[2]),
-                cells[3],
-            )
-        )
+        rendered = "  ".join((cells[0].ljust(widths[0]), cells[1].rjust(widths[1]), cells[2]))
         lines.append(rendered.rstrip())
     return "\n".join(lines)
 
@@ -437,11 +449,15 @@ def render_estimate_report(
 ) -> str:
     """The preset table plus the caveats that must travel with its numbers.
 
-    The table alone reads as measurement. Interpolated word counts, an
-    uncalibrated cell, and an unavailable price all have to reach the user
-    with the numbers rather than in a separate paragraph a caller may drop, so
-    they are rendered into the same block. Notes wrap; the table never does,
-    because a wrapped column stops being a column.
+    The table alone reads as measurement. That the counts are interpolated,
+    that a run can exceed the range, and that no price is available all have to
+    reach the user with the numbers rather than in a separate paragraph a
+    caller may drop, so they are rendered into the same block. Notes wrap; the
+    table never does, because a wrapped column stops being a column.
+
+    Keep the list short. A caller is told to relay every note, and a reader
+    skims a long list rather than reading it, so a caveat added here costs the
+    attention of the ones already here.
     """
     table = render_preset_table(rows)
     if not notes:

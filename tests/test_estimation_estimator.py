@@ -202,53 +202,52 @@ def test_format_time_range_switches_units_at_ninety_minutes() -> None:
 
 
 def test_render_preset_table_snapshot() -> None:
+    """Two numbers per period, because two are what the reader decides on.
+
+    The fourth column was specified to hold a subscription percentage or a
+    price range. Neither is computable, so it held a token total instead — a
+    figure in the hundreds of millions that needed two of the table's caveats
+    to stop it reading as a bill. Words and time are what a person weighs when
+    choosing how much of their history to audit; the tokens stay in the JSON,
+    where the preflight quotes them beside the allowance figure.
+    """
     rows = [
         PresetEstimate(
             period="Last 7 days",
             words=18400,
             time=TimeRange(low_minutes=8, high_minutes=12),
-            expected_use="6–9% of your remaining 5-hour limit",
         ),
         PresetEstimate(
             period="Last 30 days",
             words=72100,
             time=TimeRange(low_minutes=29, high_minutes=41),
-            expected_use="24–34% of your remaining 5-hour limit",
         ),
         PresetEstimate(
             period="Last 3 months",
             words=218000,
             time=TimeRange(low_minutes=90, high_minutes=132),
-            expected_use="73–105% — may require a limit reset",
         ),
         PresetEstimate(
             period="Last year",
             words=714000,
             time=TimeRange(low_minutes=300, high_minutes=420),
-            expected_use="More than the currently available limit",
         ),
         PresetEstimate(
             period="Everything",
             words=981000,
             time=TimeRange(low_minutes=420, high_minutes=600),
-            expected_use="More than the currently available limit",
-        ),
-        PresetEstimate(
-            period="Custom dates",
-            expected_use="Calculated after dates are entered",
         ),
     ]
     expected = (
-        "Period           Words  Time       Expected use\n"
-        "Last 7 days     18,400  8–12 min   6–9% of your remaining 5-hour limit\n"
-        "Last 30 days    72,100  29–41 min  24–34% of your remaining 5-hour limit\n"
-        "Last 3 months  218,000  1.5–2.2 h  73–105% — may require a limit reset\n"
-        "Last year      714,000  5–7 h      More than the currently available limit\n"
-        "Everything     981,000  7–10 h     More than the currently available limit\n"
-        "Custom dates                       Calculated after dates are entered"
+        "Period           Words  Time\n"
+        "Last 7 days     18,400  8–12 min\n"
+        "Last 30 days    72,100  29–41 min\n"
+        "Last 3 months  218,000  1.5–2.2 h\n"
+        "Last year      714,000  5–7 h\n"
+        "Everything     981,000  7–10 h"
     )
     assert render_preset_table(rows) == expected
 
 
 def test_render_preset_table_empty_rows_is_header_only() -> None:
-    assert render_preset_table([]) == "Period  Words  Time  Expected use"
+    assert render_preset_table([]) == "Period  Words  Time"

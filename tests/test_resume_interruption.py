@@ -211,7 +211,6 @@ def _start(workspace: Workspace, *, now: datetime = _NOW) -> RunManifest:
         os_environment_value="macos",
         preset="everything",
         instance_keys=None,
-        processing_profile="recommended",
         runs_root=workspace.runs_root,
         inventory_dir=workspace.inventory_dir,
         local_scan_consent=True,

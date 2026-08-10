@@ -13,7 +13,7 @@ always kept.
 """
 
 import shutil
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
@@ -364,7 +364,10 @@ def describe_resume(
                 EARLIEST_SEMANTIC_STEP,
                 recorded.prompt_versions == current.prompt_versions,
             ),
-            ("model ids", EARLIEST_SEMANTIC_STEP, recorded.model_ids == current.model_ids),
+            # The model the session was observed running, not one anything
+            # chose: the semantic steps inherit it, so a different one now
+            # means the reusable work was judged by a different reader.
+            ("session model", EARLIEST_SEMANTIC_STEP, recorded.model_ids == current.model_ids),
             (
                 "client version",
                 EARLIEST_CLIENT_CODE_STEP,
@@ -520,6 +523,43 @@ def _expire_status(status: RunStatus) -> RunStatus | None:
     return None
 
 
+def _expire_unreadable(child: Path, moment: datetime) -> None:
+    """Sweep a run whose manifest this version cannot validate.
+
+    Retention is a promise about text on disk, so it cannot depend on the
+    manifest parsing. The last checkpoint is unreadable here, so the newest
+    private file stands in for it: whatever wrote last is the most recent this
+    run can have been touched. The manifest is left in place, as it is for every
+    other expiry, so a person can still identify the directory.
+    """
+    newest = 0.0
+    for name in _PRIVATE_SUBDIRS:
+        subtree = child / name
+        if not subtree.is_dir() or subtree.is_symlink():
+            continue
+        for path in subtree.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                newest = max(newest, path.stat().st_mtime)
+    # The root-level files are private too, and a run can hold them with every
+    # private subtree already gone. Dating the run from the subtrees alone made
+    # `newest` zero for exactly that run and returned before deleting anything,
+    # so `source-inventory.json` — path hashes and labels — outlived retention
+    # in the branch added to stop things outliving retention.
+    for name in _CLEANUP_ONLY_FILES:
+        candidate = child / name
+        if candidate.is_file() and not candidate.is_symlink():
+            newest = max(newest, candidate.stat().st_mtime)
+    if newest == 0.0:
+        return
+    if moment - datetime.fromtimestamp(newest, tz=UTC) <= timedelta(days=RETENTION_DAYS):
+        return
+    _refuse_symlinks(child, _PRIVATE_SUBDIRS)
+    for name in _PRIVATE_SUBDIRS:
+        _delete_subtree(child, name)
+    for name in _CLEANUP_ONLY_FILES:
+        (child / name).unlink(missing_ok=True)
+
+
 def expire_stale_runs(
     root: Path | None = None,
     *,
@@ -549,6 +589,13 @@ def expire_stale_runs(
         try:
             manifest = _load_manifest_in(child)
         except RunStoreError:
+            # A manifest this version cannot read still sits beside the text it
+            # describes. Skipping it was how a run written by an older schema
+            # outlived retention entirely: never offered for resume, because the
+            # launcher skips what it cannot parse, and never swept, because this
+            # loop did too — so its extracted sentences stayed on disk for good.
+            # Unreadable is a reason to sweep, not to spare.
+            _expire_unreadable(child, moment)
             continue
         if manifest.status in _FINISHED_STATUSES:
             continue

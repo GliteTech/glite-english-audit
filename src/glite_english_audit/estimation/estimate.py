@@ -8,6 +8,24 @@ a price and quota figure or a clear statement that neither is available.
 Without this command an agent can only say "many hours", which is the answer
 the requirement exists to prevent.
 
+All of it is in the JSON. The rendered table is narrower: the two numbers a
+person weighs when picking a period, words and time, plus the caveats. Tokens
+stay in the JSON for the preflight, which states them on their own line; the
+statement that no price is available is a note rather than a column repeated on
+every row.
+
+The subscription figure is not their denominator, and this file said for a
+while that it was. The host reports a percentage used and no budget, so nothing
+converts tokens into a share of the week. ``AllowanceReport`` carries no such
+field and the run skill is told to keep the two facts apart.
+
+The JSON also carries ``session``: which model and effort this session is
+running, and which the numbers were measured on. The preflight states the
+first, because the user is about to let a model read everything they wrote.
+It is an observation — the per-file agents inherit the session's model, and
+nothing in this product selects one — so it is ``null`` when it cannot be read
+rather than filled in from the calibration profile.
+
 This module reads the same pending inventory
 :mod:`glite_english_audit.pipeline.start_run` later adopts and applies that
 module's selection rules, so the estimate describes the run the user is about
@@ -45,18 +63,14 @@ from glite_english_audit.artifacts.envelope import as_utc, utc_now
 from glite_english_audit.artifacts.io import read_model
 from glite_english_audit.artifacts.models import SourceInstanceRecord
 from glite_english_audit.discovery.inventory import PrivateInventory
-from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimator import (
     ASSUMED_MESSAGES_PER_SESSION,
     AUTHORED_UTTERANCE_RETENTION,
     AUTHORED_WORD_RETENTION,
-    HIGH_CONFIDENCE_MIN_RECORDS,
-    SAFE_RECORD_UNITS_PER_MESSAGE,
-    STEP_CREATE_SAFE_RECORDS,
+    CONFIDENTIALITY_UNITS_PER_CALL,
+    STEP_CONFIRM_CONFIDENTIALITY,
     STEP_FIND_MISTAKES,
     STEP_JUDGE_AUTHORSHIP,
-    STEP_VERIFY_FINDINGS,
-    VERIFY_UNITS_PER_MESSAGE,
     EstimateConfidence,
     PresetEstimate,
     TimeRange,
@@ -67,7 +81,6 @@ from glite_english_audit.estimation.estimator import (
     estimate_run,
     estimate_step,
     estimate_unit_time,
-    format_token_range,
     profile_batches,
     render_estimate_report,
 )
@@ -84,6 +97,7 @@ from glite_english_audit.pipeline.start_run import (
     resolve_selection,
 )
 from glite_english_audit.runtime_session import detect_effort, detect_model
+from glite_english_audit.subscription import read_allowance
 
 PRODUCER_VERSION: str = "0.1.0"
 
@@ -97,27 +111,54 @@ PRESET_LABELS: dict[str, str] = {
     "everything": "Everything",
 }
 
-# Specification 2.4 lists custom dates as a sixth option whose numbers cannot
-# exist yet. It is a table row only: it is not a preset, so it carries no
-# estimate in the machine-readable output.
-CUSTOM_ROW_LABEL: str = "Custom dates"
-CUSTOM_ROW_TEXT: str = "Calculated after dates are entered"
+# Two tests decide whether a caveat belongs here. Would a different value change
+# what the user does next? Does it answer "could this hurt me?" A note that fails
+# both is the maintainer's audit trail printed at a person deciding whether to
+# spend an afternoon, and it costs the attention of the notes that pass.
+#
+# Nine notes failed that pass and left three. What went, and why: the model steps
+# the estimate covers and the share of words each reads (the user picks a period,
+# not a step); that most of the tokens are cached input (an apology for a number
+# no longer shown); how many samples back each calibration cell and which model
+# and effort measured them (step, model, and effort names are this repository's
+# vocabulary, and their whole user-facing meaning is "rough", which one note now
+# says); the assumed messages per session (the user cannot change their session
+# lengths, and its only consequence — the run may cost more — is that same note);
+# parallelism (the user does not choose it, and the run skill already forbids
+# repeating it); and the note explaining why two rows were identical, which went
+# with the duplicate row it apologized for.
 
-QUOTA_UNAVAILABLE_NOTE: str = (
-    "Quota and price are unavailable: this client does not read subscription limits or "
-    "provider prices, so no percentage or price range is shown."
+# Interpolation, and what the word count is a count of. Both change how a reader
+# reads the Words column, which is the column a period is chosen on.
+ESTIMATE_NOTE: str = (
+    "Estimates, not measurements: the shorter periods are worked out from each app's date "
+    "range, and only Everything is exact. The word counts include text you pasted, which the "
+    "audit reads but does not correct."
 )
 
-# The pipeline reads one session per model call and pays the skill prompt once
-# per call, so the session count drives a large part of the total. The source
-# inventory reports messages and words but not sessions, so this estimate
-# assumes an average session length and will be wrong for anyone whose sessions
-# are shorter — in the direction that understates cost. Said out loud, because a
-# number the user consents to should not hide the assumption it rests on.
-SESSION_SIZE_NOTE: str = (
-    f"Assumes about {ASSUMED_MESSAGES_PER_SESSION} messages per session. Your apps report "
-    "messages, not sessions, so a lot of short sessions will cost more than shown."
+# The direction the numbers are wrong in, which is the direction that costs the
+# user something. Calibration is thin, sessions are assumed to be average length
+# when short ones cost more, and a recent window interpolated from a long span is
+# more often understated than overstated. One sentence covers all three, because
+# what the reader does about them is the same: leave room.
+#
+# "Measured elsewhere" rather than "measured a few times": a runtime with no
+# measurement of its own borrows another's cells, and telling that user their
+# numbers rest on a few measured runs would claim a measurement nobody took.
+# Elsewhere is true of every case this note prints in — too few samples, a
+# different model, a different effort, or nothing measured at all.
+UNDERSTATED_NOTE: str = (
+    "The run can take longer and use more than the ranges show. They rest on a handful of "
+    "runs measured elsewhere, not on yours."
 )
+
+# Money, which is the "could this hurt me?" the numbers cannot answer. It does
+# not mention the subscription allowance: that is readable on some hosts
+# (:mod:`glite_english_audit.subscription`) and the run skill shows it at the
+# preflight, where announcing its absence is already ruled out as noise. Saying
+# "quota and price are unavailable" here claimed both were unreadable, and the
+# more useful half of that was false.
+NO_PRICE_NOTE: str = "No price is available, so the cost of this run in money is unknown."
 
 
 class WindowCounts(BaseModel):
@@ -131,44 +172,97 @@ class WindowCounts(BaseModel):
 
 
 class StepUnits(BaseModel):
-    """Units each semantic step processes for one window."""
+    """Units each semantic step processes for one window.
+
+    Steps c and d count utterances; step e counts session files, because that
+    is what one of its agents opens and what the measurement priced.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     judge_authorship: int = Field(ge=0)
     find_mistakes: int = Field(ge=0)
-    verify_findings: int = Field(ge=0)
-    create_safe_records: int = Field(ge=0)
+    confirm_confidentiality: int = Field(ge=0)
 
     @property
     def total(self) -> int:
-        """Units across all four steps."""
-        return (
-            self.judge_authorship
-            + self.find_mistakes
-            + self.verify_findings
-            + self.create_safe_records
-        )
+        """Units across all three model steps."""
+        return self.judge_authorship + self.find_mistakes + self.confirm_confidentiality
 
 
 class RuntimeSteps(BaseModel):
-    """The four calibrated semantic cells used for one runtime."""
+    """The three calibrated semantic cells used for one runtime."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     judge_authorship: TokenUsageProfileEntry
     find_mistakes: TokenUsageProfileEntry
-    verify_findings: TokenUsageProfileEntry
-    create_safe_records: TokenUsageProfileEntry
+    confirm_confidentiality: TokenUsageProfileEntry
 
     def entries(self) -> tuple[TokenUsageProfileEntry, ...]:
-        """The four entries in pipeline order."""
+        """The three entries in pipeline order."""
         return (
             self.judge_authorship,
             self.find_mistakes,
-            self.verify_findings,
-            self.create_safe_records,
+            self.confirm_confidentiality,
         )
+
+
+class SessionModel(BaseModel):
+    """The model this session is running, beside the ones that were measured.
+
+    Two different facts, and the preflight has to state both. ``model`` and
+    ``effort`` are observations of the session that will do the work — the
+    per-file agents inherit it, and nothing in this product selects one.
+    ``measured_models`` and ``measured_efforts`` describe where the numbers in
+    this report come from. ``measured_elsewhere`` is true when they are not the
+    same, which is the case the user has to be told about in plain words.
+
+    ``model`` is ``None`` when detection found nothing. That is reported as not
+    known, never filled in with the profile's model: naming a model the run
+    does not choose is the defect this field exists to end.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model: str | None
+    effort: str | None
+    measured_models: tuple[str, ...]
+    measured_efforts: tuple[str, ...]
+    measured_elsewhere: bool
+
+
+class AllowanceReport(BaseModel):
+    """The host's cached subscription headroom, ready to be said out loud.
+
+    :mod:`glite_english_audit.subscription` could read this from the first day
+    it existed and nothing called it, so the preflight either said nothing or
+    the agent improvised a one-liner and reported the percentage without its
+    age -- the single thing that module's docstring forbids. It travels with
+    the estimate now because the preflight already runs that command, and a
+    fact the agent has to fetch separately is a fact it will fetch differently
+    each time.
+
+    ``age_phrase`` is rendered here rather than left as seconds for the same
+    reason: an agent handed ``21960.08`` will either round it well or not
+    mention it.
+
+    There is deliberately no "share of your allowance" field. The host reports
+    a percentage used and no denominator, so tokens cannot be converted into
+    it. Putting the two numbers side by side implies an arithmetic nobody can
+    do; :func:`build_notes` says so in words instead.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    known: bool
+    tightest_window: str | None
+    utilization: int | None
+    resets_at: str | None
+    age_seconds: float | None
+    age_phrase: str | None
+    stale: bool
+    overage_enabled: bool | None
 
 
 class PresetRow(BaseModel):
@@ -183,6 +277,15 @@ class PresetRow(BaseModel):
     tokens: TokenEstimate
     minutes: TimeRange
     confidence: EstimateConfidence
+    idle_sources: tuple[str, ...] = ()
+    """Selected apps contributing nothing to this window.
+
+    Sources are chosen before the period, so a period can silently empty one:
+    picking an app whose history ended months ago and then a seven-day window
+    selects something that contributes nothing. Reading the selection back as
+    both apps is then untrue in the only sense the user cares about, and this
+    field is what lets the preflight say which of their choices does nothing.
+    """
 
 
 class EstimateReport(BaseModel):
@@ -197,6 +300,8 @@ class EstimateReport(BaseModel):
     selected_instances: int
     undated_instances: int
     concurrent_batches: int
+    session: SessionModel
+    allowance: AllowanceReport
     presets: tuple[PresetRow, ...]
     notes: tuple[str, ...]
     table: str
@@ -248,17 +353,16 @@ def window_counts(
 def step_units(utterances: int) -> StepUnits:
     """Units each step processes for a window of ``utterances`` messages.
 
-    Only authorship judgment sees every candidate message. Mistake-finding
-    sees what that judgment kept, verification sees the findings produced, and
-    safe-record creation sees the findings retained, each scaled by the
-    measured ratios in :mod:`estimator`.
+    Only authorship judgment sees every candidate message; mistake-finding sees
+    what that judgment kept. The confidentiality check runs once per session
+    file, empty or not, so it is counted in sessions — the measured run found
+    no relation between a session's record count and its cost.
     """
     analyzed = math.ceil(utterances * AUTHORED_UTTERANCE_RETENTION)
     return StepUnits(
         judge_authorship=utterances,
         find_mistakes=analyzed,
-        verify_findings=math.ceil(analyzed * VERIFY_UNITS_PER_MESSAGE),
-        create_safe_records=math.ceil(analyzed * SAFE_RECORD_UNITS_PER_MESSAGE),
+        confirm_confidentiality=math.ceil(utterances / ASSUMED_MESSAGES_PER_SESSION),
     )
 
 
@@ -287,9 +391,8 @@ def select_runtime_steps(profile: TokenUsageProfile, *, runtime: str) -> Runtime
             profile, step=STEP_JUDGE_AUTHORSHIP, runtime=runtime
         ),
         find_mistakes=_most_expensive_entry(profile, step=STEP_FIND_MISTAKES, runtime=runtime),
-        verify_findings=_most_expensive_entry(profile, step=STEP_VERIFY_FINDINGS, runtime=runtime),
-        create_safe_records=_most_expensive_entry(
-            profile, step=STEP_CREATE_SAFE_RECORDS, runtime=runtime
+        confirm_confidentiality=_most_expensive_entry(
+            profile, step=STEP_CONFIRM_CONFIDENTIALITY, runtime=runtime
         ),
     )
 
@@ -311,29 +414,62 @@ def steps_confidence(steps: RuntimeSteps) -> EstimateConfidence:
 
 
 def estimate_tokens(counts: WindowCounts, steps: RuntimeSteps) -> TokenEstimate:
-    """Total tokens across the four semantic steps for one window.
+    """Total tokens across the three semantic steps for one window.
 
     Authorship judgment is fed every candidate word, because deciding which
     words the learner wrote requires reading all of them. Mistake-finding is
-    fed only the share that judgment keeps. The last two steps read findings
-    rather than source text, so they are estimated at their own calibrated
-    average length instead of being scaled by source words.
+    fed only the share that judgment keeps. The confidentiality check reads
+    mistake records rather than source text, so it is estimated at its own
+    calibrated average length, and one of its calls covers one session file.
     """
     units = step_units(counts.utterances)
     analyzed_words = round(counts.words * AUTHORED_WORD_RETENTION)
-    downstream = (
-        (units.verify_findings, steps.verify_findings),
-        (units.create_safe_records, steps.create_safe_records),
+    confidentiality = steps.confirm_confidentiality
+    return estimate_run(
+        [
+            estimate_step(counts.words, units.judge_authorship, steps.judge_authorship),
+            estimate_step(analyzed_words, units.find_mistakes, steps.find_mistakes),
+            estimate_step(
+                round(units.confirm_confidentiality * confidentiality.average_words_per_message),
+                units.confirm_confidentiality,
+                confidentiality,
+                messages_per_call=CONFIDENTIALITY_UNITS_PER_CALL,
+            ),
+        ]
     )
-    estimates = [
-        estimate_step(counts.words, units.judge_authorship, steps.judge_authorship),
-        estimate_step(analyzed_words, units.find_mistakes, steps.find_mistakes),
-    ]
-    estimates.extend(
-        estimate_step(round(count * entry.average_words_per_message), count, entry)
-        for count, entry in downstream
-    )
-    return estimate_run(estimates)
+
+
+def idle_sources(
+    records: list[SourceInstanceRecord], *, start: datetime, end: datetime
+) -> tuple[str, ...]:
+    """Selected apps contributing nothing to this window's estimate.
+
+    An app counts as idle only when every selected instance of it is idle, so a
+    user running two Cursor workspaces is told about Cursor once and only when
+    both are silent. Instances with no date range are never idle: they cannot
+    be placed in time, so :func:`window_counts` charges them in full and this
+    must agree with it rather than quietly contradict the totals.
+
+    Idleness is decided by re-running :func:`window_counts` on the instance
+    rather than by testing the raw fraction. A positive fraction is not the same
+    as a contribution: the totals bill ``round(words * fraction)``, so a lightly
+    used instance spread over years rounds to zero words in a seven-day window
+    while a ``fraction > 0`` test still calls it live. That is the exact symptom
+    this field was added to catch, and it survived the first version of it.
+
+    One case it cannot see. Discovery derives a date range from timestamped
+    candidates only, while ``candidate_messages`` counts every candidate, so an
+    instance whose dated candidates stopped in June may still hold undated ones
+    that the collector reads in full. Nothing in the inventory distinguishes
+    those, so an app named here is idle by this estimate's arithmetic, which is
+    what the skill is told to say.
+    """
+    per_source: dict[str, bool] = {}
+    for record in records:
+        counts = window_counts([record], start=start, end=end)
+        contributes = counts.words > 0 or counts.utterances > 0
+        per_source[record.adapter_id] = per_source.get(record.adapter_id, False) or contributes
+    return tuple(sorted(name for name, live in per_source.items() if not live))
 
 
 def estimate_preset(
@@ -342,6 +478,7 @@ def estimate_preset(
     counts: WindowCounts,
     steps: RuntimeSteps,
     concurrent_batches: int,
+    idle: tuple[str, ...] = (),
 ) -> PresetRow:
     """One table row: words, utterances, tokens, minutes, and confidence."""
     confidence = steps_confidence(steps)
@@ -360,52 +497,47 @@ def estimate_preset(
         tokens=tokens,
         minutes=minutes,
         confidence=confidence,
+        idle_sources=idle,
     )
 
 
-def saturated_presets(rows: Sequence[PresetRow]) -> tuple[str, ...]:
-    """Preset labels whose window already covers the user's whole history.
+def distinct_rows(rows: Sequence[PresetRow]) -> list[PresetRow]:
+    """The rows worth printing: one per distinct window.
 
     When someone's oldest message is three months old, the last-three-months,
-    last-year, and everything rows carry identical numbers. Three identical
-    rows read as a broken table rather than as the fact they represent, so the
-    labels are returned here for a note that says what is really going on.
+    last-year, and everything rows carry identical numbers, and a table that
+    prints all three offers the same run three times. It used to print them and
+    add a caveat explaining that they were identical on purpose — a note whose
+    only job was to defend the rows above it.
+
+    Everything is the row kept, for two reasons: it is the only one counted
+    rather than interpolated, and the narrower labels promise a limit that does
+    not happen. Every preset stays in the machine-readable output, so a caller
+    that is handed "last-year" can still price it.
     """
     everything = next((row for row in rows if row.preset == "everything"), None)
     if everything is None or everything.words == 0:
-        return ()
-    return tuple(
-        row.label
+        return list(rows)
+    return [
+        row
         for row in rows
-        if row.preset != "everything"
-        and row.words == everything.words
-        and row.utterances == everything.utterances
-    )
+        if row.preset == "everything"
+        or row.words != everything.words
+        or row.utterances != everything.utterances
+    ]
 
 
 def build_notes(
-    *,
-    steps: RuntimeSteps,
-    runtime: str,
-    undated_instances: int,
-    concurrent_batches: int,
-    saturated: Sequence[str] = (),
+    *, steps: RuntimeSteps, session: SessionModel, undated_instances: int
 ) -> tuple[str, ...]:
-    """The caveats that must reach the user with the numbers."""
-    notes = [
-        "Words and messages are candidates, counted before step 3 drops text you did not "
-        "write, and interpolated from each source's date range. Only Everything is exact.",
-    ]
-    if saturated:
-        # A single label takes a singular verb. An English-teaching tool that
-        # writes "Last year match Everything" in its own interface is not one a
-        # learner should trust about agreement.
-        verb = "matches" if len(saturated) == 1 else "match"
-        rows = "row is" if len(saturated) == 1 else "rows are"
-        notes.append(
-            f"{and_list(saturated)} {verb} Everything because your history does not reach "
-            f"back that far. The {rows} identical on purpose."
-        )
+    """The caveats that must reach the user with the numbers.
+
+    Three, or four when a source cannot be placed in time. Each one is here
+    because a number above it is read wrongly without it, and because the reader
+    can do something about it: read the Words column for what it counts, leave
+    room above the ranges, and stop waiting for a price.
+    """
+    notes = [ESTIMATE_NOTE]
     if undated_instances:
         # One source takes a singular noun, verb, and pronoun. The count drives
         # the whole sentence, so nothing here may be left in the plural.
@@ -419,112 +551,135 @@ def build_notes(
                 f"{undated_instances} sources report no dates, so they count in full in "
                 "every period and overstate the short ones."
             )
-    notes.append(
-        "Most estimated tokens are cached input re-read on each turn, not fresh input, "
-        "so the totals are large and are not billed at the fresh-input rate."
-    )
-    notes.append(
-        f"Covers all four model steps. Every candidate word is read once to decide what you "
-        f"wrote; the later steps read only the {round(AUTHORED_WORD_RETENTION * 100)}% that "
-        "typically survives, so pasting less means a shorter run."
-    )
-    uncalibrated = [entry.step for entry in steps.entries() if entry.is_uncalibrated]
-    low = [
-        entry.step
-        for entry in steps.entries()
-        if entry_confidence(entry) is EstimateConfidence.LOW and not entry.is_uncalibrated
-    ]
-    if uncalibrated:
-        notes.append(
-            f"Never measured for {runtime}: {and_list(uncalibrated)}. Those numbers are "
-            "extrapolated, not measured, so the range is widened and marked low confidence."
-        )
-    if low:
-        # "Fewer than 10 measured batches for X, so ..." had no main verb. The
-        # subject is the batches, so the verb is plural however many steps the
-        # list names.
-        notes.append(
-            f"Fewer than {HIGH_CONFIDENCE_MIN_RECORDS} samples have been measured for "
-            f"{and_list(low)}, so the total stays low confidence and its upper bound "
-            "is widened."
-        )
-    mismatch = _measured_elsewhere_note(steps)
-    if mismatch is not None:
-        notes.append(mismatch)
-    notes.append(SESSION_SIZE_NOTE)
-    notes.append(QUOTA_UNAVAILABLE_NOTE)
-    if concurrent_batches == 1:
-        notes.append(
-            "Times assume one session at a time; running N sessions in parallel divides "
-            "them by roughly N."
-        )
-    else:
-        notes.append(f"Times assume {concurrent_batches} sessions running in parallel.")
+    if steps_confidence(steps) is EstimateConfidence.LOW or session.measured_elsewhere:
+        notes.append(UNDERSTATED_NOTE)
+    notes.append(NO_PRICE_NOTE)
     return tuple(notes)
 
 
-def _measured_elsewhere_note(steps: RuntimeSteps) -> str | None:
-    """Say so when this session is not what the numbers were measured on.
+def describe_session(steps: RuntimeSteps) -> SessionModel:
+    """The running session beside the cells these numbers were measured on.
 
     The calibration profile is keyed by model and effort, and nothing compared
     either against the session actually running. On the machine this was written
     the profile assumed one model at medium effort while the session ran a
-    different model at xhigh, so every hour and token above described a run the
-    user would not get.
+    different model at xhigh, so every hour and token described a run the user
+    would not get. Neither the profile nor anything else chooses that model:
+    the per-file agents inherit it from the session, which is why this is
+    reported and not resolved.
 
-    The numbers still stand as the best available: they are the only ones this
-    project has measured, and a missing estimate helps nobody choose a period.
-    What changes is that the reader is told what they are an estimate OF.
+    ``measured_elsewhere`` drives one user-facing note and one preflight
+    sentence. It used to be a note naming both models and both efforts. Model
+    IDs and an effort level are this repository's vocabulary, not the user's,
+    and the user cannot pick either at the period question; what the mismatch
+    means to them there is that the numbers may be off, which is what
+    :data:`UNDERSTATED_NOTE` says. At the preflight it means something else and
+    the model is named: the user is about to agree to let a model read
+    everything they have written, and which model that is is the most
+    privacy-relevant fact in the run.
 
-    Returns ``None`` when detection finds nothing, because an unknown session is
-    not evidence of a mismatch.
+    Sample count alone would not do as the trigger: once every cell is measured
+    ten times the run is called calibrated, and a profile measured on another
+    model would then say so silently.
+
+    The comparison is per cell, not against the set of everything measured. The
+    profile holds cells measured on more than one model, and asking only
+    whether the running model appears somewhere in that set would call an
+    estimate calibrated when two of its three steps were measured elsewhere —
+    the caveat would disappear exactly as it started to matter.
+
+    Not a mismatch when detection finds nothing: an unknown session is not
+    evidence of one.
     """
     running_model = detect_model()
     running_effort = detect_effort()
-    if running_model is None and running_effort is None:
-        return None
-
-    measured_models = sorted({entry.model for entry in steps.entries()})
-    measured_efforts = sorted({entry.effort for entry in steps.entries()})
-    wrong_model = running_model is not None and running_model not in measured_models
-    wrong_effort = running_effort is not None and running_effort not in measured_efforts
-    if not wrong_model and not wrong_effort:
-        return None
-
-    differences: list[str] = []
-    if wrong_model:
-        differences.append(f"a different model ({and_list(measured_models)}, not {running_model})")
-    if wrong_effort:
-        differences.append(
-            f"a different effort ({and_list(measured_efforts)}, not {running_effort})"
-        )
-    return (
-        f"These times and token counts were measured on {and_list(differences)}. They are the "
-        "only measurements this project has, so they are still the best available, but treat "
-        "them as rough for this session rather than as calibrated for it."
+    wrong_model = running_model is not None and any(
+        entry.model != running_model for entry in steps.entries()
+    )
+    wrong_effort = running_effort is not None and any(
+        entry.effort != running_effort for entry in steps.entries()
+    )
+    return SessionModel(
+        model=running_model,
+        effort=running_effort,
+        measured_models=tuple(sorted({entry.model for entry in steps.entries()})),
+        measured_efforts=tuple(sorted({entry.effort for entry in steps.entries()})),
+        measured_elsewhere=wrong_model or wrong_effort,
     )
 
 
-def _expected_use(row: PresetRow) -> str:
-    """The last table column: tokens, plus the confidence word when earned."""
-    rendered = f"{format_token_range(row.tokens)} tokens"
-    if row.confidence is EstimateConfidence.LOW:
-        return f"{rendered}, low confidence"
-    return rendered
+def describe_age(seconds: float | None) -> str | None:
+    """How long ago the host refreshed its figure, in words a user reads.
+
+    Coarse on purpose. The number exists so nobody mistakes a cache for a live
+    check, and "6 hours ago" carries that whole meaning; "21960 seconds ago"
+    carries it too and makes the reader do arithmetic to get there.
+    """
+    if seconds is None:
+        return None
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    days = hours // 24
+    return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def describe_allowance(
+    *,
+    runtime: AgentRuntime | None = None,
+    home: Path | None = None,
+    now: float | None = None,
+) -> AllowanceReport:
+    """The host's cached headroom, or an honest record that it said nothing.
+
+    Reports the tightest window rather than every one of them: a user at 3% of
+    the week and 90% of the five-hour block is about to be throttled, and the
+    number worth showing is the 90.
+
+    ``runtime`` decides whether there is anything to read at all. The file
+    belongs to Claude Code, and a developer running Codex on a machine that also
+    has Claude Code installed would otherwise be shown a subscription that has
+    nothing to do with the provider about to do the work -- while the skill's
+    own rule forbids naming a runtime that is not the active one. Passing
+    ``None`` reads it, which is what a direct caller asking about this host
+    means.
+    """
+    if runtime is not None and runtime is not AgentRuntime.CLAUDE_CODE:
+        return AllowanceReport(
+            known=False,
+            tightest_window=None,
+            utilization=None,
+            resets_at=None,
+            age_seconds=None,
+            age_phrase=None,
+            stale=False,
+            overage_enabled=None,
+        )
+    allowance = read_allowance(home=home, now=now)
+    tightest = allowance.tightest
+    return AllowanceReport(
+        known=allowance.known,
+        tightest_window=tightest.name if tightest is not None else None,
+        utilization=tightest.utilization if tightest is not None else None,
+        resets_at=tightest.resets_at if tightest is not None else None,
+        age_seconds=allowance.age_seconds,
+        age_phrase=describe_age(allowance.age_seconds),
+        stale=allowance.stale,
+        overage_enabled=allowance.overage_enabled,
+    )
 
 
 def render_table(rows: list[PresetRow], *, notes: tuple[str, ...]) -> str:
     """The specification 2.4 table for these rows, with its caveats attached."""
     presets = [
-        PresetEstimate(
-            period=row.label,
-            words=row.words,
-            time=row.minutes,
-            expected_use=_expected_use(row),
-        )
-        for row in rows
+        PresetEstimate(period=row.label, words=row.words, time=row.minutes)
+        for row in distinct_rows(rows)
     ]
-    presets.append(PresetEstimate(period=CUSTOM_ROW_LABEL, expected_use=CUSTOM_ROW_TEXT))
     return render_estimate_report(presets, notes=notes)
 
 
@@ -538,6 +693,7 @@ def build_report(
     profile_path: Path | None = None,
     concurrent_batches: int = 1,
     now: datetime | None = None,
+    home: Path | None = None,
 ) -> EstimateReport:
     """Estimate every preset for the selection the user is about to make."""
     moment = now if now is not None else utc_now()
@@ -570,15 +726,16 @@ def build_report(
                 counts=counts,
                 steps=steps,
                 concurrent_batches=concurrent_batches,
+                idle=idle_sources(records, start=period.start, end=period.end),
             )
         )
-    notes = build_notes(
-        steps=steps,
-        runtime=runtime_id,
-        undated_instances=undated,
-        concurrent_batches=concurrent_batches,
-        saturated=saturated_presets(rows),
-    )
+    session = describe_session(steps)
+    # One clock for the whole report. Reading the cache against time.time() while
+    # `computed_at` says something else lets `age_phrase` describe an age that is
+    # not the age relative to this report -- in a field whose only purpose is to
+    # stop a cache being mistaken for a live check.
+    allowance = describe_allowance(runtime=runtime, home=home, now=moment.timestamp())
+    notes = build_notes(steps=steps, session=session, undated_instances=undated)
     return EstimateReport(
         runtime=runtime_id,
         producer_version=PRODUCER_VERSION,
@@ -587,6 +744,8 @@ def build_report(
         selected_instances=len(records),
         undated_instances=undated,
         concurrent_batches=concurrent_batches,
+        session=session,
+        allowance=allowance,
         presets=tuple(rows),
         notes=notes,
         table=render_table(rows, notes=notes),

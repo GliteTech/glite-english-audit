@@ -52,6 +52,12 @@ The same rule applies inside the files. Each agent is shown only what its judgme
 text, what it was numbered, and whether it was typed or dictated — and hands back what it decided.
 The files themselves are written by local scripts.
 
+Those agents run on whatever model your session is running. Nothing here pins a model or offers a
+choice of one: this repository makes no inference call. The preflight tells you which model it
+observes before you agree to anything, says so plainly when it cannot read one, and says when the
+time and token estimates were measured on a different model — which they usually were, since
+`calibration/token-usage-profile.json` records what was measured, not what your session will run.
+
 ## Supported sources
 
 Nine adapters ship today. Stability drives default selection: stable sources with a supported
@@ -99,12 +105,16 @@ cd glite-english-audit
 uv sync --locked --all-groups
 ```
 
-Then, in Codex or Claude Code opened on this directory, say:
+Then, in Claude Code opened on this directory, type:
+
+> /audit
+
+Or in either Claude Code or Codex, just say:
 
 > Run an English audit.
 
-The agent follows `skills/run-english-audit/SKILL.md` from there: consent, discovery, selection,
-preflight, processing, and the final local review.
+Both start the same procedure. The agent follows `skills/run-english-audit/SKILL.md` from there:
+consent, discovery, selection, preflight, processing, and the final local review.
 
 ## How a run works
 

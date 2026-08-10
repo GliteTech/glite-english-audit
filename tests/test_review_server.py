@@ -529,6 +529,36 @@ def test_unticking_a_confirmation_does_not_erase_the_record(tmp_path: Path) -> N
         handle.shutdown()
 
 
+def test_a_manifest_this_version_cannot_read_still_lets_the_user_decide(tmp_path: Path) -> None:
+    """An older manifest schema costs the audit trail entry, not the review.
+
+    A run started before a manifest schema change leaves a manifest this
+    version refuses to parse. The resume policy answers that at the start of a
+    run; mid-review it must not reach the user, whose decision is held in the
+    live session and is unaffected by what the manifest can say about it.
+    """
+    run_id = _run_for_consent(tmp_path)
+    manifest_path = tmp_path / run_id / "run-manifest.json"
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    document["selection"] = {"processing_profile": "recommended"}
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+
+    handle = start_review_server(
+        _artifact(),
+        _download_only(),
+        submit=_no_network_submit,
+        run_id=run_id,
+        runs_root=tmp_path,
+    )
+    handle.serve_forever_in_thread()
+    try:
+        status, body, _ = _post(handle, "decisions", {"adult_confirmed": True})
+        assert status == 200
+        assert json.loads(body)["adult_confirmed"] is True
+    finally:
+        handle.shutdown()
+
+
 def test_a_review_without_a_run_behind_it_still_works(tmp_path: Path) -> None:
     """Recording is skipped rather than invented when there is no run.
 
