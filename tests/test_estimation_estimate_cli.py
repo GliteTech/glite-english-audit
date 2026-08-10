@@ -31,6 +31,7 @@ from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.english import and_list
 from glite_english_audit.estimation.estimate import (
     EstimateReport,
+    PresetRow,
     RuntimeSteps,
     SessionModel,
     build_notes,
@@ -45,9 +46,25 @@ from glite_english_audit.estimation.estimate import (
 from glite_english_audit.estimation.estimator import (
     ASSUMED_MESSAGES_PER_SESSION,
     EstimateConfidence,
+    TimeRange,
+    TokenEstimate,
 )
 from glite_english_audit.estimation.profile import load_token_usage_profile
 from glite_english_audit.pipeline.start_run import PERIOD_PRESETS
+
+
+def _preset_row(preset: str, words: int) -> PresetRow:
+    """A row carrying only what recommend_preset reads."""
+    return PresetRow(
+        preset=preset,
+        label=preset,
+        words=words,
+        utterances=max(1, words // 60),
+        tokens=TokenEstimate(p50_tokens=0, p90_tokens=0),
+        minutes=TimeRange(low_minutes=0.0, high_minutes=0.0),
+        confidence=EstimateConfidence.LOW,
+    )
+
 
 _REPO = Path(__file__).resolve().parent.parent
 _NOW = datetime(2026, 8, 9, tzinfo=UTC)
@@ -554,3 +571,45 @@ def test_a_matching_model_with_a_wrong_effort_still_counts_as_measured_elsewhere
     monkeypatch.setattr(module, "detect_model", lambda: "claude-fable-5")
     monkeypatch.setattr(module, "detect_effort", lambda: "xhigh")
     assert describe_session(_steps_measured_on("claude-fable-5", "medium")).measured_elsewhere
+
+
+def test_the_recommendation_is_sized_in_words(tmp_path: Path) -> None:
+    """Words are what discovery counts, so words are what the target is in.
+
+    The size was worked out once from a measured finding rate. That arithmetic
+    does not run again per learner: the rate came from one person's writing and
+    error rates differ enormously between people, so re-applying it would present
+    a single sample as a prediction about someone nobody has measured.
+    """
+    from glite_english_audit.estimation import estimate as module
+
+    assert not hasattr(module, "expected_findings"), (
+        "a per-learner findings prediction came back; the product says words"
+    )
+    assert isinstance(module.TARGET_WORDS, int)
+
+
+def test_the_window_nearest_the_target_wins_not_the_first_one_past_it(
+    tmp_path: Path,
+) -> None:
+    """Overshooting costs the learner an afternoon for repeated writing.
+
+    Measured on a real machine: two weeks held 47,000 words and thirty days
+    110,000. A rule that took the shortest window past a threshold would have
+    doubled the run to overshoot the target.
+    """
+    from glite_english_audit.estimation.estimate import TARGET_WORDS, recommend_preset
+
+    rows = [
+        _preset_row("last-7-days", TARGET_WORDS // 2),
+        _preset_row("last-14-days", TARGET_WORDS - 5_000),
+        _preset_row("last-30-days", TARGET_WORDS * 2),
+    ]
+    assert recommend_preset(rows) == "last-14-days"
+
+
+def test_a_thin_machine_is_offered_everything_it_has(tmp_path: Path) -> None:
+    from glite_english_audit.estimation.estimate import recommend_preset
+
+    rows = [_preset_row("last-7-days", 200), _preset_row("everything", 3_000)]
+    assert recommend_preset(rows) == "everything"

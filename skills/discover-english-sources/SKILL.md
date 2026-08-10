@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 17
+**Version**: 18
 
 ## Goal
 
@@ -86,11 +86,14 @@ agent sees only the derived `InstanceInventorySummary`.
 5. Estimate the periods. Run
    `uv run python -m glite_english_audit.estimation.estimate --runtime <claude_code|codex>`.
 
-   Read `recommended`: the window whose expected findings land nearest a report
-   worth reading, from measured rates rather than a guess. Read that row's
-   `words` and `minutes` too, and turn its words into an expected number of
-   findings the way `expected_findings` does — that is the number the learner
-   actually cares about.
+   Read `recommended`: the window holding closest to the amount of writing a
+   report needs. Quote that row's `words` and `minutes`, and nothing else.
+
+   Do not turn the words into a predicted number of mistakes. The target was
+   sized once from one person's writing, and error rates differ enormously
+   between people, so a per-learner prediction would present a single sample as a
+   measurement of someone nobody has measured. The report says how many mistakes
+   there were, once they exist.
 
    Do not show the table unless they ask for a different period. One
    recommendation answers the question they have; a five-row table asks them a
