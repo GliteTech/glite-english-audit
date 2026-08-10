@@ -45,9 +45,35 @@ The specification forbids exactly this: consent items are not bundled, and
 consent text stays literal. This is the sentence someone reads at the moment
 they click, and it is the last one that should need a second pass.
 """
-DOWNLOAD_FALLBACK_TEXT = (
-    "You do not have to create the report now. Download the same package and upload it later."
+DOWNLOAD_FALLBACK_TEXT = "Not now? Download the package and upload it whenever you like."
+
+PRIVACY_POLICY_URL = "https://glite.ai/policies/privacy"
+TERMS_URL = "https://glite.ai/policies/terms-and-conditions"
+"""Where the agreement beside the checkbox can actually be read.
+
+The storage confirmation asks for permanent storage, model training and external
+AI processing, and until now the page carried no way to read any of it. The
+sentence was the entire disclosure. An earlier version pointed at "the disclosed
+uses" without saying where they were disclosed, which was worse; making the
+sentence honest was only half the fix, because a person who wants the detail
+still had nowhere to go.
+
+Absolute URLs on the production domain, not the test host: test.glite.ai is a
+single-page app with no policy route at all, and every legal path there answers
+404.
+"""
+
+WHAT_YOU_GET_TEXT = (
+    "Send these and Glite groups them into the mistakes you make most, with a rule "
+    "and an example for each. The report is yours to keep."
 )
+"""The reason to do any of this, which the page never gave.
+
+Everything here described a cost -- permanent storage, model training, an outside
+model reading it -- and nothing described what the cost buys. A reader arriving
+at this page knew they had thirty-six sentences and two consent boxes, and had to
+infer the point from a button label.
+"""
 EXAMPLE_ORIGIN_LABELS: dict[ExampleType, str] = {
     ExampleType.VERBATIM: "your words",
     ExampleType.REDACTED: "your words, changed",
@@ -66,11 +92,8 @@ PACKAGE_NOTE_TEXT = (
     "This JSON is byte for byte what Glite would receive. Long lines scroll sideways."
 )
 DOWNLOAD_LINK_TEXT = "Download package"
-DOWNLOAD_NOTE_TEXT = "Downloads the same exact JSON available below."
-SEND_REQUIREMENTS_TEXT = "Check both confirmations to send. At least one record must stay included."
-REPORT_REQUIREMENTS_TEXT = (
-    "Check both confirmations to create your report. At least one record must stay included."
-)
+SEND_REQUIREMENTS_TEXT = "Check both boxes above, and keep at least one mistake."
+REPORT_REQUIREMENTS_TEXT = "Check both boxes above, and keep at least one mistake."
 SKIP_LINK_TEXT = "Skip to the send and download buttons"
 ACTION_BAR_LINK_TEXT = "Create report or download"
 """The way out of a list that can be long enough to hide its own ending.
@@ -273,6 +296,12 @@ input[type="checkbox"] {
   accent-color: var(--action);
   flex-shrink: 0;
 }
+.legal-links {
+  margin: 0.6rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.legal-links a { color: var(--action-text); }
 .action-bar {
   position: sticky;
   bottom: 0;
@@ -881,7 +910,7 @@ def _confirmations(state: ReviewSessionState) -> str:
     storage_checked = " checked" if state.storage_confirmed else ""
     return (
         '<fieldset class="confirmations">'
-        "<legend>Required confirmations</legend>"
+        "<legend>Both are required</legend>"
         '<div class="confirm-row">'
         '<input type="checkbox" id="adult-confirmed" class="confirm-toggle" '
         f'data-confirm="adult_confirmed"{adult_checked}> '
@@ -892,6 +921,12 @@ def _confirmations(state: ReviewSessionState) -> str:
         f'data-confirm="storage_confirmed"{storage_checked}> '
         f'<label for="storage-confirmed">{_escape(STORAGE_CONFIRMATION_TEXT)}</label>'
         "</div>"
+        '<p class="legal-links">'
+        f'<a href="{_escape(PRIVACY_POLICY_URL)}" target="_blank" rel="noopener noreferrer">'
+        "Privacy Policy</a> · "
+        f'<a href="{_escape(TERMS_URL)}" target="_blank" rel="noopener noreferrer">'
+        "Terms and Conditions</a>"
+        "</p>"
         "</fieldset>"
     )
 
@@ -906,7 +941,7 @@ def _actions(
     download = (
         '<a class="button secondary" id="download-link" href="package.json" '
         'type="application/json" download="glite-submission-package.json" '
-        f'aria-describedby="download-note" aria-disabled="{download_blocked}">'
+        f'aria-disabled="{download_blocked}">'
         f"{_escape(DOWNLOAD_LINK_TEXT)}</a>"
     )
     ready = state.adult_confirmed and state.storage_confirmed and state.included_count > 0
@@ -933,10 +968,14 @@ def _actions(
         "Create report</button>"
         "</form>"
     )
+    # One helper line, not three. "Downloads the same exact JSON available
+    # below" described a link sitting beside it, and the requirements sentence
+    # restated two unchecked boxes the reader can see. What survives is the
+    # blocking condition and the fallback, which are the two things not visible
+    # from the controls themselves.
     notes = (
         f'<p id="report-requirements" class="muted">{_escape(REPORT_REQUIREMENTS_TEXT)}</p>'
-        f'<p id="download-note" class="muted">{_escape(DOWNLOAD_NOTE_TEXT)}</p>'
-        f'<p id="download-fallback-note">{_escape(DOWNLOAD_FALLBACK_TEXT)}</p>'
+        f'<p id="download-fallback-note" class="muted">{_escape(DOWNLOAD_FALLBACK_TEXT)}</p>'
     )
     if capability.direct_submission_available:
         # aria-disabled, not the disabled attribute: the button stays focusable
@@ -951,10 +990,10 @@ def _actions(
             "anonymously</button>"
         )
         notes += f'<p id="send-requirements" class="muted">{_escape(SEND_REQUIREMENTS_TEXT)}</p>'
-        heading = "Create report, send, or save"
+        heading = "Create your report"
     else:
         action = ""
-        heading = "Create report or save"
+        heading = "Create your report"
     return (
         f'<section id="{_SKIP_TARGET_ID}" tabindex="-1" aria-labelledby="send-heading">'
         f'<h2 id="send-heading">{heading}</h2>'
@@ -981,15 +1020,15 @@ def render_page(
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<meta name="color-scheme" content="light dark">\n'
         '<meta name="referrer" content="no-referrer">\n'
-        "<title>Glite English audit review</title>\n"
+        "<title>Choose what to send \u2014 Glite</title>\n"
         f"<style>{_STYLE}</style>\n"
         "</head>\n"
         f'<body data-token="{_escape(token)}">\n'
         f'<a class="skip-link" href="#{_SKIP_TARGET_ID}">{_escape(SKIP_LINK_TEXT)}</a>\n'
         "<main>\n"
         "<h1>Choose which mistakes to share</h1>\n"
-        '<p class="intro">Nothing has been sent yet. Uncheck anything you would '
-        "rather keep, then create your report.</p>\n"
+        f'<p class="intro">{_escape(WHAT_YOU_GET_TEXT)} Nothing has been sent yet — '
+        "uncheck anything you would rather keep.</p>\n"
         + _summary_section(state)
         + _records_section(state)
         + _actions(state, capability, package_available=package_bytes is not None)
