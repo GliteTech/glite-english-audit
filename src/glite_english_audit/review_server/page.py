@@ -25,25 +25,43 @@ from glite_english_audit.submission.capability import SubmissionCapability
 
 __all__ = ["CONSENT_POLICY_VERSION", "mistake_noun", "render_page"]
 
-ADULT_CONFIRMATION_TEXT = "I confirm that I am at least 18 years old."
+ADULT_CONFIRMATION_TEXT = "I am at least 18 years old."
+"""Ticking the box is the confirming; the sentence does not have to say so.
+
+"I confirm that I am at least 18 years old" spends three words describing the
+gesture the reader is already making. The same padding opened the storage
+agreement -- "I understand and accept all of the following" -- in front of the
+list it introduced."""
 STORAGE_CONFIRMATION_TEXT = (
-    "I understand and accept all of the following. Glite keeps the records I "
-    "send permanently and cannot delete them later. Glite uses them to run and "
-    "improve the product, to train models, and in research that combines many "
-    "people's records. Glite sends them to an outside AI model to write my "
-    "report and flashcards."
+    "I accept that Glite keeps my anonymous list of mistakes permanently and "
+    "cannot delete it later, sends it to an outside AI model to write my report, "
+    "and uses it to train and improve its teaching models. Details in the Terms."
 )
-"""One agreement, said as four short sentences instead of one long clause.
+"""What is being agreed to, in one sentence that points at the rest.
 
-It was a single 44-word sentence joining four separate commitments with
-semicolons, every one of them a noun rather than a verb -- "permanent,
-irrevocable storage", "the disclosed product, knowledge-graph, model-training,
-and aggregate-research uses", "external AI processing". "Disclosed" pointed at a
-disclosure the reader could not see from here.
+Three earlier versions failed in three ways. The first was a 44-word clause
+joining four commitments with semicolons, all of them nouns. The second broke it
+into four sentences, which respected the no-bundling rule and produced a
+paragraph nobody finishes. This one keeps the facts that change the decision and
+sends the reader to the Terms for the rest -- which only became honest once those
+links were on the page.
 
-The specification forbids exactly this: consent items are not bundled, and
-consent text stays literal. This is the sentence someone reads at the moment
-they click, and it is the last one that should need a second pass.
+"Anonymous" is checked, not assumed: the package carries a submission id, a
+recovery secret, hashes, the records and the counts. No account, no email, no
+device. It says nothing about who wrote them.
+
+Three facts survive compression because each changes whether a reasonable person
+agrees. "Permanently" and "cannot delete it later" are not the same claim and
+both are needed: the second is a consequence of the first word in the sentence,
+since a list carrying nothing about who sent it cannot be found again to remove.
+"An outside AI model" means a third party sees it, which "Glite keeps" does not
+imply. And it says "train" as well as "improve": improving a model is done by
+training on the data, and a reader deciding whether to send their own sentences
+is entitled to the word that says those sentences become training data.
+
+"Flashcards" is gone. It appeared in exactly two places in this repository -- this
+string and one line of a skill -- and nothing builds them. Consent for a product
+that does not exist is a promise nobody can keep or check.
 """
 DOWNLOAD_FALLBACK_TEXT = "Not now? Download the package and upload it whenever you like."
 

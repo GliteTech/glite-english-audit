@@ -972,7 +972,7 @@ def test_resume_recomputes_from_the_earliest_step_the_change_can_reach(
         # version equal to the current one tests nothing.
         {"artifact_schema_version": 99},
         {"tokenizer_version": "9.9.9"},
-        {"consent_policy_version": "2"},
+        {"consent_policy_version": "99-changed"},
     ],
     ids=["adapter", "schema", "tokenizer", "consent"],
 )
