@@ -591,3 +591,38 @@ def test_a_prefix_or_extension_of_the_token_is_not_the_token() -> None:
             )
             assert post_status == 403, "CSRF check accepted a token that is not the token"
         assert handle.state.included_count == 2
+
+
+def test_the_page_opens_itself_and_still_prints_the_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The run ended by asking someone to copy a URL out of a terminal.
+
+    They are sitting at the machine serving the page, and the address exists
+    only so the page can be reached. The address is still printed either way:
+    announcing a browser that did not open would strand a reader on a headless
+    machine with nothing to paste.
+    """
+    from glite_english_audit.review_server import __main__ as entry
+
+    opened: list[str] = []
+
+    def record(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr("webbrowser.open", record)
+
+    assert entry._open_browser("http://127.0.0.1:1/t/abc/") is True
+    assert opened == ["http://127.0.0.1:1/t/abc/"]
+
+
+def test_a_machine_with_no_browser_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSH, containers, and display-less sessions all land here."""
+    from glite_english_audit.review_server import __main__ as entry
+
+    def explode(url: str) -> bool:
+        raise OSError("no display")
+
+    monkeypatch.setattr("webbrowser.open", explode)
+    assert entry._open_browser("http://127.0.0.1:1/t/abc/") is False

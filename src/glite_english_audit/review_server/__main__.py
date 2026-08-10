@@ -11,6 +11,7 @@ download remain available without direct API configuration.
 
 import argparse
 import sys
+import webbrowser
 from pathlib import Path
 
 from glite_english_audit.artifacts.io import read_model
@@ -22,12 +23,37 @@ from glite_english_audit.submission.capability import detect_capability
 REVIEWED_ARTIFACT_NAME = "reviewed-submission.json"
 
 
+def _open_browser(url: str) -> bool:
+    """Open the review page, and say whether a browser took it.
+
+    The run ends by asking someone to copy a long tokenized loopback URL out of
+    a terminal and paste it into a browser. They are already at the computer the
+    page is served from, and the address exists only so the page can be reached
+    -- so the product can do that step itself.
+
+    Never fatal, and never assumed. A machine reached over SSH, a container, or
+    a session with no display has no browser to open; ``webbrowser`` reports
+    that by returning False or raising, and either way the address is still
+    printed. Announcing an opened browser that did not open would strand the
+    reader with no address at all, which is worse than the copying.
+    """
+    try:
+        return webbrowser.open(url)
+    except Exception:  # pragma: no cover - platform-specific launcher failures
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="Loopback final-review page for one run")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     parser.add_argument("--config-dir", type=Path, default=None, help="test override")
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="print the address instead of opening a browser",
+    )
     arguments = parser.parse_args(argv)
 
     artifact_path = (
@@ -47,10 +73,11 @@ def main(argv: list[str] | None = None) -> int:
         runs_root=arguments.runs_root,
     )
     thread = handle.serve_forever_in_thread()
+    opened = False if arguments.no_open else _open_browser(handle.url)
     sys.stdout.write(
-        "Review page ready. Open this address in your browser:\n"
-        f"{handle.url}\n"
-        "The page is local-only and stops after 30 minutes without activity.\n"
+        ("Review page opened in your browser.\n" if opened else "Review page ready.\n")
+        + f"{handle.url}\n"
+        + "The page is local-only and stops after 30 minutes without activity.\n"
     )
     sys.stdout.flush()
     try:

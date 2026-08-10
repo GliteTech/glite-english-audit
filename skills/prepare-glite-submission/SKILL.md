@@ -7,7 +7,7 @@ withheld. Use after step e is promoted, as the last thing an audit does."
 
 # Prepare Glite Submission
 
-**Version**: 4
+**Version**: 5
 
 ## Goal
 
@@ -78,15 +78,14 @@ uses.
 
    Do:
    ```text
-   Your audit is done. Next I'll open a review page in your browser so you can see
-   every mistake before anything leaves this computer.
-
-   - You see the example from each record; the info button shows every field
-   - Every record starts included, and you can exclude any of them
-   - Opening and reviewing the page does not send anything
+   Your audit is done. Opening a review page in your browser now — nothing has
+   been sent, and nothing will be until you choose.
    ```
    Don't: starting with a manifest read, so the user's first sight of the final step
    is a spinner.
+   Don't: a bulleted briefing on what the page contains. The page is about to be on
+   their screen, saying all of it in its own words. Describing a screen the reader
+   is one second away from seeing spends their attention twice on the same content.
 
 2. Confirm in the run manifest that steps a through e are promoted. If one is not, stop and
    say which step is unfinished. Do not build a review from a partial run.
@@ -127,8 +126,23 @@ uses.
      same package for later upload
    - the page closes itself after 30 minutes with no activity
 
-   Do: "Your review page is ready: <address>. Open it in your browser. Nothing is
-   sent until you check both confirmations and choose Create report or Send."
+   Do:
+   ```text
+   Found <N> mistakes in <W> words you wrote. Nothing has gone to Glite.
+
+   The page is open in your browser — check the list there and create your report:
+   <address>
+   ```
+   Three facts, because three are what the reader can act on: what the audit found,
+   that nothing has left yet, and where to go next. The command opens the browser
+   itself, so the address is a fallback rather than an instruction.
+
+   Don't: the eight bullets this used to carry — what each row shows, what the info
+   button does, what excluding costs, which confirmations are required, that
+   downloading skips them, when the page times out. Every one of those is written on
+   the page, and the page is already open. A briefing about a visible screen is read
+   twice or not at all.
+
    Don't: retyping, trimming, or prettifying the address. A changed address is a dead
    link, and the user cannot tell that from a typo.
 
