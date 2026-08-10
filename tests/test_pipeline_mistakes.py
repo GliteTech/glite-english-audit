@@ -552,6 +552,17 @@ def test_the_step_d_skill_names_the_models_its_files_really_hold() -> None:
     assert "PrivateMistake" not in skill
 
 
+def test_the_step_d_skill_requires_report_ready_examples_without_a_new_field() -> None:
+    skill = (repo_root() / "skills" / "find-english-mistakes" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "support one natural correction without the private source text" in skill
+    assert "it is a self-check, not an output field" in skill
+    assert "materially different meanings" in skill
+    assert "synthetic example whose intended meaning is unambiguous" in skill
+
+
 # --- step e: removal is the only edit it may make --------------------------
 
 
