@@ -25,8 +25,10 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.review_server.page import (
     EXAMPLE_ORIGIN_LABELS,
+    PRIVACY_POLICY_URL,
     SKIP_LINK_TEXT,
     STORAGE_CONFIRMATION_TEXT,
+    TERMS_URL,
     render_page,
 )
 from glite_english_audit.review_server.report_handoff import REPORT_PAGE_URL
@@ -346,7 +348,7 @@ def test_report_handoff_page_includes_unchecked_confirmations() -> None:
     storage = _input_tag(page, "storage-confirmed")
     assert " checked" not in adult
     assert " checked" not in storage
-    assert "Required confirmations" in page
+    assert "Both are required" in page
 
 
 def test_counts_summary_lines() -> None:
@@ -430,7 +432,7 @@ def test_download_only_page_has_report_and_download_but_no_direct_send() -> None
     assert re.search(r'<button[^>]*id="send-button"', page) is None
     assert "anonymously" not in page
     assert "Create report" in page
-    assert "upload it later" in page
+    assert "upload it whenever you like" in page
     assert "Download package" in page
 
 
@@ -511,15 +513,49 @@ def test_single_style_block_and_both_themes() -> None:
     assert "#005BFF" in page
 
 
-def test_only_the_fixed_report_form_is_external() -> None:
+def test_the_page_fetches_nothing_from_outside_on_its_own() -> None:
+    """Rendering must make no outbound request. Clicking may.
+
+    This counted "https://" occurrences and required exactly one. That conflated
+    two different things: a resource the browser loads by itself, which is the
+    privacy risk, and a link the reader chooses to follow, which is how they read
+    the terms they are being asked to accept. The check is now on the mechanism.
+    """
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert page.count("https://") == 1
     assert REPORT_PAGE_URL in page
     assert "http://" not in page
-    assert "src=" not in page
+    assert "src=" not in page  # nothing is loaded from anywhere
     assert "<textarea" not in page
     assert 'type="text"' not in page
     assert ":focus-visible" in page
+
+
+def test_every_outbound_link_hides_the_tokenized_address() -> None:
+    """The page's own URL carries the review token, so it must never travel.
+
+    Following a link would otherwise send this address to glite.ai in the
+    Referer header, handing an external site a working handle on the local
+    review session.
+    """
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    outbound = re.findall(r"<a\b[^>]*href=\"https://[^>]*>", page)
+    assert outbound, "the terms and privacy links must be on the page"
+    for tag in outbound:
+        assert 'rel="noopener noreferrer"' in tag, tag
+        assert 'target="_blank"' in tag, tag
+
+
+def test_the_agreement_can_be_read_before_it_is_accepted() -> None:
+    """The storage checkbox asks for permanent storage and model training.
+
+    Until now the sentence beside it was the entire disclosure: there was
+    nowhere to go and read what was being accepted.
+    """
+    page = render_page(_state(), _download_only(), _FAKE_TOKEN)
+    assert PRIVACY_POLICY_URL in page
+    assert TERMS_URL in page
+    assert "Privacy Policy" in page
+    assert "Terms and Conditions" in page
 
 
 def test_token_is_embedded_for_the_csrf_header() -> None:
@@ -543,7 +579,7 @@ def test_document_has_one_main_landmark_and_a_language() -> None:
     assert '<html lang="en">' in page
     assert page.count("<main>") == 1
     assert page.count("</main>") == 1
-    assert "<title>Glite English audit review</title>" in page
+    assert "<title>Choose what to send \u2014 Glite</title>" in page
 
 
 def test_heading_levels_start_at_one_and_never_skip() -> None:
@@ -719,7 +755,7 @@ def test_send_button_blocked_state_is_exposed_without_relying_on_color() -> None
     # reason for the block could never be reached by keyboard.
     assert re.search(r"(?<![-\w])disabled(?![-\w=])", button) is None
     assert 'aria-describedby="send-requirements"' in button
-    assert "Check both confirmations to send." in page
+    assert "Check both boxes above" in page
     blocked = _declarations(_style(page), '.button[aria-disabled="true"]')
     assert "dashed" in blocked["border"]
     assert "opacity" not in blocked
@@ -764,7 +800,9 @@ def test_download_link_states_its_purpose_and_its_blocked_state() -> None:
     link = _tag(page, "a", "download-link")
     assert 'download="glite-submission-package.json"' in link
     assert 'aria-disabled="false"' in link
-    assert 'aria-describedby="download-note"' in link
+    # No aria-describedby: the note it pointed at ("Downloads the same exact
+    # JSON available below") described the link sitting beside it, so the link's
+    # own text carried the whole meaning already.
     assert ">Download package</a>" in page
 
     state = _confirmed_state()
@@ -792,6 +830,8 @@ def _focus_order(page: str) -> list[str]:
         'class="record-toggle"': "record",
         'class="record-info"': "info",
         'id="action-bar-link"': "action-bar",
+        'href="https://glite.ai/policies/privacy"': "privacy-link",
+        'href="https://glite.ai/policies/terms-and-conditions"': "terms-link",
         'id="package-heading"': "package-toggle",
         'id="package-view"': "package",
         'id="adult-confirmed"': "adult",
@@ -828,6 +868,8 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "action-bar",
         "adult",
         "storage",
+        "privacy-link",
+        "terms-link",
         "report",
         "download",
         "send",
@@ -843,6 +885,8 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "action-bar",
         "adult",
         "storage",
+        "privacy-link",
+        "terms-link",
         "report",
         "download",
         "package-toggle",
@@ -1008,7 +1052,7 @@ def test_verification_state_is_never_carried_by_color_alone() -> None:
         "Nothing to download. Include at least one record.",
     ):
         assert wording in script
-    assert "Check both confirmations to send." in page
+    assert "Check both boxes above" in page
     assert 'aria-disabled="true"' in page
 
 
