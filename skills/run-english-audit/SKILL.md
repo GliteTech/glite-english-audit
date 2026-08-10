@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 22
+**Version**: 23
 
 ## Goal
 
@@ -422,20 +422,28 @@ runtime; naming both is confusing and wrong.
    about a screen they cannot reach yet is the forward-promise pattern this round
    already deleted once.
 
-   When they confirm, record both moments — the transfer they agreed to and the
-   preflight they agreed after reading:
+   Recording happens in step 9, and it cannot happen here: consent is stamped
+   into a run manifest, and no run exists until `start_run` creates one. So this
+   step takes the answer and step 9 writes it, in two parts.
+
+   `start_run` carries `--local-scan-consent --provider-transfer-consent`, which
+   stamp those two moments into the manifest as it is created. The preflight
+   moment has no flag, so record it immediately after, once the command has
+   printed the id:
    `uv run python -m glite_english_audit.pipeline.record_consent
-   --run-id <run-id> --moment provider-transfer` and the same command with
-   `--moment preflight`. One answer given after the preflight establishes both
-   facts truthfully: the numbers were shown, and the user said go. Asking without
-   recording leaves the manifest saying the consent never happened, and afterwards
-   nobody can tell a consent that was never sought from one that was given and
-   never written down. That distinction is the only reason a consent record
-   exists.
+   --run-id <run-id> --moment preflight`. One answer given after the preflight
+   establishes both facts truthfully — the numbers were shown, and the user said
+   go — so both are written from it.
+
+   Asking without recording leaves the manifest saying the consent never
+   happened, and afterwards nobody can tell a consent that was never sought from
+   one that was given and never written down. That distinction is the only reason
+   a consent record exists.
 
    Record only what they actually confirmed. A timestamp is evidence that a person
    was asked and agreed at a moment; writing one for a question you skipped is
-   worse than leaving it empty. If they decline, record nothing and stop.
+   worse than leaving it empty. If they decline, create no run at all: there is
+   nothing to record consent against and nothing to record.
 9. Autonomous step execution. The pipeline is five steps, `a` through `e`, and one
    session is one file the whole way through. Steps a and b are scripts and never
    involve a model. Steps c, d and e are one agent per session file, run in
