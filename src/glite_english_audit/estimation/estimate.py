@@ -631,49 +631,46 @@ def describe_session(steps: RuntimeSteps) -> SessionModel:
     )
 
 
-# A report is worth reading when it shows a habit repeating, not when it shows
-# one sentence. Measured on a complete run: 10.5 findings per 1,000 words the
-# learner actually wrote, and 39% of the words in a message survive authorship
-# judgment. 200 findings is therefore about 19,000 authored words, or about
-# 49,000 collected ones.
-FINDINGS_PER_1000_AUTHORED_WORDS: float = 10.5
-MEASURED_AUTHORSHIP_SHARE: float = 0.39
-TARGET_FINDINGS: int = 250
-"""The middle of a good report, not a floor to clear.
+TARGET_WORDS: int = 60_000
+"""How much writing a report needs, as words, because words are what we know.
 
-200-300 findings shows a habit repeating often enough to be worth changing.
-Aiming at the middle matters more than it sounds: on a real machine the
-two-week window came to 193 findings and the thirty-day window to 445, so a
-rule that took the shortest window clearing 200 would have doubled the run to
-overshoot the band -- paying twice the time and tokens for findings that mostly
-repeat what the shorter window already showed.
+A report is worth reading when it shows a habit repeating rather than one
+sentence. Sizing that took one measurement: on a complete run, 10.5 findings per
+1,000 words the learner actually wrote, with 39% of the words in a message
+surviving authorship judgment. Around 250 findings is the middle of a useful
+report, which works out to roughly 60,000 collected words.
+
+That arithmetic runs once, here, to set this constant. It is deliberately not
+run again per learner. The rate came from a single person's writing, and error
+rates differ enormously between people -- so turning a word count back into "you
+will find about 200 mistakes" would dress one sample up as a prediction about
+someone we have never measured. Words are what discovery actually counts. The
+product says the words and lets the report say the findings.
+
+Aiming at the middle rather than clearing a floor matters more than it sounds:
+on a real machine the two-week window held 47,000 words and the thirty-day
+window 111,000, so a rule that took the shortest window past a threshold would
+have doubled the run to overshoot -- twice the time and tokens for writing that
+mostly repeats what the shorter window already showed.
 """
 
 
-def expected_findings(words: int) -> int:
-    """Roughly how many findings a window of ``words`` collected words yields."""
-    return round(words * MEASURED_AUTHORSHIP_SHARE * FINDINGS_PER_1000_AUTHORED_WORDS / 1000)
-
-
 def recommend_preset(rows: Sequence[PresetRow]) -> str | None:
-    """The window whose expected findings land nearest a good report.
+    """The window holding closest to the amount of writing a report needs.
 
     One answer, not a menu. A learner has no way to judge how many weeks of
     their own writing makes a good report, so the product works it out, says
     which it picked, and leaves changing it one sentence away.
 
-    Ties go to the shorter window: equal expected value for less of the
-    learner's afternoon. On a machine with little history every window falls
-    short and the longest wins, which is the honest answer there -- read what
-    exists and say the report will be thin.
+    Ties go to the shorter window: the same writing for less of the learner's
+    afternoon. On a machine with little history every window falls short and the
+    longest wins, which is the honest answer there -- read what exists and say
+    the report will be thin.
     """
     ordered = [row for row in rows if row.words > 0]
     if not ordered:
         return None
-    return min(
-        ordered,
-        key=lambda row: (abs(expected_findings(row.words) - TARGET_FINDINGS), row.words),
-    ).preset
+    return min(ordered, key=lambda row: (abs(row.words - TARGET_WORDS), row.words)).preset
 
 
 def describe_age(seconds: float | None) -> str | None:

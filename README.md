@@ -30,9 +30,10 @@ more natural English than any test would, and reading one source keeps the whole
 thing explainable in three sentences. If it turns out you have too little there,
 the audit offers to read Codex, Cursor or your dictation history as well.
 
-**What is a good report?** About 200-300 mistakes, which is enough to show a
-habit rather than an accident. That is roughly two weeks of ordinary use. The
-audit works the period out for you and asks once before it starts.
+**What is a good report?** One that shows a habit repeating, not a one-off. That
+takes a few tens of thousands of words — roughly two weeks of ordinary use. The
+audit works the period out for you and asks once before it starts. How many
+mistakes that turns into depends on you, so it does not guess.
 
 ## Current status
 

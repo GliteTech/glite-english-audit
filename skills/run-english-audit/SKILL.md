@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 26
+**Version**: 27
 
 ## Goal
 
@@ -149,8 +149,7 @@ runtime; naming both is confusing and wrong.
    Offer that one window, with what it will find, and let them change it:
 
    ```text
-   You have enough writing for a good report from the last 2 weeks — about
-   47,000 words, roughly 190 mistakes, 20–40 minutes.
+   The last 2 weeks looks right — about 47,000 words, 20–40 minutes.
 
    Start with that, or pick a different period?
    ```
@@ -160,9 +159,14 @@ runtime; naming both is confusing and wrong.
    arithmetic and says which it picked. The table stays available for anyone who
    asks for a different period — show it then.
 
-   Say the number of mistakes, not the token count. It is the only number in the
-   estimate that describes what they get rather than what it costs, and it is
-   what makes "2 weeks" mean something.
+   Say the words and the time. Not the token count, which describes what the run
+   costs us rather than what they get, and not a predicted number of mistakes.
+
+   The recommendation is sized from a measured rate, but that rate came from one
+   person's writing, and error rates differ enormously between people. Turning it
+   back into "roughly 190 mistakes" would dress a single sample up as a
+   prediction about someone nobody has measured. Words are what discovery counts.
+   Let the report say how many mistakes there were.
 
    When even the longest window falls short of a useful report, say so and offer
    the other applications then — and only then:
