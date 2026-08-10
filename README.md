@@ -8,13 +8,11 @@ every line before any of it leaves your machine.
 
 ## How it works
 
-1. **You run it in Claude Code.** One command: `/audit`.
-2. **It reads your Claude Code history** and finds the English mistakes in what
-   you wrote. It picks a period that gives a report worth reading — usually a
-   week or two — and asks you once before it starts.
-3. **You look at the list** on a local page, drop anything you would rather not
-   share, and send the rest to Glite for a full report. What goes is the list of
-   mistakes, with personal details already removed. Not your messages.
+1. **Run `/audit` in Claude Code.**
+2. **It reads your history and finds your mistakes.** It picks the period —
+   usually a week or two — and asks once before it starts.
+3. **You check the list, then send it** for a full report. The list of mistakes,
+   not your messages.
 
 ## Questions people ask first
 
