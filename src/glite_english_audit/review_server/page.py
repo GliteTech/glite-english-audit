@@ -48,11 +48,6 @@ they click, and it is the last one that should need a second pass.
 DOWNLOAD_FALLBACK_TEXT = (
     "You do not have to create the report now. Download the same package and upload it later."
 )
-EXCLUSION_EXPLANATION_TEXT = (
-    "Uncheck any example you do not want to share. Glite then receives no part "
-    "of that record. The count next to it goes up by one, and that count holds "
-    "no words from what you excluded."
-)
 EXAMPLE_ORIGIN_LABELS: dict[ExampleType, str] = {
     ExampleType.VERBATIM: "your words",
     ExampleType.REDACTED: "your words, changed",
@@ -77,6 +72,20 @@ REPORT_REQUIREMENTS_TEXT = (
     "Check both confirmations to create your report. At least one record must stay included."
 )
 SKIP_LINK_TEXT = "Skip to the send and download buttons"
+ACTION_BAR_LINK_TEXT = "Create report or download"
+"""The way out of a list that can be long enough to hide its own ending.
+
+Thirty-six records is several screens, and the only thing a reader can actually
+do sits under all of them. Nothing on the first screen said so, so the page
+looked like a list to read rather than a decision to make.
+
+The bar sticks to the bottom of the viewport carrying the count that already
+changes as boxes are ticked, so the number is visible while the ticking happens
+rather than only once the reader arrives at the end.
+
+It links rather than submits. Sending needs two confirmations that live in the
+actions section, and a button here would either duplicate them or bypass them --
+one is a maintenance trap and the other is a consent bug."""
 
 _SKIP_TARGET_ID = "send-section"
 
@@ -263,6 +272,36 @@ input[type="checkbox"] {
   margin: 0.6rem 0 0;
   accent-color: var(--action);
   flex-shrink: 0;
+}
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 1.5rem -1.25rem 0;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg);
+  border-top: 1px solid var(--line-strong);
+}
+.action-bar .count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.action-bar a {
+  color: var(--action-text);
+  font-weight: 650;
+  text-decoration: none;
+  border: 1px solid var(--action-text);
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+}
+.action-bar a:hover { background: var(--well-hover); }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }
 .will-send { margin-top: 0.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .package-disclosure { margin-top: 2rem; }
@@ -754,19 +793,28 @@ def _record_row(index: int, total: int, entry: ReviewedRecord) -> str:
     )
 
 
+def _analyzed(analyzed: int, eligible: int) -> str:
+    """ "2,183" when everything was read, "1,900 of 2,183" when some was not.
+
+    The pair was always printed, so the ordinary run -- where the audit reads
+    everything it found -- said "2183 of 2183". A number repeated against itself
+    reads as a ratio worth checking and turns out to carry no information, which
+    costs the reader more than the shortfall it exists to disclose.
+    """
+    if analyzed >= eligible:
+        return f"{analyzed:,}"
+    return f"{analyzed:,} of {eligible:,}"
+
+
 def _summary_section(state: ReviewSessionState) -> str:
     counts = state.counts
     rows = (
         _definition_row(
-            "Words analyzed",
-            f"{counts.analyzed_english_words} of {counts.eligible_english_words}",
+            "Your words checked",
+            _analyzed(counts.analyzed_english_words, counts.eligible_english_words),
         )
-        + _definition_row(
-            "Messages analyzed",
-            f"{counts.analyzed_utterances} of {counts.eligible_utterances}",
-        )
-        + _definition_row("Verified mistakes", str(counts.verified_total_mistakes))
-        + _definition_row("Withheld for privacy", str(counts.withheld_for_privacy))
+        + _definition_row("Mistakes found", str(counts.verified_total_mistakes))
+        + _definition_row("Held back for privacy", str(counts.withheld_for_privacy))
         + _definition_row(
             "Excluded by you",
             str(counts.withheld_by_user),
@@ -790,14 +838,15 @@ def _records_section(state: ReviewSessionState) -> str:
     return (
         '<section aria-labelledby="records-heading">'
         f'<h2 id="records-heading">Mistakes to include ({total})</h2>'
-        "<p>Each checked sentence is exactly what Glite will receive. Some are your own "
-        "words, some are your words with an identifying detail replaced by an unrelated "
-        "one, and some are invented. Each sentence says which it is. Use the info button "
-        "to see the complete record.</p>"
-        f"<p>{_escape(EXCLUSION_EXPLANATION_TEXT)}</p>"
+        "<p>Each sentence below is exactly what Glite would receive, and each says "
+        "whether it is your words, your words with a detail changed, or invented. "
+        "Unchecking one sends no part of it.</p>"
         f'<ul class="records" role="list">{rows}</ul>'
-        '<p class="will-send" id="will-send" aria-live="polite" aria-atomic="true">'
+        '<div class="action-bar">'
+        '<p class="count will-send" id="will-send" aria-live="polite" aria-atomic="true">'
         f'<span id="will-send-count">{state.included_count}</span> of {total} selected.</p>'
+        f'<a id="action-bar-link" href="#{_SKIP_TARGET_ID}">{_escape(ACTION_BAR_LINK_TEXT)}</a>'
+        "</div>"
         "</section>"
     )
 
@@ -939,8 +988,8 @@ def render_page(
         f'<a class="skip-link" href="#{_SKIP_TARGET_ID}">{_escape(SKIP_LINK_TEXT)}</a>\n'
         "<main>\n"
         "<h1>Choose which mistakes to share</h1>\n"
-        '<p class="intro">Nothing has been sent. Review the checked examples below. '
-        "Only their privacy-safe records can go to Glite.</p>\n"
+        '<p class="intro">Nothing has been sent yet. Uncheck anything you would '
+        "rather keep, then create your report.</p>\n"
         + _summary_section(state)
         + _records_section(state)
         + _actions(state, capability, package_available=package_bytes is not None)

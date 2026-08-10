@@ -25,7 +25,6 @@ from glite_english_audit.artifacts.models import (
 )
 from glite_english_audit.review_server.page import (
     EXAMPLE_ORIGIN_LABELS,
-    EXCLUSION_EXPLANATION_TEXT,
     SKIP_LINK_TEXT,
     STORAGE_CONFIRMATION_TEXT,
     render_page,
@@ -352,21 +351,34 @@ def test_report_handoff_page_includes_unchecked_confirmations() -> None:
 
 def test_counts_summary_lines() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert "Words analyzed" in page
-    assert "1100 of 1200" in page
-    assert "Messages analyzed" in page
-    assert "80 of 90" in page
-    assert "Verified mistakes" in page
-    assert "Withheld for privacy" in page
+    assert "Your words checked" in page
+    # Some writing could not be read, so the shortfall is worth stating.
+    assert "1,100 of 1,200" in page
+    assert "Mistakes found" in page
+    assert "Held back for privacy" in page
+
+
+def test_a_complete_read_states_one_number_not_a_ratio_against_itself() -> None:
+    """The ordinary run read everything, and said "2183 of 2183".
+
+    A number repeated against itself reads as a ratio worth checking and turns
+    out to carry nothing, which costs more attention than the shortfall the pair
+    exists to disclose. The message count went entirely: it answered a question
+    nobody reviewing their own sentences is asking.
+    """
+    from glite_english_audit.review_server.page import _analyzed
+
+    assert _analyzed(2183, 2183) == "2,183"
+    assert _analyzed(1100, 1200) == "1,100 of 1,200"
 
 
 def test_exclusion_semantics_are_explained() -> None:
     page = render_page(_state(), _download_only(), _FAKE_TOKEN)
-    assert EXCLUSION_EXPLANATION_TEXT in page
-    # What the sentence must establish, however it is worded: nothing of an
-    # excluded record is sent, and the count that replaces it carries no words.
-    assert "no part" in EXCLUSION_EXPLANATION_TEXT
-    assert "no words" in EXCLUSION_EXPLANATION_TEXT
+    # Whatever the wording, the page must say that unchecking sends nothing of
+    # that record. It is one line in the records preamble now rather than a
+    # paragraph of its own -- three blocks of rules stood between the reader and
+    # the first record they were meant to judge.
+    assert "sends no part of it" in page
 
 
 def test_will_send_line_shows_included_count() -> None:
@@ -779,6 +791,7 @@ def _focus_order(page: str) -> list[str]:
         'class="skip-link"': "skip",
         'class="record-toggle"': "record",
         'class="record-info"': "info",
+        'id="action-bar-link"': "action-bar",
         'id="package-heading"': "package-toggle",
         'id="package-view"': "package",
         'id="adult-confirmed"': "adult",
@@ -810,6 +823,9 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "info",
         "record",
         "info",
+        # The bar sits after the list and before the confirmations, which is
+        # where a reader who has finished ticking wants to go next.
+        "action-bar",
         "adult",
         "storage",
         "report",
@@ -824,6 +840,7 @@ def test_focus_order_runs_records_then_confirmations_then_actions() -> None:
         "info",
         "record",
         "info",
+        "action-bar",
         "adult",
         "storage",
         "report",
