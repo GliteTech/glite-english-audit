@@ -51,3 +51,41 @@ def test_it_points_at_the_canonical_skill_not_a_generated_wrapper() -> None:
     assert "skills/run-english-audit/SKILL.md" in body
     for wrapper_dir in (".claude/skills", ".codex/skills"):
         assert wrapper_dir not in body, f"/audit must not route through {wrapper_dir}"
+
+
+def test_the_command_does_not_restate_the_procedure() -> None:
+    """A launcher that lists the steps will drift from them, and did.
+
+    The first version described "the two consent moments, discovery, selection,
+    preflight, the five steps a-e". Within a day the flow had one setup consent,
+    no selection question and no preflight step, and every one of those words was
+    false -- while the existing guard still passed, because it only checks that
+    the path it points at resolves.
+
+    Re-syncing the list would buy one day. Not having a list is the fix: the
+    skill is the only description of the skill, and the command says where it is.
+    """
+    body = _body().lower()
+    # Names of things the procedure has had, or may have again. A launcher that
+    # mentions any of them is enumerating a flow it does not own.
+    procedural = (
+        "consent moment",
+        "preflight",
+        "selection",
+        "discovery",
+        "step a",
+        "steps a-e",
+        "steps a–e",
+        "review page",
+        "resume check",
+    )
+    named = [word for word in procedural if word in body]
+    assert not named, (
+        f"the command restates the procedure: {named}. "
+        "Say what it starts and where the procedure lives; do not list it."
+    )
+
+
+def test_the_command_stays_short() -> None:
+    """Length is how the enumeration got in. Sixteen lines is generous for a launcher."""
+    assert len(_body().splitlines()) <= 16
