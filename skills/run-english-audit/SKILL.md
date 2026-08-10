@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 21
+**Version**: 22
 
 ## Goal
 
@@ -647,6 +647,21 @@ runtime; naming both is confusing and wrong.
     disclosed-uses confirmation, both unchecked by default). Report the final
     outcome: sent directly, or downloaded for manual upload, with the withheld-count
     explanation; or the no-records outcome.
+
+    Then end the run:
+    `uv run python -m glite_english_audit.pipeline.complete_run --run-id <run-id>
+    --outcome <completed|completed-with-exclusions>`, taking
+    `completed-with-exclusions` when the user withheld any record. This is what
+    deletes their sentences, and until it exists a run is not over.
+
+    Run it once the user has sent or downloaded, and not before. Nothing else
+    advances a run past `review`, so a run left there keeps the learner's own
+    text on disk until the thirty-day sweep — while step 13 promises it goes
+    immediately — and the launcher goes on offering a finished audit as
+    unfinished, because in the run store it is.
+
+    Do not run it when they close the page without deciding. That run is
+    genuinely unfinished and resume is what it is for.
 13. Retention. When the run completes, immediately delete extracted source text,
     eligible-utterance corpora, private findings, private structured mistakes,
     sensitive diagnostics, and remaining snapshots. Keep only the privacy-safe final
