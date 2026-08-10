@@ -105,6 +105,7 @@ PRODUCER_VERSION: str = "0.1.0"
 # start_run accepts, so the agent can pass the answer straight to --period.
 PRESET_LABELS: dict[str, str] = {
     "last-7-days": "Last 7 days",
+    "last-14-days": "Last 2 weeks",
     "last-30-days": "Last 30 days",
     "last-3-months": "Last 3 months",
     "last-year": "Last year",
@@ -324,6 +325,7 @@ class EstimateReport(BaseModel):
     session: SessionModel
     allowance: AllowanceReport
     presets: tuple[PresetRow, ...]
+    recommended: str | None
     notes: tuple[str, ...]
     table: str
 
@@ -629,6 +631,51 @@ def describe_session(steps: RuntimeSteps) -> SessionModel:
     )
 
 
+# A report is worth reading when it shows a habit repeating, not when it shows
+# one sentence. Measured on a complete run: 10.5 findings per 1,000 words the
+# learner actually wrote, and 39% of the words in a message survive authorship
+# judgment. 200 findings is therefore about 19,000 authored words, or about
+# 49,000 collected ones.
+FINDINGS_PER_1000_AUTHORED_WORDS: float = 10.5
+MEASURED_AUTHORSHIP_SHARE: float = 0.39
+TARGET_FINDINGS: int = 250
+"""The middle of a good report, not a floor to clear.
+
+200-300 findings shows a habit repeating often enough to be worth changing.
+Aiming at the middle matters more than it sounds: on a real machine the
+two-week window came to 193 findings and the thirty-day window to 445, so a
+rule that took the shortest window clearing 200 would have doubled the run to
+overshoot the band -- paying twice the time and tokens for findings that mostly
+repeat what the shorter window already showed.
+"""
+
+
+def expected_findings(words: int) -> int:
+    """Roughly how many findings a window of ``words`` collected words yields."""
+    return round(words * MEASURED_AUTHORSHIP_SHARE * FINDINGS_PER_1000_AUTHORED_WORDS / 1000)
+
+
+def recommend_preset(rows: Sequence[PresetRow]) -> str | None:
+    """The window whose expected findings land nearest a good report.
+
+    One answer, not a menu. A learner has no way to judge how many weeks of
+    their own writing makes a good report, so the product works it out, says
+    which it picked, and leaves changing it one sentence away.
+
+    Ties go to the shorter window: equal expected value for less of the
+    learner's afternoon. On a machine with little history every window falls
+    short and the longest wins, which is the honest answer there -- read what
+    exists and say the report will be thin.
+    """
+    ordered = [row for row in rows if row.words > 0]
+    if not ordered:
+        return None
+    return min(
+        ordered,
+        key=lambda row: (abs(expected_findings(row.words) - TARGET_FINDINGS), row.words),
+    ).preset
+
+
 def describe_age(seconds: float | None) -> str | None:
     """How long ago the host refreshed its figure, in words a user reads.
 
@@ -768,6 +815,7 @@ def build_report(
         session=session,
         allowance=allowance,
         presets=tuple(rows),
+        recommended=recommend_preset(distinct_rows(rows)),
         notes=notes,
         table=render_table(rows, notes=notes),
     )

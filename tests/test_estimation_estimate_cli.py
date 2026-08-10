@@ -184,14 +184,21 @@ def test_words_never_shrink_as_the_window_grows(tmp_path: Path) -> None:
 
 
 def test_everything_matches_the_discovered_totals(tmp_path: Path) -> None:
+    """ "Everything" means every message of the sources the run will read.
+
+    Which is Claude Code alone by default, so the Codex record here is present
+    to prove it is *not* counted -- the estimate must describe the run that will
+    happen, not the machine.
+    """
+    claude = _record("claude_code", "Claude Code 1")
     records = [
-        _record("claude_code", "Claude Code 1"),
+        claude,
         _record("codex", "Codex 1", messages=400, first=_NOW - timedelta(days=20)),
     ]
     report = _report(tmp_path, records)
     everything = next(row for row in report.presets if row.preset == "everything")
-    assert everything.words == sum(r.candidate_words for r in records)
-    assert everything.utterances == sum(r.candidate_messages for r in records)
+    assert everything.words == claude.candidate_words
+    assert everything.utterances == claude.candidate_messages
 
 
 def test_a_short_window_takes_its_share_of_a_long_history(tmp_path: Path) -> None:

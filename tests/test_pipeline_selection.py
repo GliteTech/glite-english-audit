@@ -74,26 +74,53 @@ def _inventory() -> PrivateInventory:
     )
 
 
-def test_default_takes_stable_sources_with_content() -> None:
+def test_default_reads_claude_code_and_nothing_else() -> None:
+    """An audit reads one source, and the learner is not asked which.
+
+    The question that used to be here -- which of these applications should I
+    read? -- asked them to weigh privacy against volume with no way to judge
+    either, and every app after the first adds setup and explanation while
+    adding nothing a report needs.
+    """
     selected = resolve_selection(_inventory())
-    assert selected == ["claude_code-Claude-Code-1", "claude_code-Claude-Code-4", "codex-Codex-1"]
+    assert selected == ["claude_code-Claude-Code-1", "claude_code-Claude-Code-4"]
 
 
-def test_exclude_a_whole_app_by_the_name_the_user_saw() -> None:
-    selected = resolve_selection(_inventory(), exclude_sources=["Claude Code"])
-    assert selected == ["codex-Codex-1"]
+def test_a_machine_without_claude_code_still_audits() -> None:
+    """Falling back beats refusing: read what is there rather than nothing."""
+    inventory = _inventory()
+    without = inventory.model_copy(
+        update={"records": [r for r in inventory.records if r.adapter_id != "claude_code"]}
+    )
+    assert resolve_selection(without) == ["codex-Codex-1"]
 
 
-def test_exclude_a_whole_app_by_its_public_id() -> None:
+def test_another_app_is_one_flag_away() -> None:
+    """The other adapters stay implemented, and stay reachable."""
+    selected = resolve_selection(_inventory(), include_sources=["Codex"])
+    assert "codex-Codex-1" in selected
+
+
+def test_excluding_the_only_default_source_selects_nothing() -> None:
+    """Exclusion subtracts; it does not silently substitute another app.
+
+    Dropping Claude Code leaves an empty selection, and `start_run` refuses an
+    empty selection by name. Quietly auditing Codex instead would audit a source
+    the learner never chose and the preflight never priced.
+    """
+    assert resolve_selection(_inventory(), exclude_sources=["Claude Code"]) == []
+
+
+def test_excluding_an_app_that_was_not_selected_changes_nothing() -> None:
     assert resolve_selection(_inventory(), exclude_sources=["codex"]) == [
         "claude_code-Claude-Code-1",
         "claude_code-Claude-Code-4",
     ]
 
 
-def test_exclude_one_instance_by_its_opaque_label() -> None:
+def test_exclude_one_project_by_its_opaque_label() -> None:
     selected = resolve_selection(_inventory(), exclude_labels=["Claude Code 4"])
-    assert selected == ["claude_code-Claude-Code-1", "codex-Codex-1"]
+    assert selected == ["claude_code-Claude-Code-1"]
 
 
 def test_include_a_beta_app_the_user_asked_for() -> None:
@@ -104,7 +131,6 @@ def test_include_a_beta_app_the_user_asked_for() -> None:
 def test_labels_and_names_are_case_insensitive() -> None:
     assert resolve_selection(_inventory(), exclude_labels=["claude code 4"]) == [
         "claude_code-Claude-Code-1",
-        "codex-Codex-1",
     ]
     assert resolve_selection(_inventory(), exclude_sources=["CURSOR"]) == resolve_selection(
         _inventory()
