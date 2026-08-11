@@ -214,6 +214,14 @@ _DEFINITIONS: tuple[DiagnosticDefinition, ...] = (
         severity=Severity.WARNING,
         description="One adapter failed during discovery; the remaining sources continued.",
     ),
+    DiagnosticDefinition(
+        code="SOURCE_HISTORY_CHANGED",
+        severity=Severity.WARNING,
+        description=(
+            "The source held a different number of messages at extraction than at "
+            "discovery, because it is live and kept being written to."
+        ),
+    ),
     # Step-d findings checked against the strict non-native threshold.
     DiagnosticDefinition(
         code="FINDING_NATIVE_PLAUSIBLE",
