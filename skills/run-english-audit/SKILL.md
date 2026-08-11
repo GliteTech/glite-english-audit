@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 28
+**Version**: 29
 
 ## Goal
 
@@ -75,13 +75,18 @@ runtime; naming both is confusing and wrong.
 ## Steps
 
 1. Greet first, before any tool call. One or two short sentences: that you will run
-   an English audit on the English they wrote or dictated on this computer, and
-   that you are first checking whether an earlier audit was left unfinished. Then
+   an English audit on the English they wrote or dictated on this computer. Then
    do the resume check. Everything this skill does afterwards is announced before
    it happens, never discovered by the user from a spinner.
 
+   The resume check is not announced, because on a first run it has nothing to
+   report and the announcement is the only trace of it the user ever sees. A
+   sentence about looking for something, followed by a sentence about not
+   finding it, spends the opening of the product on an errand that concerned
+   nobody. Announce it only when it found something, which is step 2's job.
+
    Do: "I'll run an English audit on what you wrote in <runtime> on this
-   computer. First, let me check whether you have an unfinished audit to continue."
+   computer."
    Don't: opening with a directory listing, a git command, or reading
    specifications, so the user's first sight of the product is machinery.
 
@@ -106,9 +111,11 @@ runtime; naming both is confusing and wrong.
    end with "start a new run", so mention such a run only if the user asks why
    their earlier audit is gone.
 
-   `offerable` is zero on most first runs; then say there is nothing to continue
-   and go on. Say it in one clause and move — "No unfinished audit to continue"
-   is the whole of it.
+   `offerable` is zero on most first runs. Then say nothing about it at all and
+   go straight to step 3. There is no news in the absence of an unfinished
+   audit: the user did not ask, nothing changed, and reporting it makes the
+   product's bookkeeping the first thing they read. Mention the check only when
+   it has something to offer, or when they ask why an earlier audit is gone.
 
    Put `detail` in your own words. It is written for this file, not for the
    user: "Changed since the checkpoint: artifact schema version. Checkpointed
@@ -123,8 +130,8 @@ runtime; naming both is confusing and wrong.
 
    ```text
    I'll read your <runtime> history and find the English mistakes in what you
-   wrote. Nothing goes to Glite except the list of mistakes, and you see it
-   first.
+   wrote. These are messages you already typed into <runtime>, so reading them
+   back does not show them to anyone new.
    ```
    Then ask, plainly: may I read your <runtime> history?
 

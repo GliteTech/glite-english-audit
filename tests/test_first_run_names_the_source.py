@@ -91,12 +91,31 @@ def test_the_opening_does_not_offer_the_other_applications() -> None:
         assert other not in opening, f"the opening names {other}"
 
 
-def test_the_sentence_still_says_what_leaves_the_machine() -> None:
-    """Naming the source must not crowd out the limit on where it goes."""
+def test_the_sentence_says_why_reading_it_back_is_not_a_new_disclosure() -> None:
+    """The consent moment must answer the question being asked at it.
+
+    It used to promise "nothing goes to Glite except the list of mistakes, and
+    you see it first" -- true, and about a decision three steps away. What is
+    being asked here is whether the audit may read the history at all, and the
+    answer that matters is that the reader already has it. Glite is not a party
+    to this step; it gets its own question at the review page, against a list
+    the user can see.
+    """
     # The skill wraps its prose, so compare on collapsed whitespace.
     body = " ".join(_body().lower().split())
-    assert "nothing goes to glite except the list of mistakes" in body
-    assert "you see it first" in body
+    assert "you already typed into <runtime>" in body
+    assert "does not show them to anyone new" in body
+
+
+def test_the_opening_does_not_narrate_the_resume_check() -> None:
+    """On a first run it finds nothing, and saying so is the only trace of it.
+
+    A sentence about looking, followed by a sentence about not finding, spent
+    the opening of the product on an errand that concerned nobody.
+    """
+    body = " ".join(_body().lower().split())
+    assert "first, let me check whether you have an unfinished audit" not in body
+    assert "no unfinished audit to continue" not in body
 
 
 def test_the_consent_line_does_not_overstate_the_privacy() -> None:
