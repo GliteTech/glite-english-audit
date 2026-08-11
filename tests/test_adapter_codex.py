@@ -29,6 +29,7 @@ from glite_english_audit.artifacts.enums import (
     TextStatus,
 )
 from glite_english_audit.artifacts.models import NormalizedUtterance, SourceInstanceRecord
+from glite_english_audit.diagnostics.codes import Severity
 from glite_english_audit.discovery.base import DiscoveryContext, DiscoveryOutcome
 from glite_english_audit.discovery.parallel import WORKER_COUNT_ENV
 from glite_english_audit.verification.fixture_policy import load_fixture_meta
@@ -368,8 +369,46 @@ def test_verify_clean_and_broken(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
     short = adapter.verify(record, utterances[:-1])
     assert any(
-        diagnostic.code == "CARDINALITY_MISMATCH" and "discovery counted" in diagnostic.message
+        diagnostic.code == "SOURCE_HISTORY_CHANGED" and "discovery counted" in diagnostic.message
         for diagnostic in short
+    )
+    assert all(diagnostic.severity is not Severity.ERROR for diagnostic in short)
+
+
+def test_a_history_that_grew_since_discovery_does_not_exclude_the_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The bug that made the first real Codex run collect nothing.
+
+    Discovery counts one read of a file the agent is still writing to;
+    extraction counts another. Under Codex the audit runs inside the session
+    that is appending to the very history being counted, so the two counts
+    differ almost by definition. That difference used to be
+    CARDINALITY_MISMATCH, an ERROR, and `collect` excludes any instance whose
+    verify reports an error.
+
+    Claude Code hid it: one instance per project, 51 of them on the machine
+    where this was found, so losing the live one cost a fraction of a run and
+    nobody noticed. Codex has exactly one instance for the entire history, so
+    the same race excluded everything and the run reported no sessions and no
+    mistakes.
+
+    Reproduced before the fix by adding 1 to the discovered count: collect
+    returned `"sessions": 0` with `excluded_instances` naming
+    CARDINALITY_MISMATCH.
+    """
+    outcome = _discover_success(monkeypatch)
+    record = _by_label(outcome)["Codex 1"]
+    utterances = _snapshot_and_extract(outcome, record, tmp_path / "snap")
+    adapter = CodexAdapter()
+
+    grown = record.model_copy(update={"candidate_messages": record.candidate_messages + 1})
+
+    findings = adapter.verify(grown, utterances)
+
+    assert any(diagnostic.code == "SOURCE_HISTORY_CHANGED" for diagnostic in findings)
+    assert all(diagnostic.severity is not Severity.ERROR for diagnostic in findings), (
+        "a live history changing under the audit must not exclude the only source"
     )
 
 

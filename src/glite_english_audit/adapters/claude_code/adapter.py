@@ -615,7 +615,26 @@ class ClaudeCodeAdapter:
         if len(utterances) != instance.candidate_messages:
             diagnostics.append(
                 Diagnostic.from_code(
-                    "CARDINALITY_MISMATCH",
+                    # Not an error, and not the adapter's fault. Discovery
+                    # counted one read of a file the user's agent is still
+                    # writing to; extraction counted another. Under Codex the
+                    # audit runs *inside* the session that is appending to the
+                    # very history being counted, so a difference is the normal
+                    # case rather than the suspicious one.
+                    #
+                    # It used to be CARDINALITY_MISMATCH, an ERROR, which
+                    # excluded the instance. Claude Code survived that because
+                    # it has one instance per project -- 51 on this machine --
+                    # so losing the live one cost a fraction of the run and was
+                    # never noticed. Codex has exactly one instance for the
+                    # whole history, so the same race excluded everything and
+                    # the run collected nothing.
+                    #
+                    # What the check was really for -- an adapter dropping or
+                    # duplicating records within a single read -- is the
+                    # duplicate-id CARDINALITY_MISMATCH above, which compares a
+                    # read against itself and stays an error.
+                    "SOURCE_HISTORY_CHANGED",
                     f"extracted {len(utterances)} utterances but discovery counted "
                     f"{instance.candidate_messages} candidate messages",
                     item_ref=instance.instance_key,
