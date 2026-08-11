@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from glite_english_audit.artifacts.enums import AgentRuntime
 from glite_english_audit.diagnostics.codes import Diagnostic
 
 REQUIRED_SECTIONS = (
@@ -33,6 +34,22 @@ and stricter than the specification for a hypothetical read-only skill.
 
 EMPHASIS_BUDGET = 5
 WRAPPER_DIRS = (".claude/skills", ".codex/skills")
+
+WRAPPER_RUNTIMES: dict[str, str] = {
+    ".claude/skills": AgentRuntime.CLAUDE_CODE.value,
+    ".codex/skills": AgentRuntime.CODEX.value,
+}
+"""Which runtime each wrapper directory belongs to.
+
+The host picks the directory; the repository only fills it. Claude Code reads
+``.claude/skills`` and Codex reads ``.codex/skills``, so a wrapper found in one
+of them was loaded by that host and by no other. That makes the runtime a fact
+about who did the reading rather than a guess from what is installed -- and
+every other signal available is a guess. This machine has a populated
+``~/.codex`` tree and Codex three times over on PATH while running Claude Code;
+either would have answered "codex" and been wrong.
+"""
+
 
 _VERSION_PATTERN = re.compile(r"^\*\*Version\*\*: (\d+)$", re.MULTILINE)
 _TITLE_PATTERN = re.compile(r"^# ", re.MULTILINE)
@@ -232,21 +249,29 @@ def check_skill(parsed: ParsedSkill, repo_root: Path) -> list[Diagnostic]:
     return diagnostics
 
 
-def wrapper_content(parsed: ParsedSkill) -> str:
-    """The exact expected content of a generated discovery wrapper."""
+def wrapper_content(parsed: ParsedSkill, wrapper_dir: str) -> str:
+    """The exact expected content of a generated discovery wrapper.
+
+    The runtime sentence is the whole reason wrappers differ per host. It states
+    a fact, not an instruction: the canonical skill owns what to do with the
+    runtime, so what runs stays inside the file whose ``**Version**`` is
+    fingerprinted. A rule living only in a wrapper would run unattested.
+    """
+    runtime = WRAPPER_RUNTIMES[wrapper_dir]
     return (
         f"---\n{parsed.frontmatter_text}\n---\n\n"
         f"# {parsed.name} wrapper\n\n"
         "Generated wrapper. Do not edit. Read and follow the canonical skill instructions in\n"
-        f"`skills/{parsed.name}/SKILL.md` exactly.\n"
+        f"`skills/{parsed.name}/SKILL.md` exactly.\n\n"
+        f"You loaded this from `{wrapper_dir}`, so the active runtime is `{runtime}`.\n"
     )
 
 
 def check_wrappers(parsed: ParsedSkill, repo_root: Path) -> list[Diagnostic]:
     """Byte-exact wrapper consistency for one skill."""
     diagnostics: list[Diagnostic] = []
-    expected = wrapper_content(parsed)
     for wrapper_dir in WRAPPER_DIRS:
+        expected = wrapper_content(parsed, wrapper_dir)
         wrapper_path = repo_root / wrapper_dir / parsed.name / "SKILL.md"
         if not wrapper_path.is_file():
             diagnostics.append(

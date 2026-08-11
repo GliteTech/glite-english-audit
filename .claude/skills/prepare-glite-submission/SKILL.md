@@ -9,3 +9,5 @@ withheld. Use after step e is promoted, as the last thing an audit does."
 
 Generated wrapper. Do not edit. Read and follow the canonical skill instructions in
 `skills/prepare-glite-submission/SKILL.md` exactly.
+
+You loaded this from `.claude/skills`, so the active runtime is `claude_code`.

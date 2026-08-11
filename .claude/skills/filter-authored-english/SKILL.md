@@ -7,3 +7,5 @@ description: "Judge, utterance by utterance, which spans of one session the lear
 
 Generated wrapper. Do not edit. Read and follow the canonical skill instructions in
 `skills/filter-authored-english/SKILL.md` exactly.
+
+You loaded this from `.claude/skills`, so the active runtime is `claude_code`.

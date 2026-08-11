@@ -29,8 +29,8 @@ def generate_all(root: Path) -> list[Path]:
             details = "; ".join(d.message for d in diagnostics)
             msg = f"cannot generate wrappers for unparsable skill {directory.name!r}: {details}"
             raise ValueError(msg)
-        content = wrapper_content(parsed)
         for wrapper_dir in WRAPPER_DIRS:
+            content = wrapper_content(parsed, wrapper_dir)
             wrapper_path = root / wrapper_dir / parsed.name / "SKILL.md"
             wrapper_path.parent.mkdir(parents=True, exist_ok=True)
             wrapper_path.write_text(content, encoding="utf-8")

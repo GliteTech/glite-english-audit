@@ -9,3 +9,5 @@ stability. Use during audit setup, before source selection."
 
 Generated wrapper. Do not edit. Read and follow the canonical skill instructions in
 `skills/discover-english-sources/SKILL.md` exactly.
+
+You loaded this from `.codex/skills`, so the active runtime is `codex`.

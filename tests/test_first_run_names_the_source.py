@@ -12,8 +12,9 @@ applications, and it still says the limit that makes it safe to agree to.
 
 import re
 
+from glite_english_audit.artifacts.enums import AgentRuntime
 from glite_english_audit.paths import repo_root
-from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTER
+from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTERS
 
 _SKILL = repo_root() / "skills" / "run-english-audit" / "SKILL.md"
 
@@ -32,7 +33,8 @@ def test_the_named_source_is_the_one_the_code_selects() -> None:
     A sentence promising Claude Code above a default that reads nine apps is
     the defect this file exists to prevent, in the direction that matters.
     """
-    assert PRIMARY_ADAPTER == "claude_code"
+    assert PRIMARY_ADAPTERS[AgentRuntime.CLAUDE_CODE] == "claude_code"
+    assert PRIMARY_ADAPTERS[AgentRuntime.CODEX] == "codex"
 
 
 def test_the_opening_does_not_offer_the_other_applications() -> None:

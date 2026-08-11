@@ -51,6 +51,7 @@ from glite_english_audit.runtime_session import (
     SESSION_EFFORT_KEY,
     SESSION_MODEL_KEY,
     observed_model_ids,
+    require_consistent_runtime,
 )
 from glite_english_audit.verification.skills import skill_versions
 
@@ -78,22 +79,37 @@ between the seven-day and thirty-day options -- so the product kept offering a
 period that was too small beside one that was four times too big.
 """
 
-PRIMARY_ADAPTER = "claude_code"
-"""The one source an audit reads unless the learner asks for more.
+PRIMARY_ADAPTERS: dict[AgentRuntime, str] = {
+    AgentRuntime.CLAUDE_CODE: "claude_code",
+    AgentRuntime.CODEX: "codex",
+}
+"""The one source an audit reads, per runtime, unless the learner asks for more.
 
 The product used to open by discovering nine applications and asking which to
 audit. That question cost the user a decision they had no basis to make, and
 every app after the first adds setup, privacy surface and explanation while
 adding nothing a report needs -- the history of the tool they are already
-sitting in is the same English, already enough. Reading only Claude Code also
-makes the privacy answer trivially true rather than carefully argued: the
-messages were typed into Claude Code, so Claude Code reading them back
-discloses them to nobody new.
+sitting in is the same English, already enough.
+
+Reading the runtime's own history is also what makes the privacy answer
+trivially true rather than carefully argued: the messages were typed into the
+agent that is now reading them back, so reading them back discloses them to
+nobody new. That argument is only sound while source and runtime are the same
+product, which is why this is a mapping and not a constant.
+
+Written out rather than derived from ``runtime.value``, even though the enum
+values happen to equal the adapter ids today. An identity function silently
+invents an adapter for any runtime added later; a mapping raises.
 
 The other adapters stay implemented and stay one flag away. They are offered
 when this one does not hold enough writing to be worth a report, which is the
 only moment their cost buys anything.
 """
+
+
+def primary_adapter(runtime: AgentRuntime) -> str:
+    """The adapter whose history belongs to ``runtime``."""
+    return PRIMARY_ADAPTERS[runtime]
 
 
 def resolve_period(preset: str, now: datetime) -> PeriodSelection:
@@ -123,6 +139,7 @@ def _matches_source(record: object, name: str) -> bool:
 def resolve_selection(
     inventory: PrivateInventory,
     *,
+    runtime: AgentRuntime,
     include_sources: list[str] | None = None,
     exclude_sources: list[str] | None = None,
     exclude_labels: list[str] | None = None,
@@ -136,7 +153,7 @@ def resolve_selection(
     Start from the default selection, add whole applications the user asked
     for, then remove whatever they excluded.
     """
-    selected = set(default_selection(inventory))
+    selected = set(default_selection(inventory, runtime=runtime))
     for name in include_sources or []:
         selected.update(
             record.instance_key
@@ -174,24 +191,37 @@ def eligible_instances(inventory: PrivateInventory) -> list[object]:
     ]
 
 
-def default_selection(inventory: PrivateInventory) -> list[str]:
-    """Claude Code, and nothing else, whenever Claude Code has anything.
+def default_selection(inventory: PrivateInventory, *, runtime: AgentRuntime) -> list[str]:
+    """The runtime's own history, and nothing else.
 
     An audit reads one source by default. The learner is told which one in a
     single sentence and asked nothing about it, because the question that used
     to be here -- which of these nine applications should I read? -- asked them
     to weigh privacy against volume with no way to judge either.
 
-    Falls back to every eligible instance when Claude Code holds nothing, so a
-    machine without it still audits rather than refusing. Anything else the
-    learner wants is reachable with ``--include-source``.
+    Returns nothing when the runtime's own history is empty, and deliberately
+    does not fall back to whatever else is on the machine. The fallback that
+    used to be here read every other eligible source, which under Claude Code
+    merely broadened the audit but under Codex would take the learner's
+    *Claude Code* writing and hand it to a different provider -- while the skill
+    said it was reading their Codex history. That breaks the one privacy claim
+    this product actually rests on. Returning nothing lets the caller refuse,
+    and the run skill already owns the better answer: it offers the other
+    sources when the primary is too thin. Being asked costs one question;
+    being wrong costs the argument.
+
+    ``runtime`` is keyword-only and has no default. A default here would be
+    read as "claude_code unless told otherwise", which is the exact bug this
+    function exists to remove, and it would be silent at the one call site that
+    matters.
     """
-    eligible = eligible_instances(inventory)
+    wanted = primary_adapter(runtime)
     primary = [
-        record for record in eligible if getattr(record, "adapter_id", "") == PRIMARY_ADAPTER
+        record
+        for record in eligible_instances(inventory)
+        if getattr(record, "adapter_id", "") == wanted
     ]
-    chosen = primary or eligible
-    return [record.instance_key for record in chosen]  # type: ignore[attr-defined]
+    return [record.instance_key for record in primary]  # type: ignore[attr-defined]
 
 
 def start_run(
@@ -220,6 +250,11 @@ def start_run(
     selection, and processing is what needs the agreement.
     """
     from glite_english_audit.artifacts.enums import OsEnvironment
+
+    # Before anything is written. The runtime is frozen into the manifest and
+    # decides which history is read for the life of the run, so a contradicted
+    # one has to stop here rather than surface as a puzzling report later.
+    require_consistent_runtime(runtime)
 
     moment = now if now is not None else utc_now()
     inventory = read_model(inventory_dir / INVENTORY_NAME, PrivateInventory)
@@ -267,6 +302,7 @@ def start_run(
         if instance_keys
         else resolve_selection(
             inventory,
+            runtime=runtime,
             include_sources=include_sources,
             exclude_sources=exclude_sources,
             exclude_labels=exclude_labels,

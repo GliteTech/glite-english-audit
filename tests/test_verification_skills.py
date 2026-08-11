@@ -249,7 +249,7 @@ def test_wrapper_content_shape(tmp_path: Path) -> None:
     directory = _write_skill(tmp_path, "demo-skill")
     parsed, _ = parse_skill(directory)
     assert parsed is not None
-    content = wrapper_content(parsed)
+    content = wrapper_content(parsed, ".claude/skills")
     assert content.startswith("---\n")
     assert "# demo-skill wrapper" in content
     assert "`skills/demo-skill/SKILL.md`" in content

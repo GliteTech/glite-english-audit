@@ -7,3 +7,5 @@ description: "Read one session's projected mistake records, judge each one as an
 
 Generated wrapper. Do not edit. Read and follow the canonical skill instructions in
 `skills/verify-mistake-confidentiality/SKILL.md` exactly.
+
+You loaded this from `.codex/skills`, so the active runtime is `codex`.
