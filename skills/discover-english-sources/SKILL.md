@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 18
+**Version**: 19
 
 ## Goal
 
@@ -23,6 +23,10 @@ Produce the source inventory and show the user an aggregate-only summary.
   conversation contains aggregate numbers and opaque labels only.
 
 ## Inputs
+- The active runtime: `claude_code` or `codex`. Take it from the wrapper that
+  loaded you -- `.claude/skills` means `claude_code`, `.codex/skills` means
+  `codex`, no wrapper means `claude_code`. `<runtime>` below is a placeholder
+  for its product name and must never reach the user unsubstituted.
 
 - The local machine. Discovery takes no arguments and needs no run: it comes
   before one exists.
@@ -65,21 +69,21 @@ agent sees only the derived `InstanceInventorySummary`.
    `start_run` adopts it. It is fast — a few seconds even on millions of words, because
    the scan runs across every core.
 3. Read the summary JSON. Do not open the private artifact or any source path.
-4. Report what was found in one or two sentences. Claude Code is the only source
+4. Report what was found in one or two sentences. `<runtime>` is the only source
    an audit reads, so there is no roll call and no table: say how much writing is
    there and over what span.
 
-   Do: "Found about 135,000 words you wrote in Claude Code, going back to July 4."
+   Do: "Found about 135,000 words you wrote in <runtime>, going back to July 4."
 
    Never write "adapter", "instance", "stability", "beta", "candidate count", or a
    diagnostic code at the user. Those are this project's internal words. An
    adapter is an app and an instance is a project; say that instead.
 
    Do not list the other applications, found or not. They are not part of this
-   audit unless Claude Code turns out to hold too little, and naming them earlier
+   audit unless `<runtime>` turns out to hold too little, and naming them earlier
    offers a decision that buys the learner nothing.
 
-   Say so plainly if Claude Code is found but unreadable — English exists here
+   Say so plainly if `<runtime>` is found but unreadable — English exists here
    that the audit cannot see, and that is worth a sentence with no error code in
    it.
 
@@ -103,7 +107,7 @@ agent sees only the derived `InstanceInventorySummary`.
    out from date ranges, the run can exceed them, and no price is available.
 
 6. Hand the recommendation back to the orchestration, which asks the one period
-   question. Do not ask about applications: an audit reads Claude Code, and the
+   question. Do not ask about applications: an audit reads `<runtime>`, and the
    other sources are offered only when this one holds too little for a report.
 
 7. Write the choice down, then say what you wrote.
@@ -123,10 +127,10 @@ agent sees only the derived `InstanceInventorySummary`.
    is not. Those are different, and a user who hears "saved" may reasonably think
    the audit has begun.
 
-   Do: "Saved: Claude Code only, last 7 days. That is remembered if you come back
+   Do: "Saved: <runtime> only, last 7 days. That is remembered if you come back
    later. No run exists yet — starting the audit is what creates one. Shall I
    start now?"
-   Don't: "Recorded: Claude Code only, last week." — if you did not run the
+   Don't: "Recorded: <runtime> only, last week." — if you did not run the
    command, nothing was recorded, and a user who comes back tomorrow finds their
    choice gone.
    Don't: "Your audit is set up." No run exists until `start_run`.

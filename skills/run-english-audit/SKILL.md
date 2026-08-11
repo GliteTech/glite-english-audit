@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 27
+**Version**: 28
 
 ## Goal
 
@@ -30,6 +30,13 @@ Run one complete English audit from the user's single command to a finished outc
 - The user command, normally "Run an English audit".
 - The active runtime: `claude_code` or `codex` (`AgentRuntime` in
   `src/glite_english_audit/artifacts/enums.py`). Exactly one is active per run.
+  Take it from the wrapper that loaded you: a wrapper under `.claude/skills`
+  states `claude_code`, one under `.codex/skills` states `codex`. The host chose
+  that directory, so the wrapper is stating who read it, which is the only
+  signal that describes the runtime rather than what is installed. If you were
+  invoked without a wrapper, it is `claude_code`. Pass it as `--runtime` to
+  every command below that takes one, and never infer it from what you find on
+  the machine -- a populated `~/.codex` means Codex is installed, not running.
 - The run store root from `runs_root()` in `src/glite_english_audit/paths.py`.
 - Any unfinished runs found under the run store.
 
@@ -53,6 +60,13 @@ Consult when the step at hand needs it:
 Runtime naming rule: name only the active runtime in every user-facing sentence. In
 Claude Code say "Claude Code". In Codex say "Codex". Do not name both in one run.
 
+`<runtime>` below is a placeholder, like `<run-id>` and `<preset>`. Substitute the
+active runtime's product name before the sentence reaches the user.
+
+Don't: "I'll read your <runtime> history." A placeholder that reaches the user is
+worse than the wrong product name, because it reveals the sentence was never read.
+The blocks below are copied verbatim more often than they are rewritten.
+
 Do: (running in Claude Code) "Selected text will be sent through Claude Code to your
 current AI provider for analysis."
 Don't: "Your text will be sent through Claude Code or Codex." The user runs one
@@ -66,7 +80,7 @@ runtime; naming both is confusing and wrong.
    do the resume check. Everything this skill does afterwards is announced before
    it happens, never discovered by the user from a spinner.
 
-   Do: "I'll run an English audit on what you wrote in Claude Code on this
+   Do: "I'll run an English audit on what you wrote in <runtime> on this
    computer. First, let me check whether you have an unfinished audit to continue."
    Don't: opening with a directory listing, a git command, or reading
    specifications, so the user's first sight of the product is machinery.
@@ -108,17 +122,17 @@ runtime; naming both is confusing and wrong.
 3. Say what it reads, and ask once. One message, then one question, then the scan.
 
    ```text
-   I'll read your Claude Code history and find the English mistakes in what you
+   I'll read your <runtime> history and find the English mistakes in what you
    wrote. Nothing goes to Glite except the list of mistakes, and you see it
    first.
    ```
-   Then ask, plainly: may I read your Claude Code history?
+   Then ask, plainly: may I read your <runtime> history?
 
    That is the whole of the setup consent. It used to be three questions plus a
    nine-app menu, and every one of them made the learner weigh something they had
-   no way to judge. Two facts justify collapsing it. An audit reads Claude Code
+   no way to judge. Two facts justify collapsing it. An audit reads the runtime's
    and nothing else, so "this computer" is now a scope they can picture. And the
-   messages were typed into Claude Code, so Claude Code reading them back
+   messages were typed into <runtime>, so <runtime> reading them back
    discloses them to nobody new — the provider already received them when they
    were written. That is why there is no separate question about sending text to
    a provider: there is no new recipient to consent to.
@@ -129,14 +143,14 @@ runtime; naming both is confusing and wrong.
 
    Don't: "nothing is copied anywhere". It is false and this file refutes it
    twice — the selected text is read by the provider behind this session, which
-   is the whole reason the Claude Code-only argument works. The true claim is
+   is the whole reason the one-source argument works. The true claim is
    narrower and stronger: Glite gets the list, nobody new gets the messages.
    Privacy text stays literal, and an absolute that the next paragraph
    contradicts costs more trust than the caveat would have.
 
    Record it once they agree, with `--local-scan-consent --provider-transfer-consent`
    on `start_run` in step 6 — one answer, honestly covering both, because reading
-   their Claude Code history and analysing it in Claude Code are the same act.
+   their <runtime> history and analysing it in <runtime> are the same act.
 
 4. Discovery. Follow `skills/discover-english-sources/SKILL.md`. It reads Claude
    Code only; the scan takes seconds and needs no announcement.
@@ -172,7 +186,7 @@ runtime; naming both is confusing and wrong.
    the other applications then — and only then:
 
    ```text
-   Claude Code only has about 6,000 words here, which makes a thin report. I can
+   <runtime> only has about 6,000 words here, which makes a thin report. I can
    also read Codex, Cursor, or your dictation history if you have them.
    ```
    That is the one moment another source buys anything. Adding it by default cost
@@ -195,13 +209,13 @@ runtime; naming both is confusing and wrong.
    and the only recipient of the text is the runtime the learner is sitting in.
 
    ```text
-   Reading 2 weeks of your Claude Code history now — about 20–40 minutes. It
+   Reading 2 weeks of your <runtime> history now — about 20–40 minutes. It
    runs on its own and goes quiet; you can walk away. I'll open a page at the
    end with everything I found.
    ```
    Say that it goes quiet, because it is the one thing about to happen that they
    cannot see coming. Say which model is doing the reading only if
-   `session.model` from the estimate is set and they ask — under Claude Code-only
+   `session.model` from the estimate is set and they ask — under one-source
    this is the session reading its own history, so it names no new party.
 
    Create the run with
@@ -214,7 +228,7 @@ runtime; naming both is confusing and wrong.
    --run-id <run-id> --moment preflight`.
 
    Both consent flags are honest from the single question in step 3. Reading
-   their Claude Code history and analysing it inside Claude Code are one act with
+   their <runtime> history and analysing it inside <runtime> are one act with
    one recipient, and that is what they agreed to. If they declined, create no
    run: there is nothing to record consent against.
 
@@ -419,7 +433,7 @@ runtime; naming both is confusing and wrong.
 
     Do:
     ```text
-    Collected 280 messages from 14 sessions in your Claude Code history.
+    Collected 280 messages from 14 sessions in your <runtime> history.
     ```
     Don't: 280 messages in three consecutive lines; a step announcing that it
     found no duplicates; "Run started. Step 1 of 5" ahead of a block that already
@@ -566,7 +580,7 @@ the run can exceed them, and no price is available. Token totals stay in the
 command's JSON for the preflight.
 
 The user picks Last 30 days, confirms provider transfer ("Send the selected text to
-your current AI provider through Claude Code?"), and confirms the preflight, which
+your current AI provider through <runtime>?"), and confirms the preflight, which
 named the model this session is running and said the estimates were measured on a
 different one. Processing runs without further questions.
 
