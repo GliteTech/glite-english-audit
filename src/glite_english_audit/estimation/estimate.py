@@ -766,6 +766,7 @@ def build_report(
     selected = set(
         resolve_selection(
             inventory,
+            runtime=runtime,
             include_sources=include_sources,
             exclude_sources=exclude_sources,
             exclude_labels=exclude_labels,

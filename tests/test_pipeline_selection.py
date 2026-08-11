@@ -82,22 +82,36 @@ def test_default_reads_claude_code_and_nothing_else() -> None:
     either, and every app after the first adds setup and explanation while
     adding nothing a report needs.
     """
-    selected = resolve_selection(_inventory())
+    selected = resolve_selection(_inventory(), runtime=AgentRuntime.CLAUDE_CODE)
     assert selected == ["claude_code-Claude-Code-1", "claude_code-Claude-Code-4"]
 
 
-def test_a_machine_without_claude_code_still_audits() -> None:
-    """Falling back beats refusing: read what is there rather than nothing."""
+def test_a_machine_without_the_runtimes_own_history_selects_nothing() -> None:
+    """The opposite of what this test used to assert, and deliberately.
+
+    It used to read every other eligible source when Claude Code held nothing,
+    on the reasoning that falling back beats refusing. That was defensible while
+    the runtime was always Claude Code. It stopped being defensible the moment
+    the runtime could be Codex: the same rule would take the learner's Claude
+    Code writing and hand it to a different provider, while the skill told them
+    it was reading their Codex history.
+
+    Selecting nothing lets `start_run` refuse by name, and the run skill already
+    owns the better answer -- it offers the other sources when the primary is
+    too thin to be worth a report.
+    """
     inventory = _inventory()
     without = inventory.model_copy(
         update={"records": [r for r in inventory.records if r.adapter_id != "claude_code"]}
     )
-    assert resolve_selection(without) == ["codex-Codex-1"]
+    assert resolve_selection(without, runtime=AgentRuntime.CLAUDE_CODE) == []
 
 
 def test_another_app_is_one_flag_away() -> None:
     """The other adapters stay implemented, and stay reachable."""
-    selected = resolve_selection(_inventory(), include_sources=["Codex"])
+    selected = resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, include_sources=["Codex"]
+    )
     assert "codex-Codex-1" in selected
 
 
@@ -108,40 +122,53 @@ def test_excluding_the_only_default_source_selects_nothing() -> None:
     empty selection by name. Quietly auditing Codex instead would audit a source
     the learner never chose and the preflight never priced.
     """
-    assert resolve_selection(_inventory(), exclude_sources=["Claude Code"]) == []
+    assert (
+        resolve_selection(
+            _inventory(), runtime=AgentRuntime.CLAUDE_CODE, exclude_sources=["Claude Code"]
+        )
+        == []
+    )
 
 
 def test_excluding_an_app_that_was_not_selected_changes_nothing() -> None:
-    assert resolve_selection(_inventory(), exclude_sources=["codex"]) == [
+    assert resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, exclude_sources=["codex"]
+    ) == [
         "claude_code-Claude-Code-1",
         "claude_code-Claude-Code-4",
     ]
 
 
 def test_exclude_one_project_by_its_opaque_label() -> None:
-    selected = resolve_selection(_inventory(), exclude_labels=["Claude Code 4"])
+    selected = resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, exclude_labels=["Claude Code 4"]
+    )
     assert selected == ["claude_code-Claude-Code-1"]
 
 
 def test_include_a_beta_app_the_user_asked_for() -> None:
-    selected = resolve_selection(_inventory(), include_sources=["Cursor"])
+    selected = resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, include_sources=["Cursor"]
+    )
     assert "cursor-Cursor-1" in selected
 
 
 def test_labels_and_names_are_case_insensitive() -> None:
-    assert resolve_selection(_inventory(), exclude_labels=["claude code 4"]) == [
+    assert resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, exclude_labels=["claude code 4"]
+    ) == [
         "claude_code-Claude-Code-1",
     ]
-    assert resolve_selection(_inventory(), exclude_sources=["CURSOR"]) == resolve_selection(
-        _inventory()
-    )
+    assert resolve_selection(
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, exclude_sources=["CURSOR"]
+    ) == resolve_selection(_inventory(), runtime=AgentRuntime.CLAUDE_CODE)
 
 
 def test_an_empty_app_is_never_added_by_including_it() -> None:
     # Wispr Flow is present but holds nothing; asking for it adds no instance
     # rather than a run with nothing to read.
     assert "wispr_flow-Wispr-Flow-1" not in resolve_selection(
-        _inventory(), include_sources=["Wispr Flow"]
+        _inventory(), runtime=AgentRuntime.CLAUDE_CODE, include_sources=["Wispr Flow"]
     )
 
 
@@ -293,3 +320,38 @@ def test_collect_refuses_to_read_source_data_without_local_scan_consent(tmp_path
     )
     with pytest.raises(ValueError, match="local-scan consent"):
         collect(manifest.run_id, runs_root=runs_root)
+
+
+def test_under_codex_the_default_is_codex_and_nothing_else() -> None:
+    """The whole point of the runtime being a parameter.
+
+    Same inventory, same code path, different runtime: the audit reads the
+    history of the agent it is running inside. That is what keeps the privacy
+    argument true -- the messages were typed into the agent now reading them
+    back, so reading them back discloses them to nobody new.
+    """
+    assert resolve_selection(_inventory(), runtime=AgentRuntime.CODEX) == ["codex-Codex-1"]
+
+
+def test_under_codex_claude_code_is_not_read_by_default() -> None:
+    """The failure this refactor exists to prevent, stated directly."""
+    selected = resolve_selection(_inventory(), runtime=AgentRuntime.CODEX)
+    assert not any(key.startswith("claude_code") for key in selected)
+
+
+def test_under_codex_claude_code_is_still_one_flag_away() -> None:
+    """Refusing the silent fallback is not refusing the explicit request."""
+    selected = resolve_selection(
+        _inventory(), runtime=AgentRuntime.CODEX, include_sources=["Claude Code"]
+    )
+    assert "claude_code-Claude-Code-1" in selected
+
+
+def test_every_runtime_maps_to_an_adapter_that_exists() -> None:
+    """A runtime added without an adapter would select nothing, silently."""
+    from glite_english_audit.artifacts.models import PUBLIC_SOURCE_TYPES
+    from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTERS
+
+    assert set(PRIMARY_ADAPTERS) == set(AgentRuntime)
+    for adapter_id in PRIMARY_ADAPTERS.values():
+        assert adapter_id in PUBLIC_SOURCE_TYPES, adapter_id

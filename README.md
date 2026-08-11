@@ -1,16 +1,18 @@
 # Glite English Audit
 
-Find the English mistakes you actually make, from your Claude Code history.
+Find the English mistakes you actually make, from your coding agent's history.
 
-You already write English in Claude Code every day. This reads that history back,
-finds the mistakes, and shows you the list. Your messages never go to Glite. Only
-the list does, and you see every line first.
+You already write English in Claude Code or Codex every day. This reads that history
+back, finds the mistakes, and shows you the list. It runs inside whichever of the two
+you use and reads that one: under Codex it reads your Codex history and says Codex.
+Your messages never go to Glite. Only the list does, and you see every line first.
 
 ## How it works
 
 1. Clone this repo.
-2. Run `/audit` in Claude Code.
-3. It reads your Claude Code history.
+2. Open it in Claude Code or Codex and ask: `Run an English audit.`
+   (In Claude Code, `/audit` is a shortcut for the same thing.)
+3. It reads the history of whichever one you are in.
 4. It finds the mistakes in your English.
 5. You check the list.
 6. Send it for a report — the list, not your messages.
@@ -21,14 +23,20 @@ the list does, and you see every line first.
 construction, the rule, and a short example. You can read every line before you
 send it, and exclude any of them.
 
-**Is there a privacy risk in letting Claude Code read this?** No new one. These
-are messages you typed into Claude Code; it received them when you wrote them.
-Reading them back discloses them to nobody who did not already have them.
+**Is there a privacy risk in letting my agent read this?** No new one. These are
+messages you typed into that agent; it received them when you wrote them. Reading
+them back discloses them to nobody who did not already have them.
 
-**Why only Claude Code?** Because it is enough. Your Claude Code history holds
-more natural English than any test would, and reading one source keeps the whole
-thing explainable in three sentences. If it turns out you have too little there,
-the audit offers to read Codex, Cursor or your dictation history as well.
+That argument only holds while the source and the runtime are the same product, so
+the code enforces it: the audit reads the history of the agent it is running inside,
+and nothing else. Under Codex it will not quietly fall back to your Claude Code
+history -- it selects nothing and offers, rather than sending one provider's writing
+to another.
+
+**Why only one source?** Because it is enough. Your agent history holds more
+natural English than any test would, and reading one source keeps the whole thing
+explainable in three sentences. If it turns out you have too little there, the audit
+offers to read your other sources as well.
 
 **What is a good report?** One that shows a habit repeating, not a one-off. That
 takes a few tens of thousands of words — roughly two weeks of ordinary use. The

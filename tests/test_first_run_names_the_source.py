@@ -12,8 +12,9 @@ applications, and it still says the limit that makes it safe to agree to.
 
 import re
 
+from glite_english_audit.artifacts.enums import AgentRuntime
 from glite_english_audit.paths import repo_root
-from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTER
+from glite_english_audit.pipeline.start_run import PRIMARY_ADAPTERS
 
 _SKILL = repo_root() / "skills" / "run-english-audit" / "SKILL.md"
 
@@ -22,8 +23,51 @@ def _body() -> str:
     return _SKILL.read_text(encoding="utf-8")
 
 
-def test_the_opening_sentence_names_claude_code() -> None:
-    assert "I'll read your Claude Code history" in _body()
+def test_the_opening_sentence_names_the_active_runtime() -> None:
+    """It used to hardcode Claude Code, which was wrong under Codex.
+
+    The skill has always carried a runtime naming rule -- "name only the active
+    runtime in every user-facing sentence" -- and every sentence below it named
+    one runtime regardless. The placeholder is what makes the rule reachable.
+    """
+    assert "I'll read your <runtime> history" in _body()
+
+
+def test_the_placeholder_is_explained_before_it_is_used() -> None:
+    """An unexplained `<runtime>` is a sentence that ships with a hole in it."""
+    body = _body()
+    assert body.index("`<runtime>` below is a placeholder") < body.index(
+        "I'll read your <runtime> history"
+    )
+
+
+def test_the_skill_says_how_to_obtain_the_runtime() -> None:
+    """The runtime was an Input that nothing told the agent how to acquire.
+
+    That hole is why the naming rule was ignored: an agent that cannot learn
+    the runtime can only hardcode one.
+    """
+    assert "Take it from the wrapper that loaded you" in _body()
+
+
+def test_no_user_facing_sentence_hardcodes_one_runtime() -> None:
+    """The regression this refactor is one careless paste away from.
+
+    Only the naming rule's own Do/Don't examples, an opaque-label sample and the
+    worked example may name a runtime literally -- examples have to be concrete,
+    and a worked example runs exactly one runtime.
+    """
+    allowed_markers = (
+        'Claude Code say "Claude Code"',
+        "(running in Claude Code)",
+        "Claude Code or Codex.",
+        '--exclude-label "Claude Code 4"',
+    )
+    example = _body().split("## End-to-End Example")[0]
+    for line in example.splitlines():
+        if "Claude Code" not in line:
+            continue
+        assert any(marker in line for marker in allowed_markers), line
 
 
 def test_the_named_source_is_the_one_the_code_selects() -> None:
@@ -32,7 +76,8 @@ def test_the_named_source_is_the_one_the_code_selects() -> None:
     A sentence promising Claude Code above a default that reads nine apps is
     the defect this file exists to prevent, in the direction that matters.
     """
-    assert PRIMARY_ADAPTER == "claude_code"
+    assert PRIMARY_ADAPTERS[AgentRuntime.CLAUDE_CODE] == "claude_code"
+    assert PRIMARY_ADAPTERS[AgentRuntime.CODEX] == "codex"
 
 
 def test_the_opening_does_not_offer_the_other_applications() -> None:

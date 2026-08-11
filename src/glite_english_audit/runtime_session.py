@@ -36,6 +36,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from glite_english_audit.artifacts.enums import AgentRuntime
+
 # The transcript is JSONL, one record per line, newest last. A session that has
 # run for hours can be tens of megabytes, so the tail is read rather than the
 # file. This is generous for finding the most recent assistant record while
@@ -53,6 +55,71 @@ for the other.
 
 SESSION_MODEL_KEY = "session-model"
 SESSION_EFFORT_KEY = "session-effort"
+
+
+_CLAUDE_CODE_MARKERS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_ENTRYPOINT")
+_CODEX_MARKERS = ("CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_HOME")
+
+
+class RuntimeContradiction(RuntimeError):
+    """The declared runtime is contradicted by the environment it runs in."""
+
+
+def detect_runtime(*, environ: Mapping[str, str] | None = None) -> AgentRuntime | None:
+    """Which agent runtime this process is running under, or ``None``.
+
+    Positive evidence in both directions, never inference from absence. A
+    missing variable means "this host did not say", not "the other host". If
+    both families are present, or neither, the answer is ``None`` and the
+    caller keeps whatever it was told.
+
+    This is deliberately only a cross-check. The runtime is *declared* by the
+    wrapper the host loaded, because that is the one signal the host itself
+    establishes; everything readable from the machine describes what is
+    installed. On the machine this was written, ``~/.codex`` held rollouts
+    through 2026-08-04 and Codex appeared three times on ``PATH`` -- during a
+    Claude Code session. An installation-based detector would have been
+    confidently wrong.
+    """
+    source = environ if environ is not None else os.environ
+    claude = any(source.get(name, "").strip() for name in _CLAUDE_CODE_MARKERS)
+    codex = any(source.get(name, "").strip() for name in _CODEX_MARKERS)
+    if claude == codex:
+        return None
+    return AgentRuntime.CLAUDE_CODE if claude else AgentRuntime.CODEX
+
+
+def require_consistent_runtime(
+    declared: AgentRuntime, *, environ: Mapping[str, str] | None = None
+) -> None:
+    """Refuse a declared runtime the environment positively contradicts.
+
+    The runtime decides which history the audit reads and which product every
+    sentence names, and it is frozen into the manifest for the life of the run.
+    A wrong one is not a mislabel: it reads the wrong provider's writing and
+    tells the learner it read the other. Silence here is the only alternative
+    to a mistake nobody can see, so this raises where the manifest is written
+    rather than letting the run proceed.
+
+    Only a positive contradiction raises. ``None`` -- no evidence, or evidence
+    both ways -- is not a contradiction, so a Codex session started from a
+    Claude Code session, which inherits ``CLAUDECODE`` and exports its own
+    ``CODEX_*``, resolves to ``None`` and passes.
+    """
+    observed = detect_runtime(environ=environ)
+    if observed is None or observed is declared:
+        return
+    present = sorted(
+        name
+        for name in (*_CLAUDE_CODE_MARKERS, *_CODEX_MARKERS)
+        if (environ if environ is not None else os.environ).get(name, "").strip()
+    )
+    msg = (
+        f"declared runtime {declared.value!r} but the environment says "
+        f"{observed.value!r} (set: {', '.join(present)}). The runtime decides "
+        "which history is read; refusing rather than reading the wrong one."
+    )
+    raise RuntimeContradiction(msg)
 
 
 def detect_effort(*, environ: Mapping[str, str] | None = None) -> str | None:

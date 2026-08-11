@@ -40,8 +40,8 @@ def test_the_steps_are_numbered_without_a_gap() -> None:
 def test_what_will_be_read_is_stated_before_it_is_asked_for() -> None:
     """Consent given against a disclosure that has not happened is not consent."""
     body = _body()
-    statement = body.index("I'll read your Claude Code history")
-    question = body.index("may I read your Claude Code history")
+    statement = body.index("I'll read your <runtime> history")
+    question = body.index("may I read your <runtime> history")
     assert statement < question
 
 

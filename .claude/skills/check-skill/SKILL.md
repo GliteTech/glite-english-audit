@@ -9,3 +9,5 @@ Done When quality. Use before merging any new or changed skill."
 
 Generated wrapper. Do not edit. Read and follow the canonical skill instructions in
 `skills/check-skill/SKILL.md` exactly.
+
+You loaded this from `.claude/skills`, so the active runtime is `claude_code`.
