@@ -49,6 +49,7 @@ from glite_english_audit.diagnostics.codes import Diagnostic, Severity
 from glite_english_audit.normalization.language import classify_english
 from glite_english_audit.normalization.tokenizer import TOKENIZER_VERSION, count_words
 from glite_english_audit.paths import step_dir
+from glite_english_audit.pipeline.agent_budget import BatchPlan, WorkItem, plan_step
 from glite_english_audit.pipeline.agent_io import (
     AuthoredLine,
     agent_dir,
@@ -121,6 +122,12 @@ class PreparedStep(BaseModel):
     utterance_count: int = Field(ge=0)
     word_count: int = Field(ge=0)
     sessions: list[PreparedSession] = Field(default_factory=list)
+    plan: BatchPlan
+    """How many agents to dispatch, and which sessions each one judges.
+
+    Planned over the sessions still outstanding rather than all of them, so a
+    resumed run is not packed for work it already has answers for.
+    """
 
 
 class AuthoredSession(BaseModel):
@@ -389,6 +396,12 @@ def prepare(
     # Same names in, same names out — and the sequence-to-session mapping
     # travels with them, or step c's file names mean nothing on their own.
     write_index(target, read_index(source))
+    outstanding = [
+        WorkItem(name=entry.file_name, words=entry.word_count, items=entry.utterance_count)
+        for entry in sessions
+        if not entry.already_written
+    ]
+    plan, _ = plan_step(outstanding, step="c")
     return PreparedStep(
         input_dir=str(source),
         output_dir=str(target),
@@ -396,6 +409,7 @@ def prepare(
         utterance_count=sum(entry.utterance_count for entry in sessions),
         word_count=sum(entry.word_count for entry in sessions),
         sessions=sessions,
+        plan=plan,
     )
 
 

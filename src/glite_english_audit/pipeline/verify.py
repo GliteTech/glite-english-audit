@@ -41,6 +41,7 @@ from glite_english_audit.artifacts.hashing import new_artifact_id
 from glite_english_audit.artifacts.io import write_jsonl_models
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.paths import step_dir
+from glite_english_audit.pipeline.agent_budget import BatchPlan, WorkItem, plan_step
 from glite_english_audit.pipeline.agent_io import (
     DropList,
     expand_verified,
@@ -219,18 +220,53 @@ def apply_verification(run_id: str, *, runs_root: Path | None = None) -> Verific
     return outcome
 
 
+def plan_verification(run_id: str, *, runs_root: Path | None = None) -> BatchPlan:
+    """How many agents step e should dispatch, and over which files.
+
+    Step e still has nothing to *decide* before it starts -- it reads what step
+    d wrote and judges it. This is not a ``--prepare``: it creates nothing and
+    changes nothing, it only answers "how many agents will this take", which is
+    the question a run needs answered before it starts spending them rather
+    than after. The run that ran out of agents had every input for this number
+    and never computed it.
+    """
+    source = step_dir(run_id, StepId.D_MISTAKES, root=runs_root)
+    items = [
+        # One record per line. Counted rather than parsed: the planner needs a
+        # size, and parsing step-d records here would couple the plan to a model
+        # it never inspects.
+        WorkItem(
+            name=path.name,
+            words=0,
+            items=sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()),
+        )
+        for path in session_files(source)
+    ]
+    plan, _ = plan_step(items, step="e")
+    return plan
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Exits non-zero when step e did more than drop records."""
     parser = argparse.ArgumentParser(description="Step e: confirm the mistake records")
     parser.add_argument("--run-id", required=True)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--plan",
+        action="store_true",
+        help="report how many agents this step needs, and which files each judges",
+    )
+    mode.add_argument(
         "--apply",
         action="store_true",
-        required=True,
         help="check every agent-written file and promote step e",
     )
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
     arguments = parser.parse_args(argv)
+    if arguments.plan:
+        plan = plan_verification(arguments.run_id, runs_root=arguments.runs_root)
+        sys.stdout.write(json.dumps(plan.model_dump(mode="json"), indent=2) + "\n")
+        return 0
     outcome = apply_verification(arguments.run_id, runs_root=arguments.runs_root)
     sys.stdout.write(json.dumps(outcome.model_dump(mode="json"), indent=2) + "\n")
     return 0 if outcome.passed else 1

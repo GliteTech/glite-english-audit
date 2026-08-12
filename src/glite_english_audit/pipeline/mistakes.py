@@ -50,6 +50,7 @@ from glite_english_audit.consent import require_provider_transfer_consent
 from glite_english_audit.diagnostics.codes import Diagnostic
 from glite_english_audit.normalization.tokenizer import count_words
 from glite_english_audit.paths import repo_root, step_dir
+from glite_english_audit.pipeline.agent_budget import WorkItem, plan_step
 from glite_english_audit.pipeline.agent_io import (
     MistakeDraft,
     agent_dir,
@@ -550,11 +551,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if arguments.prepare:
         assignments = prepare_mistakes(arguments.run_id, runs_root=arguments.runs_root)
+        # Planned over what is still outstanding: a resumed run must not be
+        # packed for judgments it already holds.
+        plan, _ = plan_step(
+            [
+                WorkItem(name=a.name, words=a.words, items=a.items)
+                for a in assignments
+                if not a.already_written
+            ],
+            step="d",
+        )
         sys.stdout.write(
             json.dumps(
                 {
                     "sessions": len(assignments),
                     "words": sum(assignment.words for assignment in assignments),
+                    "plan": plan.model_dump(mode="json"),
                     "files": [assignment.model_dump(mode="json") for assignment in assignments],
                 },
                 indent=2,

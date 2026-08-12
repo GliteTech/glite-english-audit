@@ -5,7 +5,7 @@ description: "Read one session's projected mistake records, judge each one as an
 
 # Verify Mistake Confidentiality
 
-**Version**: 5
+**Version**: 6
 
 ## Goal
 
@@ -37,6 +37,17 @@ span against that text; you judge the published face.
 
 Success: the output file exists under your assigned name, holds one object, and names every record
 that must not be shared and no other index.
+
+You may be given more than one session in a single dispatch. Answer each one
+separately, into its own output file, exactly as you would if it were the only
+file you had been given. Nothing about the judgment changes: the sessions are
+unrelated, one session's text is never evidence about another's, and a single
+combined answer is not an answer. The file is the unit of judgment, and the
+driver verifies, accepts or quarantines each one on its own.
+
+The dispatch is batched only when judging one session per agent would need more
+agents than the host allows -- reading them together is what makes the run
+possible, not a licence to judge them together.
 
 ## Context
 

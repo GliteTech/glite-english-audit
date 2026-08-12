@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 29
+**Version**: 30
 
 ## Goal
 
@@ -331,6 +331,26 @@ runtime; naming both is confusing and wrong.
      see every file at once — and writes the same file set to `steps/b-deduplicated/`
      with one copy kept. What it removed goes in `removed.json` beside the files.
 
+   **Dispatch the batches `--prepare` planned, not one agent per file.** Every
+   agent-driven step reports a `plan`: `batches`, each naming the sessions one agent
+   judges, plus `agents_required_all_steps`, `fits` and `host_sessions_required`.
+   Follow it and do not re-derive it. Step e's comes from `--plan`, which creates
+   nothing and changes nothing.
+
+   The host allows a fixed number of agents per session -- 200 under `claude_code`,
+   and no published figure under `codex` -- and this run wants three per session file. A history of 395 small sessions
+   therefore asks for 1,185 and stops partway through. That is a real run, not an
+   illustration. The planner keeps one session per agent whenever that fits,
+   because it judges best, and packs only when the alternative is a run that
+   cannot finish, so `batches` is usually one file each and sometimes is not.
+
+   When `fits` is false, say so **before** the step starts: the work needs
+   `agents_required_all_steps` agents, the cap allows fewer, and it will take
+   `host_sessions_required` runs unless the user raises
+   `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`. Give both numbers. A run that
+   discovers this at agent 199 spent the user's afternoon learning something
+   `--prepare` knew before it started.
+
    - Step c, keep only the learner's words, in three parts.
 
      First `uv run python -m glite_english_audit.pipeline.authorship
@@ -338,8 +358,10 @@ runtime; naming both is confusing and wrong.
      projection per session into `steps/c-authored/agent/`, and prints one entry per
      session: `input_path`, `output_path`, and how much is in it.
 
-     Then `skills/filter-authored-english/SKILL.md`, **one agent per session file**,
-     in parallel. Each agent reads the `input_path` it was given, a
+     Then `skills/filter-authored-english/SKILL.md`, **one agent per planned batch**,
+     in parallel. An agent handed several sessions answers each into its own
+     `output_path`, separately, as if it had been given only that one: the file
+     stays the unit of judgment, of verification and of quarantine. Each agent reads the `input_path` it was given, a
      `session-NNNN.in.jsonl` of one `{"i", "modality", "text"}` object per utterance,
      and writes the `output_path`, a `session-NNNN.out.jsonl` of one `{"i", "text"}`
      answer per projected line. Give each agent those two paths and nothing else; no
@@ -363,7 +385,7 @@ runtime; naming both is confusing and wrong.
 
    - Step d, find mistakes: `uv run python -m glite_english_audit.pipeline.mistakes
      --run-id <run-id> --prepare`, then `skills/find-english-mistakes/SKILL.md` one
-     agent per session file, then `--apply`.
+     agent per planned batch, then `--apply`.
 
      `--prepare` writes one projection per session into `steps/d-mistakes/agent/` and
      prints an entry per session naming `read` and `write`. Each agent reads the
@@ -384,8 +406,9 @@ runtime; naming both is confusing and wrong.
      fails the session and is a defect in step d — never treat it as a filter that did
      its job.
 
-   - Step e, confirm confidentiality: `skills/verify-mistake-confidentiality/SKILL.md`
-     one agent per session file, then
+   - Step e, confirm confidentiality: `uv run python -m
+     glite_english_audit.pipeline.verify --run-id <run-id> --plan` for the batches,
+     then `skills/verify-mistake-confidentiality/SKILL.md` one agent per batch, then
      `uv run python -m glite_english_audit.pipeline.verify --run-id <run-id> --apply`.
 
      Step e has no `--prepare`: promoting step d creates `steps/e-verified/agent/`,

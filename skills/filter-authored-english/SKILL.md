@@ -5,7 +5,7 @@ description: "Judge, utterance by utterance, which spans of one session the lear
 
 # Filter Authored English
 
-**Version**: 7
+**Version**: 8
 
 ## Goal
 
@@ -57,6 +57,17 @@ the words were not the learner's.
 Success: every line parses as a decision, every index from 1 to the last is answered exactly once,
 and every retained span is found in that index's projection `text` by exact substring search;
 every passage of unclear authorship is excluded.
+
+You may be given more than one session in a single dispatch. Answer each one
+separately, into its own output file, exactly as you would if it were the only
+file you had been given. Nothing about the judgment changes: the sessions are
+unrelated, one session's text is never evidence about another's, and a single
+combined answer is not an answer. The file is the unit of judgment, and the
+driver verifies, accepts or quarantines each one on its own.
+
+The dispatch is batched only when judging one session per agent would need more
+agents than the host allows -- reading them together is what makes the run
+possible, not a licence to judge them together.
 
 ## Context
 

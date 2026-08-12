@@ -5,7 +5,7 @@ description: "Read one session's projected utterances and answer with the mistak
 
 # Find English Mistakes
 
-**Version**: 5
+**Version**: 6
 
 ## Goal
 
@@ -43,6 +43,17 @@ identity and provenance itself, so a draft is what you judged and where, and not
 
 Success: every draft clears the Judgment Rules and the Privacy Rules, every span resolves in the
 line it addresses, and no two spans on one index overlap.
+
+You may be given more than one session in a single dispatch. Answer each one
+separately, into its own output file, exactly as you would if it were the only
+file you had been given. Nothing about the judgment changes: the sessions are
+unrelated, one session's text is never evidence about another's, and a single
+combined answer is not an answer. The file is the unit of judgment, and the
+driver verifies, accepts or quarantines each one on its own.
+
+The dispatch is batched only when judging one session per agent would need more
+agents than the host allows -- reading them together is what makes the run
+possible, not a licence to judge them together.
 
 ## Context
 
