@@ -75,6 +75,35 @@ KNOWN_WRAPPER_TAGS: frozenset[str] = frozenset(
 _OBSERVED_ORIGIN_KINDS = frozenset({"human", "task-notification"})
 _HUMAN_PROMPT_SOURCES = frozenset({"typed", "queued", "suggestion_accepted"})
 
+_CLIENT_PROMPT_SOURCES = frozenset({"sdk"})
+"""Sources that are a person typing, but reach the model through the SDK.
+
+The desktop app and the VS Code extension are SDK hosts: they spawn the CLI and
+hand it what the user typed, so the record says ``promptSource: "sdk"`` rather
+than ``"typed"``. Nothing about the writing is different -- a human wrote it,
+into a client, on purpose.
+
+Excluding it was not a judgment call, it was an allowlist built from one
+machine. On a reporter's machine 977 prompts carried this value and every one
+was read, parsed and discarded, and the audit told him he had written 386 words.
+He had written the rest in the desktop app.
+
+Kept separate from the sources above because it is only trusted with an
+interactive entrypoint. ``sdk`` on its own could as easily be a script driving
+Claude Code, whose prompts nobody typed.
+"""
+
+_INTERACTIVE_ENTRYPOINTS = frozenset({"cli", "sdk-cli", "claude-desktop", "claude-desktop-3p"})
+"""Clients a person types into, as the record names them.
+
+``cli`` is the terminal, ``sdk-cli`` the VS Code extension and the JetBrains
+plugin, ``claude-desktop`` the desktop app. Verified on disk: every ``sdk``
+record here carries ``entrypoint: sdk-cli``, and the reporter's 1,024
+desktop-written files carry ``claude-desktop``. An SDK host with no entrypoint,
+or an unfamiliar one, stays excluded -- fail-closed is right for an authorship
+filter, and this narrows the failure rather than removing it.
+"""
+
 _REMINDER_SPAN = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 _REMINDER_TAG = re.compile(r"</?system-reminder>")
 _LEADING_TAG = re.compile(r"^<([A-Za-z][A-Za-z0-9_-]*)>")
@@ -238,7 +267,12 @@ def classify_record(record: dict[str, Any]) -> ClassifiedRecord:
         origin_human = True
     prompt_source = record.get("promptSource")
     if prompt_source is not None and prompt_source not in _HUMAN_PROMPT_SOURCES:
-        return excluded(unknown_origin=prompt_source != "system")
+        typed_into_a_client = (
+            prompt_source in _CLIENT_PROMPT_SOURCES
+            and record.get("entrypoint") in _INTERACTIVE_ENTRYPOINTS
+        )
+        if not typed_into_a_client:
+            return excluded(unknown_origin=prompt_source != "system")
 
     if isinstance(content, str):
         payloads = [content]
