@@ -58,6 +58,7 @@ from glite_english_audit.pipeline.agent_io import (
     project_utterances,
     projection_path,
 )
+from glite_english_audit.pipeline.pasted_documents import is_pasted_document
 from glite_english_audit.pipeline.record_step import advance_to, output_is_current
 from glite_english_audit.sessions import read_all, read_index, session_files, write_index
 
@@ -379,6 +380,23 @@ def prepare(
         projection = projection_path(target, path.name)
         write_jsonl_models(projection, project_utterances(members))
         decisions = decision_path(target, path.name)
+        # A session that is nothing but pasted documents needs no agent: the
+        # answer for every line is "the learner wrote none of this", and that is
+        # decidable from the text alone. Only WHOLE sessions are pre-decided; a
+        # mixed session still goes to an agent in full, because the judgment it
+        # needs is exactly about the lines this rule cannot speak for, and
+        # splitting one file between two deciders would put its verification in
+        # two places.
+        #
+        # Measured on run-4806c5a4629b4652b072b65e99ff9858: 369 of the 420
+        # sessions that had decisions were entirely pasted documents (87.9%).
+        prefilled = False
+        if members and all(is_pasted_document(utterance.text) for utterance in members):
+            write_jsonl_models(
+                decisions,
+                [AuthoredLine(i=index, text="") for index in range(1, len(members) + 1)],
+            )
+            prefilled = True
         sessions.append(
             PreparedSession(
                 file_name=path.name,
@@ -390,7 +408,10 @@ def prepare(
                 # English denominator is counted after the judgment, by
                 # `english_words`.
                 word_count=sum(count_words(utterance.text) for utterance in members),
-                already_written=reusable and decisions.is_file(),
+                # Written during this prepare, so `reusable` does not apply: the
+                # file was not inherited from an earlier attempt, it was just
+                # produced from the step-b text this run is reading.
+                already_written=prefilled or (reusable and decisions.is_file()),
             )
         )
     # Same names in, same names out — and the sequence-to-session mapping
