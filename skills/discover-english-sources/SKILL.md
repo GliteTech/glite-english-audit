@@ -7,7 +7,7 @@ stability. Use during audit setup, before source selection."
 
 # Discover English Sources
 
-**Version**: 19
+**Version**: 20
 
 ## Goal
 
@@ -128,8 +128,18 @@ agent sees only the derived `InstanceInventorySummary`.
    the audit has begun.
 
    Do: "Saved: <runtime> only, last 7 days. That is remembered if you come back
-   later. No run exists yet — starting the audit is what creates one. Shall I
-   start now?"
+   later." Then go straight on and start the audit. Do not ask whether to start.
+
+   The period answer WAS the decision. Asking again turns one confirmed choice
+   into two, and the second question is the one the run skill deleted on
+   purpose -- the learner has already been told the volume, the finding count and
+   the time, and there is no new recipient and no new information to weigh. An
+   extra confirmation reads as prudence to anyone who has not followed why one
+   recipient means one question, which is exactly how it came back.
+
+   Saying "no run exists yet" is also true only for the half-second before you
+   create one, so it invites the question it answers. Say what was saved, and
+   move.
    Don't: "Recorded: <runtime> only, last week." — if you did not run the
    command, nothing was recorded, and a user who comes back tomorrow finds their
    choice gone.

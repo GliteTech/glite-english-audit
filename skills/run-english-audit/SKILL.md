@@ -8,7 +8,7 @@ continue an unfinished audit."
 
 # Run English Audit
 
-**Version**: 30
+**Version**: 31
 
 ## Goal
 
@@ -216,10 +216,16 @@ runtime; naming both is confusing and wrong.
    and the only recipient of the text is the runtime the learner is sitting in.
 
    ```text
-   Reading 2 weeks of your <runtime> history now — about 20–40 minutes. It
+   Reading <period> of your <runtime> history now — about <estimated time>. It
    runs on its own and goes quiet; you can walk away. I'll open a page at the
    end with everything I found.
    ```
+   `<period>` and `<estimated time>` are the ones the learner just agreed to,
+   from the estimate. They were written here as "2 weeks" and "20–40 minutes"
+   until a learner chose their entire history and the true answer was 2.68
+   million words and 16–66 hours. Copying the literals would have told them
+   something false about what they had just started, which is a worse failure
+   than the question this step exists to avoid.
    Say that it goes quiet, because it is the one thing about to happen that they
    cannot see coming. Say which model is doing the reading only if
    `session.model` from the estimate is set and they ask — under one-source

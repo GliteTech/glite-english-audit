@@ -20,6 +20,15 @@ import re
 from glite_english_audit.paths import repo_root
 
 _SKILL = repo_root() / "skills" / "run-english-audit" / "SKILL.md"
+
+# Every skill the learner's setup passes through. The gate ban used to be
+# checked against the run skill alone, so when the same question reappeared in
+# the discovery skill nothing caught it -- and an agent following its
+# instructions exactly asked a learner to confirm a choice they had just made.
+_SETUP_SKILLS = (
+    _SKILL,
+    repo_root() / "skills" / "discover-english-sources" / "SKILL.md",
+)
 _NUMBERED_STEP = re.compile(r"^(\d+)\. (.+)$", re.MULTILINE)
 
 
@@ -52,14 +61,36 @@ def test_no_second_consent_gate_returns() -> None:
     absent, because both read as prudent additions to anyone who has not
     followed why one recipient means one question.
     """
-    body = _body()
     banned = (
         "Consent moment 2",
         "Consent moment 3",
         "last question before processing",
     )
-    present = [phrase for phrase in banned if phrase in body]
-    assert not present, f"a removed gate came back: {present}"
+    for skill in _SETUP_SKILLS:
+        body = skill.read_text(encoding="utf-8")
+        present = [phrase for phrase in banned if phrase in body]
+        assert not present, f"a removed gate came back in {skill.name}: {present}"
+
+
+def test_setup_never_asks_the_learner_to_confirm_a_confirmed_choice() -> None:
+    """The period answer is the decision; nothing may re-ask it.
+
+    Observed in a real run: the learner chose a period, and the next message
+    was "Shall I start the audit now?" -- because the discovery skill offered
+    exactly that sentence as its Do example while the run skill said to state
+    the plan and start. The two disagreed at their seam, and the agent followed
+    the one that asked.
+    """
+    asking = re.compile(
+        r"Shall I start|Should I start|Do you want me to start|Ready to start\?"
+        r"|May I start|Start the audit\?|Shall I begin",
+        re.IGNORECASE,
+    )
+    for skill in _SETUP_SKILLS:
+        for number, line in enumerate(skill.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("Don't"):
+                continue  # naming the mistake is how it is taught
+            assert not asking.search(line), f"{skill.name}:{number} asks again: {line.strip()}"
 
 
 def test_no_source_selection_question_returns() -> None:
