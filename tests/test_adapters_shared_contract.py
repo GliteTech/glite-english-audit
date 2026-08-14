@@ -22,7 +22,12 @@ from glite_english_audit.artifacts.enums import (
     Stability,
     TextStatus,
 )
-from glite_english_audit.artifacts.models import PUBLIC_SOURCE_TYPES, NormalizedUtterance
+from glite_english_audit.artifacts.models import (
+    PUBLIC_ADAPTER_SOURCE_TYPES,
+    PUBLIC_NON_ADAPTER_SOURCE_TYPES,
+    PUBLIC_SOURCE_TYPES,
+    NormalizedUtterance,
+)
 from glite_english_audit.discovery.base import DiscoveryContext
 from glite_english_audit.discovery.registry import adapter_ids, create_adapter
 from glite_english_audit.normalization.dedup import dedupe
@@ -56,9 +61,13 @@ def test_every_shipped_adapter_id_is_a_submittable_source_type() -> None:
     real run reaches step 6.
     """
     assert set(adapter_ids()) <= PUBLIC_SOURCE_TYPES
+    # Every submittable ID is either an adapter or a declared non-adapter
+    # producer. Without this, a typo in the non-adapter set would widen the
+    # submission surface silently.
+    assert PUBLIC_SOURCE_TYPES - set(adapter_ids()) == PUBLIC_NON_ADAPTER_SOURCE_TYPES
 
 
-@pytest.mark.parametrize("adapter_id", sorted(PUBLIC_SOURCE_TYPES))
+@pytest.mark.parametrize("adapter_id", sorted(PUBLIC_ADAPTER_SOURCE_TYPES))
 def test_no_instance_claims_more_maturity_than_its_adapter(adapter_id: str, tmp_path: Path) -> None:
     """Beta and experimental adapters must not emit a ``stable`` instance.
 
@@ -101,7 +110,7 @@ def _prepared_home(adapter_id: str, destination: Path) -> Path:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX modes only")
-@pytest.mark.parametrize("adapter_id", sorted(PUBLIC_SOURCE_TYPES))
+@pytest.mark.parametrize("adapter_id", sorted(PUBLIC_ADAPTER_SOURCE_TYPES))
 def test_snapshot_copies_are_owner_only(adapter_id: str, tmp_path: Path) -> None:
     """Snapshot trees are `0700` directories holding `0600` files (spec 3.6).
 
