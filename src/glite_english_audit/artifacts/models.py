@@ -80,7 +80,7 @@ def _validate_instance_key(value: str) -> str:
 # a submitted record must validate identically on a machine where no adapter is
 # registered, and adding an adapter must be a deliberate contract change to the
 # submission surface, not a side effect of registration.
-PUBLIC_SOURCE_TYPES: frozenset[str] = frozenset(
+PUBLIC_ADAPTER_SOURCE_TYPES: frozenset[str] = frozenset(
     {
         "aider",
         "claude_code",
@@ -93,6 +93,20 @@ PUBLIC_SOURCE_TYPES: frozenset[str] = frozenset(
         "wispr_flow",
     }
 )
+
+# Producers that are not adapters. ``glite_web`` is text the learner typed into
+# the website, which finds the mistakes server-side rather than reading a local
+# history. It names its producer exactly as the adapter IDs do; labelling that
+# text as one of the tools above would put a false provenance into a corpus
+# that is kept permanently for research.
+#
+# Kept separate from the adapter set because several tests parametrize over the
+# adapters and instantiate each one. A non-adapter member of that set would fail
+# them, and widening the tests to skip it would hide a real registration gap.
+PUBLIC_NON_ADAPTER_SOURCE_TYPES: frozenset[str] = frozenset({"glite_web"})
+
+# Everything a submitted record may name.
+PUBLIC_SOURCE_TYPES: frozenset[str] = PUBLIC_ADAPTER_SOURCE_TYPES | PUBLIC_NON_ADAPTER_SOURCE_TYPES
 
 
 def _validate_adapter_id(value: str) -> str:
