@@ -13,8 +13,11 @@ Checked 2026-08-09:
 - `GliteTech/glite-english-audit-website`, commit `88becc5`, `api/report-page.js`: the report page
   accepts `POST /report` as `application/x-www-form-urlencoded`; its `submission` field is the
   JSON text of one version-1 `SubmissionPackage`; a successful response is an HTML report.
-- `https://glite-english-audit-website-eta.vercel.app/report`: the Git-managed production route
-  accepts that form contract. `GET` is not a submission route.
+- `https://gliteaudit.com/report`: the Git-managed production route accepts that form contract.
+  `GET` is not a submission route. Recorded on 2026-08-09 as
+  `glite-english-audit-website-eta.vercel.app`, Vercel's auto-generated alias, which was the only
+  address the site answered on then; both resolve to the same deployment, and the product domain
+  is the one to depend on.
 - `src/glite_english_audit/review_server/page.py`: the local page already owns the current package
   bytes, include decisions, and the two required unchecked confirmations.
 - `src/glite_english_audit/review_server/server.py`: the page's content security policy currently
@@ -33,7 +36,7 @@ is complete.
 The page renders one native HTML form with:
 
 - `method="post"`;
-- `action="https://glite-english-audit-website-eta.vercel.app/report"`;
+- `action="https://gliteaudit.com/report"`;
 - the browser's default `application/x-www-form-urlencoded` encoding;
 - a hidden `submission` field whose value is the exact current package JSON;
 - hidden affirmative consent fields outside the package;
