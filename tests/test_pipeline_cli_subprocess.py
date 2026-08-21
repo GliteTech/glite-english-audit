@@ -15,7 +15,7 @@ the loop, and the only part that can be checked this way end to end.
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from glite_english_audit.adapters.claude_code import create_adapter as claude_code_adapter
@@ -26,7 +26,13 @@ from glite_english_audit.discovery.inventory import PrivateInventory
 from glite_english_audit.paths import inventory_path, step_dir
 from glite_english_audit.sessions import INDEX_NAME, session_files
 
-_NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+# Relative to the run, not pinned to a date. The driver under test runs in a
+# real subprocess reading the real clock, and it refuses an inventory older
+# than PENDING_INVENTORY_MAX_AGE_DAYS -- so a fixed timestamp here passes for a
+# week and then fails every day after, for a reason that has nothing to do with
+# what the test checks.
+_NOW = datetime.now(UTC)
+_DISCOVERED_AT = _NOW - timedelta(days=1)
 
 _REPO = Path(__file__).resolve().parent.parent
 _FIXTURE_HOME = _REPO / "fixtures" / "claude_code" / "success" / "home"
@@ -50,7 +56,7 @@ def _seed_inventory(inventory_dir: Path) -> None:
         DiscoveryContext(
             os_environment=OsEnvironment.MACOS,
             home=_FIXTURE_HOME,
-            now=datetime(2026, 8, 8, tzinfo=UTC),
+            now=_DISCOVERED_AT,
             environ={},
         )
     )
