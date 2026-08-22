@@ -668,15 +668,22 @@ def recommend_preset(rows: Sequence[PresetRow]) -> str | None:
     their own writing makes a good report, so the product works it out, says
     which it picked, and leaves changing it one sentence away.
 
-    Ties go to the shorter window: the same writing for less of the learner's
-    afternoon. On a machine with little history every window falls short and the
-    longest wins, which is the honest answer there -- read what exists and say
-    the report will be thin.
+    Smallest window that clears twice the target, because collection is the
+    cheap part and analysis stops on its own: step d reads newest first and
+    halts once it has found enough mistakes, so a generous window costs a dense
+    writer nothing while it doubles a sparse writer's coverage. The old rule
+    picked the window closest to the target to avoid overshoot -- the stop rule
+    is what made that concern obsolete. On a machine with little history every
+    window falls short and the longest wins, which is the honest answer there:
+    read what exists and say the report will be thin.
     """
-    ordered = [row for row in rows if row.words > 0]
+    ordered = sorted((row for row in rows if row.words > 0), key=lambda row: row.words)
     if not ordered:
         return None
-    return min(ordered, key=lambda row: (abs(row.words - TARGET_WORDS), row.words)).preset
+    for row in ordered:
+        if row.words >= TARGET_WORDS * 2:
+            return row.preset
+    return ordered[-1].preset
 
 
 def describe_age(seconds: float | None) -> str | None:

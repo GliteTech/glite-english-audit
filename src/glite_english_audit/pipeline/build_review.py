@@ -51,7 +51,7 @@ from glite_english_audit.pipeline.record_step import (
     enter_review,
     require_promoted_through,
 )
-from glite_english_audit.sessions import read_all
+from glite_english_audit.sessions import read_all, session_files
 from glite_english_audit.verification.reports import VerificationReport
 
 REVIEWED_NAME = "reviewed-submission.json"
@@ -144,6 +144,25 @@ def _refuse(failures: list[Diagnostic]) -> None:
         "would be wrong. Repair step d and run pipeline.mistakes --apply until it exits zero."
     )
     raise ValueError(msg)
+
+
+def analyzed_ids_from_steps(run_id: str, *, runs_root: Path | None = None) -> set[str]:
+    """The utterances whose sessions step d actually read, by file name.
+
+    The audit stops on evidence rather than a calendar: step d works newest
+    first and stops once it has found enough, so the oldest sessions may have a
+    step-c file and no step-d file. Those utterances were never analyzed, and
+    the counts must say so -- this derives the analyzed set from what step d
+    demonstrably produced, which no agent can misreport.
+    """
+    d_names = {
+        path.name for path in session_files(step_dir(run_id, StepId.D_MISTAKES, root=runs_root))
+    }
+    analyzed: set[str] = set()
+    for path, members in read_all(step_dir(run_id, StepId.C_AUTHORED, root=runs_root)):
+        if path.name in d_names:
+            analyzed.update(u.utterance_id for u in members if u.text.strip())
+    return analyzed
 
 
 def build_review(
@@ -300,8 +319,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the reviewed submission artifact")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--runs-root", type=Path, default=None, help="test override")
+    parser.add_argument(
+        "--analyzed-from-steps",
+        action="store_true",
+        help="derive the analyzed set from which sessions step d actually read",
+    )
     arguments = parser.parse_args(argv)
-    artifact = build_review(arguments.run_id, runs_root=arguments.runs_root)
+    analyzed = (
+        analyzed_ids_from_steps(arguments.run_id, runs_root=arguments.runs_root)
+        if arguments.analyzed_from_steps
+        else None
+    )
+    artifact = build_review(arguments.run_id, analyzed_ids=analyzed, runs_root=arguments.runs_root)
     corpus_dir = step_dir(arguments.run_id, StepId.C_AUTHORED, root=arguments.runs_root)
     sys.stdout.write(
         _report(

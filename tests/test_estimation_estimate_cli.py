@@ -592,20 +592,22 @@ def test_the_recommendation_is_sized_in_words(tmp_path: Path) -> None:
 def test_the_window_nearest_the_target_wins_not_the_first_one_past_it(
     tmp_path: Path,
 ) -> None:
-    """Overshooting costs the learner an afternoon for repeated writing.
+    """The smallest window with real headroom wins, not the closest one.
 
-    Measured on a real machine: two weeks held 47,000 words and thirty days
-    110,000. A rule that took the shortest window past a threshold would have
-    doubled the run to overshoot the target.
+    Step d stops on its own once it has found enough mistakes, so a window
+    twice the target costs a dense writer nothing -- analysis halts early --
+    while a sparse writer gets double the coverage. The old closest-wins rule
+    guarded against an overshoot the stop rule has since made impossible.
     """
     from glite_english_audit.estimation.estimate import TARGET_WORDS, recommend_preset
 
     rows = [
         _preset_row("last-7-days", TARGET_WORDS // 2),
-        _preset_row("last-14-days", TARGET_WORDS - 5_000),
+        _preset_row("last-14-days", TARGET_WORDS + 5_000),
         _preset_row("last-30-days", TARGET_WORDS * 2),
+        _preset_row("everything", TARGET_WORDS * 5),
     ]
-    assert recommend_preset(rows) == "last-14-days"
+    assert recommend_preset(rows) == "last-30-days"
 
 
 def test_the_target_is_sized_by_the_report_not_by_appetite() -> None:

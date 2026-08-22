@@ -170,15 +170,16 @@ runtime; naming both is confusing and wrong.
    Announce that one window and continue — no question:
 
    ```text
-   I'll audit your last 2 weeks — about 47,000 words, 20–40 minutes. Starting
-   now; say "different period" at any point if you want a longer or shorter one.
+   I'll read your recent writing newest-first and stop once I've found enough
+   mistakes for a solid report — usually well under the ceiling of about
+   <estimated time>. Starting now; say "read more" or "read less" any time.
    ```
 
-   One recommendation, announced, not asked. A learner cannot judge how many
-   weeks of their own writing makes a good report; the product can, so it does
-   the arithmetic, says which it picked, and starts. The escape hatch is a
-   sentence, not a menu: show the full period table only when they ask for a
-   different window.
+   Announced, not asked, and no dates: the window behind it is only a
+   collection bound, and step d's stop rule is what actually decides how much
+   gets read. A learner cannot judge how much of their own writing makes a
+   good report; the product can, so it starts. The escape hatch is a sentence,
+   not a menu: show the full period table only when they ask for one.
 
    Say the words and the time. Not the token count, which describes what the run
    costs us rather than what they get, and not a predicted number of mistakes.
@@ -393,6 +394,17 @@ runtime; naming both is confusing and wrong.
      --run-id <run-id> --prepare`, then `skills/find-english-mistakes/SKILL.md` one
      agent per planned batch, then `--apply`.
 
+     Dispatch the batches NEWEST FIRST -- highest session sequence numbers before
+     lower ones -- and between batches run
+     `uv run python -m glite_english_audit.pipeline.found_count --run-id <run-id>`
+
+     When it answers `"enough": true`, stop dispatching: finish the agents already
+     running, then go straight to `--apply`. The audit stops on evidence, not on a
+     calendar -- the report is designed for 200-300 verified mistakes, and reading
+     older sessions past that point costs the learner time to make the report
+     worse. Never stop an agent mid-file, and never skip the count between
+     batches: the sessions it leaves unread are counted as unread, not as clean.
+
      `--prepare` writes one projection per session into `steps/d-mistakes/agent/` and
      prints an entry per session naming `read` and `write`. Each agent reads the
      `read` path, the same `{"i", "modality", "text"}` shape step c was given, now
@@ -432,7 +444,10 @@ runtime; naming both is confusing and wrong.
      the system has to be correct with step e removed.
 
    - Review: `uv run python -m glite_english_audit.pipeline.build_review
-     --run-id <run-id>` computes the count set from the run's own files, then
+     --run-id <run-id> --analyzed-from-steps` computes the count set from the
+     run's own files -- deriving what was actually analyzed from which sessions
+     step d read, so the sessions the stop rule left unread appear as reduced
+     coverage rather than as clean text -- then
      `skills/prepare-glite-submission/SKILL.md` serves the review page.
 
    Run the per-file agents as measured child processes or native subagents of the
