@@ -631,7 +631,13 @@ def describe_session(steps: RuntimeSteps) -> SessionModel:
     )
 
 
-TARGET_WORDS: int = 60_000
+# The window size the report is designed around, not a guess: the report
+# targets 200-300 verified mistakes, and the production corpus measures 13.1
+# mistakes per 1,000 words, so ~20,000 words lands in the middle of that band.
+# The previous value, 60,000, expected ~790 mistakes -- the size class the
+# report chain measurably failed at (a 1,027-mistake package defeated three
+# generations of the grouping call before the input was capped instead).
+TARGET_WORDS: int = 20_000
 """How much writing a report needs, as words, because words are what we know.
 
 A report is worth reading when it shows a habit repeating rather than one

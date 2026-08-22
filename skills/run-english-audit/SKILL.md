@@ -167,18 +167,18 @@ runtime; naming both is confusing and wrong.
    and read `recommended` — the window whose expected findings land nearest a
    useful report, worked out from measured rates rather than guessed.
 
-   Offer that one window, with what it will find, and let them change it:
+   Announce that one window and continue — no question:
 
    ```text
-   The last 2 weeks looks right — about 47,000 words, 20–40 minutes.
-
-   Start with that, or pick a different period?
+   I'll audit your last 2 weeks — about 47,000 words, 20–40 minutes. Starting
+   now; say "different period" at any point if you want a longer or shorter one.
    ```
 
-   One recommendation, not a table. A learner cannot judge how many weeks of
-   their own writing makes a good report; the product can, so it does the
-   arithmetic and says which it picked. The table stays available for anyone who
-   asks for a different period — show it then.
+   One recommendation, announced, not asked. A learner cannot judge how many
+   weeks of their own writing makes a good report; the product can, so it does
+   the arithmetic, says which it picked, and starts. The escape hatch is a
+   sentence, not a menu: show the full period table only when they ask for a
+   different window.
 
    Say the words and the time. Not the token count, which describes what the run
    costs us rather than what they get, and not a predicted number of mistakes.
@@ -199,29 +199,29 @@ runtime; naming both is confusing and wrong.
    That is the one moment another source buys anything. Adding it by default cost
    every learner a decision, a longer explanation and a wider privacy surface, to
    read the same English twice.
-   answer. Only the input surface differs. Typing a number is worse than clicking
-   an option, and that difference belongs to Codex rather than to this project.
 
    Write for someone who has never read this repository. "Adapter", "instance",
    "stability", "beta", "candidate count", and diagnostic codes are internal
    words: say app, project, and "not yet tested against a real installation"
    instead. List facts; save prose for the recommendation.
 
-   Do: ask "Which period should I audit?" with the estimates on each option, then
-   ask about the cost separately.
-   Don't: combine sources, period, budget, and consent into one question.
+   Do: announce the recommended window with its words and time, then start.
+   Don't: ask which period to audit — the question this step used to ask. A
+   four-option table hands the learner a decision the product already made
+   better, and a fresh session once obeyed this line's older wording over
+   everything written above it. Imperatives win; this one now agrees with them.
 6. Start the run. Say one line about what is about to happen, then start it. There
-   is no separate preflight message and no second consent question: the period
-   answer in step 5 already carried the volume, the finding count and the time,
-   and the only recipient of the text is the runtime the learner is sitting in.
+   is no separate preflight message and no second consent question: step 5
+   already announced the window, its volume and its time, and the only
+   recipient of the text is the runtime the learner is sitting in.
 
    ```text
    Reading <period> of your <runtime> history now — about <estimated time>. It
    runs on its own and goes quiet; you can walk away. I'll open a page at the
    end with everything I found.
    ```
-   `<period>` and `<estimated time>` are the ones the learner just agreed to,
-   from the estimate. They were written here as "2 weeks" and "20–40 minutes"
+   `<period>` and `<estimated time>` are the ones step 5 just announced, from
+   the estimate. They were written here as "2 weeks" and "20–40 minutes"
    until a learner chose their entire history and the true answer was 2.68
    million words and 16–66 hours. Copying the literals would have told them
    something false about what they had just started, which is a worse failure

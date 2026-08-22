@@ -608,6 +608,16 @@ def test_the_window_nearest_the_target_wins_not_the_first_one_past_it(
     assert recommend_preset(rows) == "last-14-days"
 
 
+def test_the_target_is_sized_by_the_report_not_by_appetite() -> None:
+    """20,000 words, derived, not chosen: the report is designed for 200-300
+    verified mistakes and the production corpus measures 13.1 per 1,000 words.
+    The previous value, 60,000, expected ~790 -- the size class the report
+    chain measurably failed at before the input was capped."""
+    from glite_english_audit.estimation.estimate import TARGET_WORDS
+
+    assert TARGET_WORDS == 20_000
+
+
 def test_a_thin_machine_is_offered_everything_it_has(tmp_path: Path) -> None:
     from glite_english_audit.estimation.estimate import recommend_preset
 
