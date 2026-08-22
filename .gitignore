@@ -27,3 +27,7 @@ runtime/
 
 # Operating system noise
 .DS_Store
+
+# Local secrets. Never committed.
+.env
+.env.local
